@@ -159,14 +159,44 @@ def manifest(store, app_version):
     return ET.tostring(package, encoding='utf-8', xml_declaration=True)
 
 
-def git(*args):
-    return subprocess.check_output(['git', '-C', str(ROOT), *args], text=True, encoding='utf-8').strip()
+def git(*args, strip=True):
+    output = subprocess.check_output(['git', '-C', str(ROOT), *args], text=True, encoding='utf-8')
+    return output.strip() if strip else output
+
+
+def assert_source_state(reviewed, stage):
+    head = git('rev-parse', 'HEAD')
+    status = git('-c', 'status.relativePaths=false', 'status', '--porcelain=v1',
+                 '--untracked-files=all', '-z', strip=False)
+    if head == reviewed and not status:
+        return
+    # NUL framing preserves spaces/Unicode and avoids Git's quoted-path parsing.
+    # Report names only, bounded independently of the worktree's size.
+    records = status.split('\0')
+    paths, count, offset = [], 0, 0
+    while offset < len(records):
+        record = records[offset]
+        offset += 1
+        if not record:
+            continue
+        code, path = record[:2], record[3:]
+        if 'R' in code or 'C' in code:
+            offset += 1  # Rename/copy's second path; destination identifies drift.
+        count += 1
+        if len(paths) >= 12:
+            continue
+        if (len(record) < 4 or record[2] != ' ' or path.startswith(('/', '\\'))
+                or re.match(r'[A-Za-z]:', path) or '..' in path.replace('\\', '/').split('/')):
+            path = '[non-relative or malformed path]'
+        paths.append(code + ' ' + path[:200])
+    shown_head = head if re.fullmatch(r'[0-9a-f]{40}', head) else '[invalid HEAD]'
+    raise ValueError(f'Source changed while packaging [{stage}]: HEAD={shown_head}; expected={reviewed}; '
+                     f'paths={json.dumps(paths, ensure_ascii=True)}; additionalPaths={max(0, count - len(paths))}')
 
 
 def source_identity(reviewed, validation):
     require(re.fullmatch(r'[0-9a-f]{40}', reviewed or ''), 'Exact reviewed public commit SHA is required')
-    require(git('rev-parse', 'HEAD') == reviewed, 'Checkout differs from reviewed commit')
-    require(not git('status', '--porcelain', '--untracked-files=all'), 'Clean committed source is required')
+    assert_source_state(reviewed, 'before packaging')
     if not validation:
         require(ROOT.name == 'app' and (ROOT.parent / '.github/public-files.json').is_file(),
                 'Release producer must run from the reviewed standalone public projection app/')
@@ -205,8 +235,10 @@ def projection_identity(path, validation):
 
 def run(command, environment, log):
     # Executables/argument arrays only. Secrets and full environment are never recorded.
+    print(f'Packaging started: {log.name}', flush=True)
     with log.open('ab') as stream:
         result = subprocess.run(command, cwd=ROOT, env=environment, stdout=stream, stderr=subprocess.STDOUT)
+    print(f'Packaging {"completed" if result.returncode == 0 else "failed"}: {log.name}', flush=True)
     require(result.returncode == 0, 'Build command failed; retained build log contains diagnostics')
 
 
@@ -335,6 +367,7 @@ def build(args):
                    '--features', 'channel-' + channel,
                    '--config', str(ROOT / f'src-tauri/tauri.{channel}.conf.json'), '--', '--locked', '--no-default-features']
         run(command, env, output / ('build-' + channel + '.log'))
+        assert_source_state(source['publicCommit'], 'after ' + channel + ' native build')
         commands.append([Path(x).name if str(ROOT) in x else x for x in command])
         binary = target / TARGET / 'release' / MAIN
         require(binary.is_file(), 'Expected channel executable missing')
@@ -353,6 +386,7 @@ def build(args):
             run([node, str(cli), 'bundle', '--ci', '--target', TARGET, '--bundles', 'nsis',
                  '--config', str(ROOT / 'src-tauri/tauri.github.conf.json'), '--config', str(config)],
                 env, output / 'bundle-github.log')
+            assert_source_state(source['publicCommit'], 'after GitHub NSIS bundle')
             nsis.verify_unchanged(target, tools)
             require(record(binary) == payloads['githubCompiled'], 'Tauri did not restore the compiled image')
             require('Failed to add bundler type' not in (output / 'bundle-github.log').read_text(encoding='utf-8'),
@@ -386,8 +420,7 @@ def build(args):
             run([str(sdk), 'pack', '/d', str(stage), '/p', str(final), '/o'], env, output / 'makeappx.log')
             payloads['msixMembers'] = verify_msix(final, app_version, store)
             outputs['storeSubmittedPackage'] = record(final)
-    require(git('rev-parse', 'HEAD') == source['publicCommit'] and not git('status', '--porcelain'),
-            'Source changed while packaging')
+    assert_source_state(source['publicCommit'], 'after both packages')
     receipt = {'schemaVersion': 1, 'kind': 'block-pet-dual-channel-build', **source,
         'version': app_version, 'storeVersion': version(app_version), 'storeIdentity': store,
         'projection': projection, 'toolLock': record(output / 'observed-tool-lock.json'),

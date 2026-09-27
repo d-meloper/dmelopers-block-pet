@@ -1,6 +1,7 @@
 """Pure contract tests; no installation, signing, network, or app execution."""
 import importlib.util
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -27,6 +28,50 @@ def native_fixture():
 
 
 class PackageContracts(unittest.TestCase):
+    def test_source_state_preserves_clean_and_head_requirements(self):
+        commit = 'a'*40
+        with patch.object(builder, 'git', side_effect=[commit, '']) as git:
+            builder.assert_source_state(commit, 'after github native build')
+        self.assertEqual(git.call_args_list[-1].args,
+            ('-c', 'status.relativePaths=false', 'status', '--porcelain=v1', '--untracked-files=all', '-z'))
+        self.assertEqual(git.call_args_list[-1].kwargs, {'strip': False})
+        for head, status, detail in (('b'*40, '', 'HEAD=' + 'b'*40),
+                (commit, ' M app/vendor/permissions.json\0', ' M app/vendor/permissions.json'),
+                (commit, '?? app/untracked.txt\0', '?? app/untracked.txt')):
+            with self.subTest(head=head, status=status), patch.object(builder, 'git', side_effect=[head, status]), \
+                 self.assertRaises(ValueError) as error:
+                builder.assert_source_state(commit, 'after github native build')
+            self.assertIn('after github native build', str(error.exception))
+            self.assertIn(detail, str(error.exception))
+            self.assertIn('expected=' + commit, str(error.exception))
+
+    def test_source_diagnostics_bound_paths_and_parse_rename_framing(self):
+        commit = 'a'*40
+        status = 'R  app/new name.py\0app/old name.py\0 M /private/absolute.txt\0'
+        status += ''.join('?? app/' + str(i) + 'x'*400 + '\0' for i in range(20))
+        with patch.object(builder, 'git', side_effect=[commit, status]), self.assertRaises(ValueError) as error:
+            builder.assert_source_state(commit, 'after GitHub NSIS bundle')
+        message = str(error.exception)
+        self.assertIn('R  app/new name.py', message)
+        self.assertNotIn('old name.py', message)
+        self.assertNotIn('/private/absolute.txt', message)
+        self.assertIn('additionalPaths=10', message)
+        self.assertLess(len(message), 3000)
+
+    def test_run_progress_contains_only_log_name(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            log = Path(temporary) / 'build-github.log'
+            for code, outcome in ((0, 'completed'), (1, 'failed')):
+                output = io.StringIO()
+                with patch.object(builder.subprocess, 'run', return_value=SimpleNamespace(returncode=code)), \
+                     redirect_stdout(output):
+                    if code:
+                        with self.assertRaises(ValueError):
+                            builder.run(['private-command'], {'SECRET': 'not-logged'}, log)
+                    else:
+                        builder.run(['private-command'], {'SECRET': 'not-logged'}, log)
+                self.assertEqual(output.getvalue(), f'Packaging started: {log.name}\nPackaging {outcome}: {log.name}\n')
+
     def test_dual_build_finalizes_receipt_with_original_source_identity(self):
         """Run orchestration through finalization, replacing only external tools."""
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as patches:
@@ -44,12 +89,15 @@ class PackageContracts(unittest.TestCase):
             sdk = base / 'makeappx.exe'
             sdk.write_bytes(b'fixture-tool')
             commit, tree = 'a'*40, 'b'*40
-            def git(*args):
+            run_logs, dirty_stage = [], None
+            def git(*args, **kwargs):
                 if args == ('rev-parse', 'HEAD'): return commit
                 if args == ('rev-parse', 'HEAD^{tree}'): return tree
-                if args[0] == 'status': return ''
+                if 'status' in args:
+                    return ' M app/generated.json\0' if dirty_stage and run_logs and run_logs[-1] == dirty_stage else ''
                 raise AssertionError(args)
             def run(command, env, log):
+                run_logs.append(log.name)
                 log.write_text('fixture tool output', encoding='utf-8')
                 target = Path(env['CARGO_TARGET_DIR']) / builder.TARGET / 'release'
                 if command[2] == 'build':
@@ -82,9 +130,13 @@ class PackageContracts(unittest.TestCase):
             patches.enter_context(patch.object(builder.sys, 'path', list(builder.sys.path)))
             patches.enter_context(patch.dict(builder.sys.modules, {'prepare_installer_toolchain':
                 SimpleNamespace(prepare=prepare, verify_unchanged=lambda *args: None)}))
+            checks = patches.enter_context(patch.object(builder, 'assert_source_state', wraps=builder.assert_source_state))
             args = SimpleNamespace(identity=None, validation=True, reviewed_public_commit=commit,
                                    projection_manifest=None, output=output, tool_lock=None)
             result = builder.build(args)
+            self.assertEqual([call.args[1] for call in checks.call_args_list],
+                ['before packaging', 'after github native build', 'after GitHub NSIS bundle',
+                 'after store native build', 'after both packages'])
             retained = json.loads((output / 'build-receipt.json').read_text(encoding='utf-8'))
             self.assertEqual(result, retained)
             self.assertEqual(retained['publicCommit'], commit)
@@ -93,6 +145,13 @@ class PackageContracts(unittest.TestCase):
             self.assertEqual(set(retained['outputs']), {'github', 'storeSubmittedPackage'})
             self.assertNotEqual(retained['payloads']['githubCompiled']['sha256'],
                                 retained['payloads']['github']['sha256'])
+            # A dirty GitHub build must stop before bundling or compiling Store.
+            run_logs.clear()
+            dirty_stage = 'build-github.log'
+            args.output = base / 'blocked-output'
+            with self.assertRaisesRegex(ValueError, 'after github native build'):
+                builder.build(args)
+            self.assertEqual(run_logs, ['build-github.log'])
 
     def test_nsis_transform_is_exact_and_rejects_ambiguous_or_signed_inputs(self):
         raw = native_fixture()

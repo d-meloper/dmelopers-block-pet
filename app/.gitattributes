@@ -4,6 +4,10 @@
 src/legal/* text eol=lf
 # Tauri rewrites this manifest using LF during production builds.
 src-tauri/Cargo.toml text eol=lf
-# Keep language statistics focused on application code.
-# Windows installer source remains tracked and reviewable.
-src-tauri/windows/installer.nsi -linguist-detectable
+# Vendored upstream code retains its actual provenance.
+vendor/** linguist-vendored
+scripts/packaging/build.ps1 -linguist-detectable
+scripts/packaging/package.py -linguist-detectable
+scripts/packaging/test_package.py -linguist-detectable
+tools/prepare_installer_toolchain.py -linguist-detectable
+tools/build_installer_utils.py -linguist-detectable

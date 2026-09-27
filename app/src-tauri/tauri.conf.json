@@ -49,7 +49,9 @@
   "bundle": {
     "active": true,
     "category": "Entertainment",
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "shortDescription": "DMeloper's Block Pet",
     "icon": [
       "icons/32x32.png",
@@ -63,13 +65,16 @@
       "assets/models/dmeloper/default.png"
     ],
     "windows": {
-      "webviewInstallMode": { "type": "skip" },
+      "webviewInstallMode": {
+        "type": "skip"
+      },
       "nsis": {
         "installMode": "currentUser",
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
-        "template": "./windows/manual-installer.nsi"
-      }
+        "template": "./windows/github-installer.nsi"
+      },
+      "minimumWebview2Version": "120.0.0.0"
     }
   }
 }

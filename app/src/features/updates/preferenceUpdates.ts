@@ -1,16 +1,15 @@
 import { computed, ref, shallowRef } from 'vue'
 
+import type { DistributionChannel } from '@/services/distribution'
 import type { AppUpdateInfo, UpdatePhase } from '@/services/inAppUpdates'
-import type { LatestVersionResponse } from '@/services/manualUpdates'
 
 export const UPDATE_REMINDER_WEEK = 7 * 24 * 60 * 60 * 1000
 
 interface Dependencies {
-  enabled: () => Promise<boolean>
-  checkApp: () => Promise<AppUpdateInfo>
-  checkManual: () => Promise<LatestVersionResponse>
+  channel: () => Promise<DistributionChannel>
+  checkApp: (force: boolean) => Promise<AppUpdateInfo>
   install: (onPhase: (phase: UpdatePhase) => void, onProgress: (percent: number) => void) => Promise<void>
-  openDownloads: () => Promise<void>
+  cancel: () => Promise<void>
   hiddenUntil: () => number
   hideUntil: (deadline: number) => void
   report: (operation: 'check' | 'install', error: unknown) => void
@@ -19,15 +18,16 @@ interface Dependencies {
 
 /** One owner for the persistent preference window and its About tab. */
 export function createPreferenceUpdates(deps: Dependencies) {
-  const automatic = ref<boolean>()
+  const channel = ref<DistributionChannel>()
   const checking = ref(false)
   const failed = ref(false)
   const appInfo = shallowRef<AppUpdateInfo>()
-  const manualInfo = shallowRef<LatestVersionResponse>()
   const phase = ref<UpdatePhase>()
   const percent = ref(0)
   const reminderVersion = ref<string>()
   const busy = computed(() => checking.value || !!phase.value)
+  const canCancel = computed(() => phase.value === 'downloading' || phase.value === 'verifying')
+  const cancelling = ref(false)
   const now = deps.now ?? Date.now
   let visible = false
   let disposed = false
@@ -39,7 +39,7 @@ export function createPreferenceUpdates(deps: Dependencies) {
     if (version && !(Number.isFinite(deadline) && deadline > now())) reminderVersion.value = version
   }
 
-  async function check(): Promise<void> {
+  async function check(force = true): Promise<void> {
     if (disposed || !visible || phase.value) return
     if (pending) return pending
     if (checking.value) return
@@ -49,18 +49,13 @@ export function createPreferenceUpdates(deps: Dependencies) {
     failed.value = false
     pending = (async () => {
       try {
-        automatic.value ??= await deps.enabled()
+        channel.value ??= await deps.channel()
         if (!active()) return
-        if (automatic.value) {
-          const result = await deps.checkApp()
+        if (channel.value === 'github' || channel.value === 'test') {
+          const result = await deps.checkApp(force)
           if (!active()) return
           appInfo.value = result
           if (result.available) offer(result.version)
-        } else {
-          const result = await deps.checkManual()
-          if (!active()) return
-          manualInfo.value = result
-          if (result.status === 'available' && !result.errorCode) offer(result.latestVersion)
         }
       } catch (error) {
         if (active()) {
@@ -73,7 +68,7 @@ export function createPreferenceUpdates(deps: Dependencies) {
     pending = undefined
     checking.value = false
     // A hidden window can reopen before an earlier request settles.
-    if (!disposed && visible && current !== generation) await check()
+    if (!disposed && visible && current !== generation) await check(false)
   }
 
   async function setVisible(value: boolean) {
@@ -81,7 +76,7 @@ export function createPreferenceUpdates(deps: Dependencies) {
     visible = value
     generation += 1
     reminderVersion.value = undefined
-    if (value) await check()
+    if (value) await check(false)
   }
 
   function dismiss() {
@@ -96,15 +91,7 @@ export function createPreferenceUpdates(deps: Dependencies) {
 
   async function update() {
     if (disposed || !visible || busy.value) return
-    if (!automatic.value) {
-      try {
-        await deps.openDownloads()
-        dismiss()
-      } catch (error) {
-        deps.report('install', error)
-      }
-      return
-    }
+    if (channel.value !== 'github' && channel.value !== 'test') return
     const acceptedVersion = reminderVersion.value ?? appInfo.value?.version
     if (!acceptedVersion) return
     const current = generation
@@ -113,7 +100,7 @@ export function createPreferenceUpdates(deps: Dependencies) {
     try {
       // The native selection expires. Revalidate on the user's click, before
       // downloading, and ask again if the available version changed meanwhile.
-      const result = await deps.checkApp()
+      const result = await deps.checkApp(true)
       if (disposed || !visible || current !== generation) return
       appInfo.value = result
       if (!result.available || !result.version) {
@@ -132,25 +119,43 @@ export function createPreferenceUpdates(deps: Dependencies) {
       })
       reminderVersion.value = undefined
     } catch (error) {
-      failed.value = true
-      deps.report('install', error)
+      if (String(error).includes('UPDATE_CANCELLED')) {
+        reminderVersion.value = undefined
+      } else {
+        failed.value = true
+        deps.report('install', error)
+      }
     } finally {
       checking.value = false
       phase.value = undefined
-      if (!disposed && visible && current !== generation) await check()
+      if (!disposed && visible && current !== generation) await check(false)
+    }
+  }
+
+  async function cancel() {
+    if (!canCancel.value || cancelling.value) return
+    cancelling.value = true
+    try {
+      await deps.cancel()
+    } catch (error) {
+      if (!String(error).includes('UPDATE_TOO_LATE')) deps.report('install', error)
+    } finally {
+      cancelling.value = false
     }
   }
 
   return {
-    automatic,
+    channel,
     checking,
     failed,
     appInfo,
-    manualInfo,
     phase,
     percent,
     reminderVersion,
     busy,
+    canCancel,
+    cancelling,
+    cancel,
     check,
     setVisible,
     dismiss,

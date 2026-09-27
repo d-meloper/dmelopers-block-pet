@@ -4,3 +4,5 @@ dist/
 target/
 *.log
 .env*
+**/__pycache__/
+/app/src-tauri/broadcast-dist/

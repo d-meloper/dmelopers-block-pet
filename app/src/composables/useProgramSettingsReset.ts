@@ -7,7 +7,7 @@ import type { MainViewportResetComplete } from '@/utils/mainViewportReset'
 
 import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
 import { withPresetReset } from '@/features/presets/operations'
-import { setAutostartEnabled } from '@/services/autostart'
+import { getAutostartStatus, setAutostartEnabled } from '@/services/autostart'
 import { clearSkinLibrary } from '@/services/skinLibrary'
 import { useAppStore } from '@/stores/app'
 import { useCatStore } from '@/stores/cat'
@@ -64,6 +64,7 @@ export function useProgramSettingsReset() {
 
   const resetProgramSettings = async () => {
     await withPresetReset(() => runProgramSettingsReset({
+      getAutostartStatus,
       clearSkinLibrary,
       resetAutostart: () => setAutostartEnabled(false),
       stopPerformance: performanceStore.stop,

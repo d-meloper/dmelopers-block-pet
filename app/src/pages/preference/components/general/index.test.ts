@@ -7,114 +7,45 @@ import ts from 'typescript'
 import * as Vue from 'vue'
 import { compileScript, parse } from 'vue/compiler-sfc'
 
-import { runProgramSettingsReset } from '@/utils/programSettingsReset'
-
-function compile(source: string) {
-  return ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText
-}
-async function flush() {
-  for (let i = 0; i < 30; i++) await Promise.resolve()
-}
-
-function harness() {
-  let nativeEnabled = false
-  let finishEnable!: () => void
-  const enablePending = new Promise<void>((resolve) => {
-    finishEnable = resolve
-  })
-  const native = {
-    isEnabled: async () => nativeEnabled,
-    enable: async () => {
-      await enablePending
-      nativeEnabled = true
-    },
-    disable: async () => {
-      nativeEnabled = false
-    },
-  }
-  const general = {
-    app: Vue.reactive({ autostart: false }),
-    reset: () => {
-      general.app.autostart = false
-    },
-    init: async () => {},
-  }
+it('reads per-installation Windows state without applying a shared autostart preference', async () => {
+  const changes: boolean[] = []
+  let enabled = false
+  let mounted: () => void = () => {}
+  const general = { app: Vue.reactive({ autostart: true }) }
   const { descriptor } = parse(readFileSync(new URL('./index.vue', import.meta.url), 'utf8'))
-  const compiled = compileScript(descriptor, { id: 'general-autostart-race' })
-  const module = { exports: {} as { default: { setup: (props: object, context: object) => unknown } } }
-  interface AutostartService { setAutostartEnabled: (enabled: boolean) => Promise<void> }
-  let service: AutostartService | undefined
-  const require = (id: string): unknown => {
-    if (id === '@/services/diagnostics') return { reportDiagnostic: () => {} }
-    if (id === 'vue') return Vue
-    if (id === 'vue-i18n') return { useI18n: () => ({ t: (key: string) => key }) }
-    if (id === 'ant-design-vue') return { Modal: {} }
-    if (id === '@tauri-apps/plugin-autostart') return native
-    if (id === '@/stores/general') return { useGeneralStore: () => general }
-    if (id === '@/stores/cat') return { useCatStore: () => ({ resetAllSettings: () => {} }) }
-    if (id === '@/services/autostart') {
-      if (!service) {
-        const exports = {}
-        runInNewContext(compile(readFileSync(new URL('../../../../services/autostart.ts', import.meta.url), 'utf8')), { exports, require, console })
-        service = exports as AutostartService
-      }
-      return service
-    }
-    if (id === '@tauri-apps/api/dpi') return { LogicalSize: class {} }
-    if (id === '@tauri-apps/api/webviewWindow') return { getAllWebviewWindows: async () => [] }
-    if (id === '@/features/presets/operations') return { withPresetReset: (reset: () => Promise<void>) => reset() }
-    if (id === '@/services/skinLibrary') return { clearSkinLibrary: async () => {} }
-    if (id === '@/stores/performance') return { usePerformanceStore: () => ({ stop: async () => {}, reset: async () => {} }) }
-    if (id === '@/stores/shortcut') return { useShortcutStore: () => ({ reset: () => {} }) }
-    if (id === '@/stores/app') return { useAppStore: () => ({ resetWindowState: () => {} }) }
-    if (id === '@/utils/programSettingsReset') return { runProgramSettingsReset }
-    return {}
-  }
-  runInNewContext(compile(compiled.content), { module, exports: module.exports, require, console })
-  const scope = Vue.effectScope()
-  scope.run(() => module.exports.default.setup({}, { expose: () => {} }))
-  return {
-    general,
-    finishEnable,
-    enabled: () => nativeEnabled,
-    unmount: () => scope.stop(),
-    reset: async () => {
-      const exports = {} as { useProgramSettingsReset: () => { resetProgramSettings: () => Promise<void> } }
-      runInNewContext(compile(readFileSync(new URL('../../../../composables/useProgramSettingsReset.ts', import.meta.url), 'utf8')), { exports, require, console })
-      await exports.useProgramSettingsReset().resetProgramSettings()
+  const script = compileScript(descriptor, { id: 'native-autostart' })
+  interface Actions { changeAutostart: (value: boolean) => Promise<void>, refreshAutostart: () => Promise<void>, autostart: Vue.Ref<{ enabled: boolean }> }
+  const module = { exports: {} as { default: { setup: (props: object, context: object) => Actions } } }
+  const mocks: Record<string, unknown> = {
+    'vue': { ...Vue, onMounted: (fn: () => void) => {
+      mounted = fn
+    }, onBeforeUnmount: () => {} },
+    'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
+    'ant-design-vue': { Modal: {}, message: { error: () => {} } },
+    '@/services/diagnostics': { reportDiagnostic: () => {} },
+    '@/stores/general': { useGeneralStore: () => general },
+    '@/stores/cat': { useCatStore: () => ({}) },
+    '@/services/autostart': {
+      getAutostartStatus: async () => ({ enabled, state: enabled ? 'enabled' : 'disabled', canEnable: true, canDisable: true }),
+      setAutostartEnabled: async (value: boolean) => {
+        changes.push(value)
+        enabled = value
+      },
     },
   }
-}
-
-it('keeps the final OFF choice when native enable finishes after a rapid ON/OFF', async () => {
-  const h = harness()
-  try {
-    await flush()
-    h.general.app.autostart = true
-    await flush()
-    h.general.app.autostart = false
-    await flush()
-    h.finishEnable()
-    await flush()
-    assert.equal(h.enabled(), false)
-    assert.equal(h.general.app.autostart, false)
-  } finally {
-    h.unmount()
-  }
-})
-
-it('orders whole-program autostart reset after an already issued enable from a closed tab', async () => {
-  const h = harness()
-  await flush()
-  h.general.app.autostart = true
-  await flush()
-  h.unmount()
-  const reset = h.reset()
-  await flush()
-  h.finishEnable()
-  await reset
-  await flush()
-  assert.equal(h.enabled(), false)
+  runInNewContext(ts.transpileModule(script.content, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, { module, exports: module.exports, require: (id: string) => mocks[id] ?? {}, window: { addEventListener: () => {} } })
+  const actions = module.exports.default.setup({}, { expose: () => {} })
+  mounted()
+  await actions.refreshAutostart()
+  assert.equal(actions.autostart.value.enabled, false)
+  assert.deepEqual(changes, [])
+  general.app.autostart = false
+  await Vue.nextTick()
+  assert.deepEqual(changes, [])
+  await actions.changeAutostart(true)
+  assert.deepEqual(changes, [true])
+  assert.equal(actions.autostart.value.enabled, true)
+  assert.equal(general.app.autostart, false)
 })

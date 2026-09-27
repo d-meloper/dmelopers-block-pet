@@ -1,7 +1,10 @@
-//! Owner-enabled test updates. Official builds retain manual installation.
-use serde::Serialize;
+//! Channel-bound, user-initiated GitHub updates. Store builds cannot install them.
+use serde::{Deserialize, Serialize};
 
-#[derive(Serialize)]
+#[cfg(any(feature = "channel-github", feature = "test-repository"))]
+mod operation;
+
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInfo {
     available: bool,
@@ -12,19 +15,22 @@ pub struct UpdateInfo {
 
 #[tauri::command]
 pub fn in_app_updater_enabled() -> bool {
-    cfg!(feature = "test-repository")
+    cfg!(any(feature = "channel-github", feature = "test-repository"))
+        && !cfg!(debug_assertions)
+        && crate::distribution::channel() != crate::distribution::Channel::Development
 }
 
 #[tauri::command]
 pub async fn check_app_update(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
+    force: Option<bool>,
 ) -> Result<UpdateInfo, String> {
-    #[cfg(feature = "test-repository")]
-    return test_profile::check(app, window).await;
-    #[cfg(not(feature = "test-repository"))]
+    #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+    return enabled_profile::check(app, window, force.unwrap_or(false)).await;
+    #[cfg(not(any(feature = "channel-github", feature = "test-repository")))]
     {
-        let _ = (app, window);
+        let _ = (app, window, force);
         Err("UPDATER_DISABLED".into())
     }
 }
@@ -33,12 +39,13 @@ pub async fn check_app_update(
 pub async fn download_app_update(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
+    request_id: String,
 ) -> Result<(), String> {
-    #[cfg(feature = "test-repository")]
-    return test_profile::download(app, window).await;
-    #[cfg(not(feature = "test-repository"))]
+    #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+    return enabled_profile::download(app, window, request_id).await;
+    #[cfg(not(any(feature = "channel-github", feature = "test-repository")))]
     {
-        let _ = (app, window);
+        let _ = (app, window, request_id);
         Err("UPDATER_DISABLED".into())
     }
 }
@@ -49,33 +56,101 @@ pub async fn install_app_update(
     window: tauri::WebviewWindow,
     request_id: String,
 ) -> Result<(), String> {
-    #[cfg(feature = "test-repository")]
-    return test_profile::install(app, window, request_id).await;
-    #[cfg(not(feature = "test-repository"))]
+    #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+    return enabled_profile::install(app, window, request_id).await;
+    #[cfg(not(any(feature = "channel-github", feature = "test-repository")))]
     {
         let _ = (app, window, request_id);
         Err("UPDATER_DISABLED".into())
     }
 }
 
-#[cfg(feature = "test-repository")]
-pub mod test_profile {
-    use super::UpdateInfo;
-    use crate::application_context::{
-        initialize_test_updater, test_updater_public_key as public_key,
+#[tauri::command]
+pub fn begin_app_update_save(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    request_id: String,
+) -> Result<(), String> {
+    #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+    return enabled_profile::begin_save(app, window, request_id);
+    #[cfg(not(any(feature = "channel-github", feature = "test-repository")))]
+    {
+        let _ = (app, window, request_id);
+        Err("UPDATER_DISABLED".into())
+    }
+}
+
+#[tauri::command]
+pub fn cancel_app_update(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    request_id: String,
+) -> Result<(), String> {
+    #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+    return enabled_profile::cancel(app, window, request_id);
+    #[cfg(not(any(feature = "channel-github", feature = "test-repository")))]
+    {
+        let _ = (app, window, request_id);
+        Err("UPDATER_DISABLED".into())
+    }
+}
+
+#[tauri::command]
+pub fn abort_app_update(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    request_id: String,
+) -> Result<(), String> {
+    #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+    return enabled_profile::abort(app, window, request_id);
+    #[cfg(not(any(feature = "channel-github", feature = "test-repository")))]
+    {
+        let _ = (app, window, request_id);
+        Err("UPDATER_DISABLED".into())
+    }
+}
+
+#[cfg(any(feature = "channel-github", feature = "test-repository"))]
+pub mod enabled_profile {
+    use super::{
+        UpdateInfo,
+        operation::{Cancellation, Control, Phase},
     };
+    use crate::application_context::{initialize_updater, updater_public_key as public_key};
     use base64::{Engine, engine::general_purpose::STANDARD};
     use minisign_verify::{PublicKey, Signature};
     use reqwest::{Url, redirect::Policy};
-    use serde::Deserialize;
+    use serde::{Deserialize, Serialize};
     use sha2::{Digest, Sha256};
     use std::time::{Duration, Instant};
     use tauri::{Emitter, Manager};
     use tauri_plugin_updater::{Update, UpdaterExt};
 
+    #[cfg(feature = "test-repository")]
     const MARKER: &str = "DMELoper_TEST_TAURI_UPDATER_V1";
+    #[cfg(feature = "test-repository")]
     const REPOSITORY: &str = "oup030416/dmelopers-block-pet-test";
+    #[cfg(feature = "test-repository")]
     const ENDPOINT: &str = "https://raw.githubusercontent.com/oup030416/dmelopers-block-pet-test/updates/tauri-test.json";
+    #[cfg(feature = "test-repository")]
+    const REPOSITORY_ID: u64 = 1390032052;
+    #[cfg(feature = "test-repository")]
+    const CHANNEL: &str = "test";
+    #[cfg(feature = "test-repository")]
+    const INSTALLER_MODE: &str = "tauri-test-nsis-v1";
+    #[cfg(feature = "channel-github")]
+    const MARKER: &str = "DMELoper_GITHUB_TAURI_UPDATER_V1";
+    #[cfg(feature = "channel-github")]
+    const REPOSITORY: &str = "d-meloper/dmelopers-block-pet";
+    #[cfg(feature = "channel-github")]
+    const REPOSITORY_ID: u64 = 1390031914;
+    #[cfg(feature = "channel-github")]
+    const CHANNEL: &str = "stable";
+    #[cfg(feature = "channel-github")]
+    const INSTALLER_MODE: &str = "tauri-github-nsis-v1";
+    #[cfg(feature = "channel-github")]
+    const ENDPOINT: &str =
+        "https://raw.githubusercontent.com/d-meloper/dmelopers-block-pet/updates/tauri-stable.json";
     const MAX_METADATA: usize = 64 * 1024;
     const MAX_DOWNLOAD: usize = 128 * 1024 * 1024;
     const TTL: Duration = Duration::from_secs(300);
@@ -98,13 +173,19 @@ pub mod test_profile {
         metadata: Metadata,
         selected_at: Instant,
         downloaded: Option<Vec<u8>>,
+        request_id: Option<String>,
     }
     #[derive(Default)]
-    struct State(tokio::sync::Mutex<Option<Selected>>);
+    struct State {
+        selected: tokio::sync::Mutex<Option<Selected>>,
+        control: Control,
+    }
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Metadata {
+        #[serde(default)]
+        product: Option<String>,
         schema_version: u32,
         repository: String,
         repository_id: u64,
@@ -117,7 +198,7 @@ pub mod test_profile {
 
     pub fn initialize<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
         std::hint::black_box(MARKER);
-        initialize_test_updater(app)?;
+        initialize_updater(app)?;
         app.manage(State::default());
         Ok(())
     }
@@ -156,7 +237,8 @@ pub mod test_profile {
 
     fn trusted_window(window: &tauri::WebviewWindow) -> Result<(), String> {
         let url = window.url().map_err(|_| "UPDATE_WINDOW_INVALID")?;
-        if window.label() != "preference"
+        if !super::in_app_updater_enabled()
+            || window.label() != "preference"
             || !matches!(
                 (url.scheme(), url.host_str()),
                 ("tauri", Some("localhost")) | ("http" | "https", Some("tauri.localhost"))
@@ -192,10 +274,12 @@ pub mod test_profile {
     async fn bounded_get(
         url: Url,
         limit: usize,
-        window: Option<&tauri::WebviewWindow>,
+        progress: Option<(&tauri::WebviewWindow, &str)>,
+        cancel: &Cancellation,
     ) -> Result<Vec<u8>, String> {
-        let mut response = reqwest::Client::builder()
-            .user_agent("DMeloper-BlockPet-Test-Updater/1")
+        cancel.check()?;
+        let request = reqwest::Client::builder()
+            .user_agent("DMeloper-BlockPet-Updater/1")
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(120))
             .redirect(redirect_policy())
@@ -203,11 +287,13 @@ pub mod test_profile {
             .map_err(|_| "UPDATE_NETWORK_FAILED")?
             .get(url)
             .header("Cache-Control", "no-cache")
-            .send()
-            .await
-            .map_err(|_| "UPDATE_NETWORK_FAILED")?
-            .error_for_status()
-            .map_err(|_| "UPDATE_NETWORK_FAILED")?;
+            .send();
+        let mut response = tokio::select! {
+            biased;
+            _ = cancel.wait() => return Err("UPDATE_CANCELLED".into()),
+            response = request => response.map_err(|_| "UPDATE_NETWORK_FAILED")?
+                .error_for_status().map_err(|_| "UPDATE_NETWORK_FAILED")?,
+        };
         if response
             .content_length()
             .is_some_and(|size| size > limit as u64)
@@ -215,19 +301,30 @@ pub mod test_profile {
             return Err("UPDATE_SIZE_INVALID".into());
         }
         let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| "UPDATE_NETWORK_FAILED")?
-        {
+        loop {
+            let chunk = tokio::select! {
+                biased;
+                _ = cancel.wait() => return Err("UPDATE_CANCELLED".into()),
+                chunk = response.chunk() => chunk.map_err(|_| "UPDATE_NETWORK_FAILED")?,
+            };
+            let Some(chunk) = chunk else {
+                break;
+            };
             if chunk.len() > limit.saturating_sub(bytes.len()) {
                 return Err("UPDATE_SIZE_INVALID".into());
             }
             bytes.extend_from_slice(&chunk);
-            if let Some(window) = window {
-                let _ = window.emit("app-update-progress", (bytes.len(), limit));
+            if let Some((window, request_id)) = progress {
+                let _ = window.emit(
+                    "app-update-progress",
+                    serde_json::json!({
+                        "requestId": request_id, "received": bytes.len(), "size": limit,
+                        "phase": "downloading"
+                    }),
+                );
             }
         }
+        cancel.check()?;
         Ok(bytes)
     }
 
@@ -239,9 +336,11 @@ pub mod test_profile {
     ) -> Result<(), String> {
         if metadata.schema_version != 1
             || metadata.repository != REPOSITORY
-            || metadata.repository_id != 1390032052
-            || metadata.channel != "test"
-            || metadata.installer_mode != "tauri-test-nsis-v1"
+            || metadata.repository_id != REPOSITORY_ID
+            || (cfg!(feature = "channel-github")
+                && metadata.product.as_deref() != Some("dmelopers-block-pet"))
+            || metadata.channel != CHANNEL
+            || metadata.installer_mode != INSTALLER_MODE
             || metadata.version != selected
             || version(selected)? <= version(current)?
             || metadata.size == 0
@@ -264,13 +363,112 @@ pub mod test_profile {
         Ok(())
     }
 
+    const SUCCESS_INTERVAL: u64 = 6 * 60 * 60;
+    const ERROR_INTERVAL: u64 = 10 * 60;
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct DisplayCache {
+        repository: String,
+        current_version: String,
+        checked_at: u64,
+        result: Result<UpdateInfo, String>,
+    }
+    fn now() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    }
+    fn cache_current(cache: &DisplayCache, current: &str, time: u64) -> bool {
+        let interval = if cache.result.is_ok() {
+            SUCCESS_INTERVAL
+        } else {
+            ERROR_INTERVAL
+        };
+        cache.repository == REPOSITORY
+            && cache.current_version == current
+            && cache.checked_at <= time
+            && time - cache.checked_at < interval
+            && match &cache.result {
+                Ok(info) => {
+                    info.current_version == current
+                        && info.version.as_deref().is_some_and(|v| version(v).is_ok())
+                        && info.version.as_deref().is_some_and(|v| {
+                            info.available == (version(v).ok() > version(current).ok())
+                        })
+                        && info.bytes.is_some_and(|n| n > 0 && n <= MAX_DOWNLOAD)
+                }
+                Err(error) => error.starts_with("UPDATE_") && error.len() <= 80,
+            }
+    }
+    fn cache_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+        let root = app
+            .path()
+            .app_cache_dir()
+            .map_err(|_| "UPDATE_CACHE_UNAVAILABLE")?;
+        let path = root.join("github-update-display.json");
+        crate::state_safety::check_path(&path)?;
+        Ok(path)
+    }
+    fn read_cache(app: &tauri::AppHandle, current: &str) -> Option<Result<UpdateInfo, String>> {
+        let path = cache_path(app).ok()?;
+        let file = std::fs::File::open(path).ok()?;
+        if file.metadata().ok()?.len() > 4096 {
+            return None;
+        }
+        let cache: DisplayCache = serde_json::from_reader(std::io::Read::take(file, 4097)).ok()?;
+        cache_current(&cache, current, now()).then_some(cache.result)
+    }
+    fn write_cache(app: &tauri::AppHandle, current: String, result: Result<UpdateInfo, String>) {
+        let write = || -> Result<(), String> {
+            let path = cache_path(app)?;
+            std::fs::create_dir_all(path.parent().ok_or("UPDATE_CACHE_UNAVAILABLE")?)
+                .map_err(|_| "UPDATE_CACHE_UNAVAILABLE")?;
+            let cache = DisplayCache {
+                repository: REPOSITORY.into(),
+                current_version: current,
+                checked_at: now(),
+                result,
+            };
+            let bytes = serde_json::to_vec(&cache).map_err(|_| "UPDATE_CACHE_UNAVAILABLE")?;
+            // A partial cache is ignored on the next read; it never authorizes installation.
+            crate::state_safety::check_path(&path)?;
+            std::fs::write(path, bytes).map_err(|_| "UPDATE_CACHE_UNAVAILABLE".into())
+        };
+        if write().is_err() {
+            crate::diagnostics::warn("updates.cache", "UPDATE_CACHE_UNAVAILABLE");
+        }
+    }
     pub async fn check(
+        app: tauri::AppHandle,
+        window: tauri::WebviewWindow,
+        force: bool,
+    ) -> Result<UpdateInfo, String> {
+        trusted_window(&window)?;
+        let state = app.state::<State>();
+        state.control.idle()?;
+        let current = app.package_info().version.to_string();
+        if !force {
+            if let Some(cached) = read_cache(&app, &current) {
+                *state.selected.try_lock().map_err(|_| "UPDATE_BUSY")? = None;
+                return cached;
+            }
+        }
+        let result = check_fresh(app.clone(), window).await;
+        if result.as_ref().err().map(String::as_str) != Some("UPDATE_BUSY") {
+            write_cache(&app, current, result.clone());
+        }
+        result
+    }
+
+    async fn check_fresh(
         app: tauri::AppHandle,
         window: tauri::WebviewWindow,
     ) -> Result<UpdateInfo, String> {
         trusted_window(&window)?;
         let state = app.state::<State>();
-        let mut selected = state.0.try_lock().map_err(|_| "UPDATE_BUSY")?;
+        state.control.idle()?;
+        let mut selected = state.selected.try_lock().map_err(|_| "UPDATE_BUSY")?;
         *selected = None;
         let current = app.package_info().version.to_string();
         let updater = app
@@ -291,14 +489,14 @@ pub mod test_profile {
             .await
             .map_err(|_| "UPDATE_CHECK_FAILED")?
             .ok_or("UPDATE_CHECK_FAILED")?;
-        // Upstream parses metadata before returning. This post-parse ceiling is
-        // not a strict bound on upstream JSON parsing memory.
+        // The pinned vendor patch already bounds the raw body before parsing.
+        // Bound canonicalization separately before signature verification.
         let canonical =
             serde_json::to_vec(&update.raw_json).map_err(|_| "UPDATE_METADATA_INVALID")?;
         if canonical.len() > MAX_METADATA || update.signature.len() > 8192 {
             return Err("UPDATE_METADATA_INVALID".into());
         }
-        let signature = bounded_get(endpoint(true), 8192, None).await?;
+        let signature = bounded_get(endpoint(true), 8192, None, &Cancellation::default()).await?;
         verify_signature(
             &canonical,
             std::str::from_utf8(&signature).map_err(|_| "UPDATE_SIGNATURE_INVALID")?,
@@ -320,6 +518,7 @@ pub mod test_profile {
                 metadata,
                 selected_at: Instant::now(),
                 downloaded: None,
+                request_id: None,
             });
         }
         Ok(result)
@@ -328,38 +527,140 @@ pub mod test_profile {
     pub async fn download(
         app: tauri::AppHandle,
         window: tauri::WebviewWindow,
+        request_id: String,
     ) -> Result<(), String> {
         trusted_window(&window)?;
         let state = app.state::<State>();
-        let mut selected = state.0.try_lock().map_err(|_| "UPDATE_BUSY")?;
-        let selection = selected.as_mut().ok_or("UPDATE_CHECK_REQUIRED")?;
-        selection.downloaded = None;
-        if selection.selected_at.elapsed() > TTL {
-            return Err("UPDATE_CHECK_EXPIRED".into());
+        let cancel = state.control.start(&request_id)?;
+        let result = async {
+            let mut selection = state.selected.try_lock().map_err(|_| "UPDATE_BUSY")?.take().ok_or("UPDATE_CHECK_REQUIRED")?;
+            if selection.selected_at.elapsed() > TTL { return Err("UPDATE_CHECK_EXPIRED".into()); }
+            validate(&selection.metadata, &app.package_info().version.to_string(), &selection.update.version, &selection.update.download_url)?;
+            let bytes = bounded_get(selection.update.download_url.clone(), selection.metadata.size, Some((&window, &request_id)), &cancel).await?;
+            state.control.transition(&request_id, Phase::Downloading, Phase::Verifying)?;
+            let _ = window.emit("app-update-progress", serde_json::json!({ "requestId": request_id, "received": bytes.len(), "size": bytes.len(), "phase": "verifying" }));
+            let verifier_cancel = cancel.clone();
+            let size = selection.metadata.size;
+            let hash = selection.metadata.sha256.clone();
+            let signature = selection.update.signature.clone();
+            let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+                let mut digest = Sha256::new();
+                for chunk in bytes.chunks(1024 * 1024) { verifier_cancel.check()?; digest.update(chunk); }
+                if bytes.len() != size || format!("{:x}", digest.finalize()) != hash || !bytes.starts_with(b"MZ") { return Err("UPDATE_HASH_INVALID".into()); }
+                verifier_cancel.check()?;
+                verify_signature(&bytes, &signature)?;
+                verifier_cancel.check()?;
+                Ok(bytes)
+            }).await.map_err(|_| "UPDATE_VERIFY_FAILED")??;
+            selection.downloaded = Some(bytes);
+            selection.request_id = Some(request_id.clone());
+            selection.selected_at = Instant::now();
+            *state.selected.try_lock().map_err(|_| "UPDATE_BUSY")? = Some(selection);
+            state.control.transition(&request_id, Phase::Verifying, Phase::Verified)?;
+            Ok(())
+        }.await;
+        if result.is_err() {
+            clear(&state, &request_id);
         }
-        validate(
-            &selection.metadata,
-            &app.package_info().version.to_string(),
-            &selection.update.version,
-            &selection.update.download_url,
-        )?;
-        // Use a bounded reader and the same Minisign verifier as the maintained
-        // plugin; its install API consumes these exact already-verified bytes.
-        let bytes = bounded_get(
-            selection.update.download_url.clone(),
-            selection.metadata.size,
-            Some(&window),
-        )
-        .await?;
-        if bytes.len() != selection.metadata.size
-            || format!("{:x}", Sha256::digest(&bytes)) != selection.metadata.sha256
-            || !bytes.starts_with(b"MZ")
+        result
+    }
+    fn clear(state: &State, request_id: &str) {
+        if let Ok(mut selected) = state.selected.try_lock() {
+            if selected
+                .as_ref()
+                .is_some_and(|s| s.request_id.as_deref() == Some(request_id))
+            {
+                *selected = None;
+            }
+        }
+        state.control.finish(request_id);
+    }
+    pub fn begin_save(
+        app: tauri::AppHandle,
+        window: tauri::WebviewWindow,
+        request_id: String,
+    ) -> Result<(), String> {
+        trusted_window(&window)?;
+        app.state::<State>()
+            .control
+            .transition(&request_id, Phase::Verified, Phase::Saving)
+    }
+    pub fn cancel(
+        app: tauri::AppHandle,
+        window: tauri::WebviewWindow,
+        request_id: String,
+    ) -> Result<(), String> {
+        trusted_window(&window)?;
+        let state = app.state::<State>();
+        if state.control.cancel(&request_id)? == Phase::Verified {
+            clear(&state, &request_id);
+        }
+        Ok(())
+    }
+    pub fn abort(
+        app: tauri::AppHandle,
+        window: tauri::WebviewWindow,
+        request_id: String,
+    ) -> Result<(), String> {
+        trusted_window(&window)?;
+        let state = app.state::<State>();
+        state.control.abort_save(&request_id)?;
+        clear(&state, &request_id);
+        Ok(())
+    }
+
+    fn verify_registration(app: &tauri::AppHandle, parent: &std::path::Path) -> Result<(), String> {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::System::Registry::{
+            HKEY_CURRENT_USER, RRF_RT_REG_SZ, RRF_SUBKEY_WOW6464KEY, RegGetValueW,
+        };
+        let name = app
+            .config()
+            .product_name
+            .as_deref()
+            .ok_or("UPDATE_INSTALL_LOCATION_INVALID")?;
+        let key: Vec<u16> =
+            format!("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{name}")
+                .encode_utf16()
+                .chain(Some(0))
+                .collect();
+        let value: Vec<u16> = "InstallLocation".encode_utf16().chain(Some(0)).collect();
+        let mut buffer = [0u16; 32768];
+        let mut size = std::mem::size_of_val(&buffer) as u32;
+        let status = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                key.as_ptr(),
+                value.as_ptr(),
+                RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY,
+                std::ptr::null_mut(),
+                buffer.as_mut_ptr().cast(),
+                &mut size,
+            )
+        };
+        if status != 0 || size < 2 || size as usize > std::mem::size_of_val(&buffer) {
+            return Err("UPDATE_INSTALLED_APP_REQUIRED".into());
+        }
+        let end = buffer
+            .iter()
+            .position(|c| *c == 0)
+            .ok_or("UPDATE_INSTALL_LOCATION_INVALID")?;
+        let registered = std::path::PathBuf::from(
+            String::from_utf16(&buffer[..end]).map_err(|_| "UPDATE_INSTALL_LOCATION_INVALID")?,
+        );
+        crate::state_safety::check_path(&registered)?;
+        let canonical =
+            std::fs::canonicalize(parent).map_err(|_| "UPDATE_INSTALL_LOCATION_INVALID")?;
+        if std::fs::canonicalize(registered).map_err(|_| "UPDATE_INSTALL_LOCATION_INVALID")?
+            != canonical
+            || parent
+                .as_os_str()
+                .encode_wide()
+                .any(|c| matches!(c, 10 | 13 | 34))
         {
-            return Err("UPDATE_HASH_INVALID".into());
+            return Err("UPDATE_INSTALL_LOCATION_INVALID".into());
         }
-        verify_signature(&bytes, &selection.update.signature)?;
-        selection.downloaded = Some(bytes);
-        selection.selected_at = Instant::now();
+        crate::state_safety::check_path(&parent.join("uninstall.exe"))?;
         Ok(())
     }
 
@@ -370,10 +671,28 @@ pub mod test_profile {
     ) -> Result<(), String> {
         trusted_window(&window)?;
         let state = app.state::<State>();
-        let mut selected = state.0.try_lock().map_err(|_| "UPDATE_BUSY")?;
+        state
+            .control
+            .transition(&request_id, Phase::Saving, Phase::Installing)?;
+        let result = install_inner(app.clone(), window, request_id.clone()).await;
+        clear(&state, &request_id);
+        result
+    }
+
+    async fn install_inner(
+        app: tauri::AppHandle,
+        window: tauri::WebviewWindow,
+        request_id: String,
+    ) -> Result<(), String> {
+        trusted_window(&window)?;
+        let state = app.state::<State>();
+        let mut selected = state.selected.try_lock().map_err(|_| "UPDATE_BUSY")?;
         let selection = selected.take().ok_or("UPDATE_CHECK_REQUIRED")?;
         if selection.selected_at.elapsed() > TTL {
             return Err("UPDATE_CHECK_EXPIRED".into());
+        }
+        if selection.request_id.as_deref() != Some(&request_id) {
+            return Err("UPDATE_REQUEST_INVALID".into());
         }
         let bytes = selection.downloaded.ok_or("UPDATE_DOWNLOAD_REQUIRED")?;
         let native_window = window.as_ref().window();
@@ -390,6 +709,7 @@ pub mod test_profile {
         if !parent.join("uninstall.exe").is_file() {
             return Err("UPDATE_INSTALLED_APP_REQUIRED".into());
         }
+        verify_registration(&app, parent)?;
         // Install into this running program's exact directory, including Unicode
         // and spaces. NSIS /D is the final unquoted command-line remainder.
         // Reuse the checked Update while changing only locally owned installer args.
@@ -433,13 +753,37 @@ pub mod test_profile {
     mod tests {
         use super::*;
         #[test]
+        fn display_cache_obeys_success_error_and_clock_boundaries() {
+            let mut cache = DisplayCache {
+                repository: REPOSITORY.into(),
+                current_version: "1.0.0".into(),
+                checked_at: 1000,
+                result: Ok(UpdateInfo {
+                    available: true,
+                    current_version: "1.0.0".into(),
+                    version: Some("1.0.1".into()),
+                    bytes: Some(1024),
+                }),
+            };
+            assert!(cache_current(&cache, "1.0.0", 1000 + SUCCESS_INTERVAL - 1));
+            assert!(!cache_current(&cache, "1.0.0", 1000 + SUCCESS_INTERVAL));
+            assert!(!cache_current(&cache, "1.0.0", 999));
+            assert!(!cache_current(&cache, "1.0.1", 1000));
+            cache.result = Err("UPDATE_NETWORK_FAILED".into());
+            assert!(cache_current(&cache, "1.0.0", 1000 + ERROR_INTERVAL - 1));
+            assert!(!cache_current(&cache, "1.0.0", 1000 + ERROR_INTERVAL));
+            cache.repository = "different/repository".into();
+            assert!(!cache_current(&cache, "1.0.0", 1000));
+        }
+        #[test]
         fn canonical_forward_versions_and_exact_asset_identity() {
             let metadata = Metadata {
+                product: Some("dmelopers-block-pet".into()),
                 schema_version: 1,
                 repository: REPOSITORY.into(),
-                repository_id: 1390032052,
-                channel: "test".into(),
-                installer_mode: "tauri-test-nsis-v1".into(),
+                repository_id: REPOSITORY_ID,
+                channel: CHANNEL.into(),
+                installer_mode: INSTALLER_MODE.into(),
                 version: "1.0.2".into(),
                 size: 1024,
                 sha256: "a".repeat(64),

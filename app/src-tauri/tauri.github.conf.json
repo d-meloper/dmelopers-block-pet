@@ -1,0 +1,17 @@
+{
+  "identifier": "com.dmeloper.blockpet",
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "skip"
+      },
+      "nsis": {
+        "template": "./windows/github-installer.nsi"
+      }
+    }
+  }
+}

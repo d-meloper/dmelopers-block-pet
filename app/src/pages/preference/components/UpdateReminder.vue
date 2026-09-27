@@ -6,11 +6,14 @@ defineProps<{
   version?: string
   busy?: boolean
   status?: string
+  canCancel?: boolean
+  cancelling?: boolean
 }>()
 defineEmits<{
   snooze: []
   update: []
   close: []
+  cancel: []
 }>()
 const { t } = useI18n()
 </script>
@@ -54,6 +57,13 @@ const { t } = useI18n()
           @click="$emit('update')"
         >
           {{ t('updateReminder.update') }}
+        </Button>
+        <Button
+          v-if="canCancel"
+          :loading="cancelling"
+          @click="$emit('cancel')"
+        >
+          {{ t('inAppUpdates.cancel') }}
         </Button>
         <Button
           :disabled="busy"

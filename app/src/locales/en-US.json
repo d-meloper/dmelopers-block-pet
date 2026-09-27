@@ -695,6 +695,9 @@
         },
         "errors": {
           "resetAll": "The program reset could not be completed.",
+          "resetAutostartBlocked": "Windows policy prevents turning off start-at-login. No settings or skin files were reset. Retry when Windows allows start-at-login to be disabled.",
+          "resetPreflight": "Could not check start-at-login before resetting. No settings or skin files were reset. Try again.",
+          "resetPartial": "The reset could not finish. Some settings or skin files may already have been reset or deleted. They have not been restored automatically. Retry to finish the reset.",
           "legalNotices": "The notices could not be opened. Please try again.",
           "openDeveloperLink": "Could not open the developer link. Please try again.",
           "copyEmail": "Could not copy the email address. Please try again."
@@ -808,18 +811,40 @@
   },
   "inAppUpdates": {
     "title": "Application update",
-    "latest": "Test version",
-    "hint": "Install update verifies the new version, saves your settings, installs it and restarts the app.",
+    "latest": "New version",
+    "hint": "The update is verified, your settings are saved, and the installer restarts the app. Cancel the update before requesting a restart during download. Cancellation ends when saving begins.",
     "check": "Check for updates",
     "install": "Install update",
     "releases": "Release history",
     "checking": "Checking for updates…",
     "unknown": "Could not check for updates. Please try again.",
     "available": "Update v{version} is available.",
-    "upToDate": "You have the latest test version.",
+    "upToDate": "You are up to date.",
     "downloading": "Downloading and verifying the update…",
     "saving": "Saving settings, presets and skins…",
-    "installing": "The app will restart after installation.",
-    "failed": "The update could not be completed. If the app is open, check again. If installation was interrupted, use the installer from Release history to repair it."
+    "installing": "Handing off to the installer. The app will reopen after installation completes.",
+    "failed": "The update could not be completed. If the app is open, check again. If installation was interrupted, use the installer from Release history to repair it.",
+    "verifying": "Verifying the downloaded file and its signature.",
+    "cancel": "Cancel update"
+  },
+  "storeUpdates": {
+    "title": "Microsoft Store updates",
+    "hint": "Current version: v{version}. Microsoft Store manages updates. Quit the app completely from its tray menu to allow an update. Restarting the app alone may not apply it.",
+    "open": "Open Microsoft Store",
+    "openFailed": "Could not open the Store page. Check for updates in Microsoft Store.",
+    "development": "Development session",
+    "developmentHint": "Installer updates are disabled in development sessions."
+  },
+  "autostartStatus": {
+    "enabled": "Start this installation when you sign in to Windows.",
+    "disabled": "Automatic startup is off for this installation.",
+    "disabledByUser": "Disabled in Windows. Change it in Windows Settings → Startup apps.",
+    "disabledByPolicy": "Disabled by Windows policy.",
+    "enabledByPolicy": "Enabled by Windows policy.",
+    "unknown": "Could not read the Windows startup state.",
+    "failed": "Could not change automatic startup. Check Windows Startup apps settings."
+  },
+  "dataLocation": {
+    "title": "Shared user data location"
   }
 }

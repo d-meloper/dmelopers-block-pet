@@ -1,7 +1,12 @@
-# Installer utility plugin
+# Historical installer utility plugin
+
+This source is retained for provenance and earlier installer implementations.
+The current GitHub and Store packaging does not build or include this DLL.
+The instructions below describe the historical helper workflow, not a prerequisite
+for the standalone current-channel build.
 
 `block_pet_installer_utils.dll` contains only the three NSIS commands used by
-Block Pet: `SemverCompare`, `FindProcess`, and `RunAsUser`. It is an installer
+the historical Block Pet installer: `SemverCompare`, `FindProcess`, and `RunAsUser`. It is an installer
 plugin, not an installed application file. It must be built before bundling and
 placed beside `dmelopers-3d-block-pet.exe`; the custom NSIS template loads it from that build
 input directory. The resulting installer extracts the DLL to `$PLUGINSDIR`.

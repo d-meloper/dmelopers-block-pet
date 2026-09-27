@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 
 import { quiesceEditors, releaseEditors } from '@/features/stateSafety'
 
@@ -8,38 +9,60 @@ export interface AppUpdateInfo {
   version: string | null
   bytes: number | null
 }
-export type UpdatePhase = 'downloading' | 'saving' | 'installing'
-let updating = false
+export type UpdatePhase = 'downloading' | 'verifying' | 'saving' | 'installing'
+interface ProgressEvent { requestId: string, received: number, size: number, phase: 'downloading' | 'verifying' }
+let active: { requestId: string, phase: UpdatePhase } | undefined
 
-export async function inAppUpdaterEnabled(): Promise<boolean> {
+export async function checkAppUpdate(force = false): Promise<AppUpdateInfo> {
   await invoke('await_native_startup')
-  return invoke<boolean>('in_app_updater_enabled')
+  return invoke<AppUpdateInfo>('check_app_update', { force })
 }
 
-export async function checkAppUpdate(): Promise<AppUpdateInfo> {
-  await invoke('await_native_startup')
-  return invoke<AppUpdateInfo>('check_app_update')
+export async function cancelAppUpdate(): Promise<void> {
+  if (!active) return
+  if (active.phase === 'saving' || active.phase === 'installing') throw new Error('UPDATE_TOO_LATE')
+  await invoke('cancel_app_update', { requestId: active.requestId })
 }
 
-/** The native selection owns the version, URL and downloaded bytes. */
-export async function installAppUpdate(onPhase: (phase: UpdatePhase) => void): Promise<void> {
-  if (updating) throw new Error('UPDATE_BUSY')
-  updating = true
-  const requestId = crypto.randomUUID()
+/** Cached UI data never supplies a URL, signature or installer to native code. */
+export async function installAppUpdate(onPhase: (phase: UpdatePhase) => void, onProgress: (percent: number) => void): Promise<void> {
+  if (active) throw new Error('UPDATE_BUSY')
+  const operation = { requestId: crypto.randomUUID(), phase: 'downloading' as UpdatePhase }
+  active = operation
   let lease = false
+  let stop: (() => void) | undefined
+  const phase = (value: UpdatePhase) => {
+    if (active !== operation) return
+    operation.phase = value
+    onPhase(value)
+  }
   try {
-    onPhase('downloading')
-    await invoke('download_app_update')
-    onPhase('saving')
+    stop = await listen<ProgressEvent>('app-update-progress', ({ payload }) => {
+      if (active !== operation || payload.requestId !== operation.requestId
+        || !['downloading', 'verifying'].includes(operation.phase)) {
+        return
+      }
+      if (payload.phase === 'verifying') phase('verifying')
+      if (Number.isFinite(payload.received) && Number.isFinite(payload.size) && payload.size > 0) {
+        onProgress(Math.max(0, Math.min(100, Math.floor(payload.received * 100 / payload.size))))
+      }
+    })
+    phase('downloading')
+    await invoke('download_app_update', { requestId: operation.requestId })
+    // Native arbitrates cancellation before the editor save barrier begins.
+    await invoke('begin_app_update_save', { requestId: operation.requestId })
+    phase('saving')
     lease = true
-    await quiesceEditors(requestId)
-    onPhase('installing')
-    await invoke('install_app_update', { requestId })
-    // Windows exits after installer handoff. A reply is never installation proof.
+    await quiesceEditors(operation.requestId)
+    phase('installing')
+    await invoke('install_app_update', { requestId: operation.requestId })
+    // Successful Windows handoff exits. No IPC response proves installation.
   } catch (error) {
-    if (lease) await releaseEditors(requestId).catch(() => {})
+    await invoke('abort_app_update', { requestId: operation.requestId }).catch(() => {})
+    if (lease) await releaseEditors(operation.requestId).catch(() => {})
     throw error
   } finally {
-    updating = false
+    stop?.()
+    if (active === operation) active = undefined
   }
 }

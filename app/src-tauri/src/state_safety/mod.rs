@@ -302,10 +302,7 @@ pub fn verify_state_quiescence(
             }
         }
         let stores = require_quiescence(&app)?;
-        let root = app
-            .path()
-            .app_data_dir()
-            .map_err(|_| "STORAGE_UNAVAILABLE")?;
+        let root = crate::data_paths::durable_root(&app)?;
         if app.pinia().path() != root.join(STORE_DIRECTORY) {
             return Err("UNSUPPORTED_STORAGE_LOCATION".into());
         }

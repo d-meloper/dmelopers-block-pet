@@ -1,0 +1,11 @@
+{
+  "identifier": "com.dmeloper.blockpet.store",
+  "bundle": {
+    "active": false,
+    "windows": {
+      "webviewInstallMode": {
+        "type": "skip"
+      }
+    }
+  }
+}

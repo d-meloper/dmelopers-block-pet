@@ -10,6 +10,23 @@ body:
       description: Provide the exact version and installer or executable name.
     validations:
       required: true
+  - type: dropdown
+    id: distribution
+    attributes:
+      label: Distribution channel
+      options:
+        - GitHub
+        - Microsoft Store
+        - Source build
+    validations:
+      required: true
+  - type: input
+    id: installation
+    attributes:
+      label: Installation method
+      description: New installation, update, or reinstall; include the previous version when applicable.
+    validations:
+      required: true
   - type: input
     id: windows
     attributes:
@@ -30,6 +47,11 @@ body:
       label: Expected and actual behavior
     validations:
       required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Relevant diagnostic log excerpt (optional)
+      description: Include only the relevant excerpt after removing personal paths, nicknames, tokens, and other private information.
   - type: checkboxes
     id: privacy
     attributes:

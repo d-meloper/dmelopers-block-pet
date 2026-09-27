@@ -1,0 +1,17 @@
+# Show the three primary application languages: TypeScript, Rust and Vue.
+# These exact paths stay reviewable but do not contribute to language statistics.
+app/index.html -linguist-detectable
+app/scripts/packaging/build.ps1 -linguist-detectable
+app/scripts/packaging/package.py -linguist-detectable
+app/scripts/packaging/test_package.py -linguist-detectable
+app/src-tauri/windows/github-installer.nsi -linguist-detectable
+app/src-tauri/windows/installer.nsi -linguist-detectable
+app/src-tauri/windows/manual-installer.nsi -linguist-detectable
+app/src-tauri/windows/test-updater-installer.nsi -linguist-detectable
+app/src/assets/css/global.scss -linguist-detectable
+app/src/broadcast/index.html -linguist-detectable
+app/tools/prepare_installer_toolchain.py -linguist-detectable
+app/tools/build_installer_utils.py -linguist-detectable
+app/tools/run_native_tests.py -linguist-detectable
+app/tools/test_run_native_tests.py -linguist-detectable
+app/vendor/** linguist-vendored

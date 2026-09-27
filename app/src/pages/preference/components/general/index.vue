@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { Button, Divider, Flex, InputNumber, Modal, Select, Switch } from 'ant-design-vue'
-import { watch } from 'vue'
+import { Button, Divider, Flex, InputNumber, message, Modal, Select, Switch } from 'ant-design-vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+
+import type { AutostartStatus } from '@/services/autostart'
 
 import PreferenceSections from '@/components/preference-sections/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
-import { setAutostartEnabled } from '@/services/autostart'
+import { getAutostartStatus, setAutostartEnabled } from '@/services/autostart'
+import { reportDiagnostic } from '@/services/diagnostics'
 import { useCatStore } from '@/stores/cat'
 import { useGeneralStore } from '@/stores/general'
 
@@ -17,7 +20,39 @@ const catStore = useCatStore()
 const generalStore = useGeneralStore()
 const { t } = useI18n()
 
-watch(() => generalStore.app.autostart, setAutostartEnabled, { immediate: true })
+const autostart = ref<AutostartStatus>()
+const autostartBusy = ref(false)
+let disposed = false
+async function refreshAutostart() {
+  try {
+    const status = await getAutostartStatus()
+    if (!disposed) autostart.value = status
+  } catch (error) {
+    if (!disposed) autostart.value = undefined
+    reportDiagnostic('warn', 'autostart.status', error)
+  }
+}
+async function changeAutostart(checked: boolean | string | number) {
+  if (autostartBusy.value || !autostart.value) return
+  autostartBusy.value = true
+  try {
+    await setAutostartEnabled(checked === true)
+  } catch (error) {
+    reportDiagnostic('warn', 'autostart.change', error)
+    message.error(t('autostartStatus.failed'))
+  } finally {
+    await refreshAutostart()
+    autostartBusy.value = false
+  }
+}
+onMounted(() => {
+  void refreshAutostart()
+  window.addEventListener('focus', refreshAutostart)
+})
+onBeforeUnmount(() => {
+  disposed = true
+  window.removeEventListener('focus', refreshAutostart)
+})
 
 function confirmGeneralReset() {
   Modal.confirm({
@@ -27,6 +62,8 @@ function confirmGeneralReset() {
       catStore.resetGeneralSettings()
       generalStore.reset()
       await generalStore.init()
+      await setAutostartEnabled(false)
+      await refreshAutostart()
     },
   })
 }
@@ -87,8 +124,16 @@ function confirmGeneralReset() {
     <ProList
       :title="$t('pages.preference.general.labels.appSettings')"
     >
-      <ProListItem :title="$t('pages.preference.general.labels.launchOnStartup')">
-        <Switch v-model:checked="generalStore.app.autostart" />
+      <ProListItem
+        :description="t(`autostartStatus.${autostart?.state ?? 'unknown'}`)"
+        :title="$t('pages.preference.general.labels.launchOnStartup')"
+      >
+        <Switch
+          :checked="autostart?.enabled ?? false"
+          :disabled="!autostart || autostartBusy || (autostart.enabled ? !autostart.canDisable : !autostart.canEnable)"
+          :loading="autostartBusy"
+          @change="changeAutostart"
+        />
       </ProListItem>
 
       <ProListItem

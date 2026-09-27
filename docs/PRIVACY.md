@@ -1,6 +1,6 @@
 # Privacy and permissions
 
-This describes the current DMeloper's Block Pet application. The developer does not
+This describes the implementation in the current source preview of DMeloper's Block Pet. Official installers and the Store listing are not yet published. The developer does not
 operate an account service, telemetry endpoint, or automatic crash upload for
 this version. Java Edition skin lookup and latest-version checks make the network
 requests described below; the application should not be described as entirely offline.
@@ -20,8 +20,10 @@ stop its monitoring; optional mouse interaction can also be disabled in settings
 Broadcast output is off by default. When enabled, an HTTP/WebSocket service
 binds only to `127.0.0.1` on this computer. A browser source with the app's
 connection address receives the current scene, its active PNG skin, and the
-same semantic animation events. It does not receive typed text, skin-library
-names, or other files. This feature does not use a public server. OBS or another
+same animation events, including physical keyboard contact positions, press/release
+states and their timing. A holder of the connection address can use these events
+to infer keys or input activity. The app does not send composed text strings,
+skin-library names, or other files. This feature does not use a public server. OBS or another
 capture program controls any subsequent recording or streaming.
 
 Hiding the desktop pet does not stop enabled broadcast output. Disabling
@@ -62,20 +64,18 @@ Review included images and nicknames before sharing a file yourself.
 
 ## Local data and removal
 
-Settings and the `skin-library` directory belong to the application's data
-directory. The `minecraft-skins` cache belongs to its cache directory. These
-directories use the application identifier `com.dmeloper.blockpet`; their parent
-location depends on the operating system. They can contain skin images,
-thumbnails, filenames, nicknames, and settings and should be treated as personal
-data when sharing a computer or a backup.
+Official GitHub and Store installations share settings, presets and the skin library
+under Saved Games\DMeloper's Block Pet. The first official instance keeps the shared
+data open; another installation does not become a second writer. Logs, caches and
+WebView data use each installation's separate AppData location. Test and development
+installations use separate data. Skin images, thumbnails, filenames, nicknames and
+settings are personal data.
 
-Delete saved library entries through the skin library. The program reset clears
-settings and the saved library; it should not be treated as proof that every
-cache or diagnostic log has been erased. To remove residual data, quit the app
-and remove its own data, cache, and log directories after checking their paths
-and backing up anything you want to keep. Selecting the default skin alone does
-not erase the library. Uninstall retention and exact Windows removal steps must
-be verified for each published installer and documented in its release notes.
+Uninstall preserves shared Saved Games data. Delete library entries through the skin
+library. Program reset clears settings and the library; it does not prove that all
+caches and logs have been erased. Quit both official installations before manually
+removing shared data, and preserve anything you want to keep. Selecting the default
+skin alone does not erase the library.
 
 ## Logs, clipboard, and system integration
 
@@ -101,16 +101,19 @@ support instructions are in [SUPPORT.md](SUPPORT.md).
 
 ## Program version management and local data
 
-At app start and when you open About, the app checks a small static JSON file at
-`raw.githubusercontent.com/d-meloper/dmelopers-block-pet/badges/badge-data.json`.
-GitHub receives that request and the network address used to reach it; its privacy
-practices apply. The request sends no app settings, input history, skins, broadcast
-address or device identifier. A successful result is cached locally for six hours;
-failed checks are retried no more often than every ten minutes. The cache contains
-public version and file metadata, validation times and error status. The app uses
-it only to display version information, and does not download or run an installer.
+In the official GitHub channel, opening Settings checks signed update metadata at
+`raw.githubusercontent.com/d-meloper/dmelopers-block-pet/updates/tauri-stable.json`
+and its detached signature. A successful check is cached for six hours and an error
+for ten minutes; the manual check button requests a fresh check. GitHub receives the
+request and network address. The request includes no settings, skins, input history,
+broadcast address or device identifier. Version metadata and error timing are cached
+locally. Installing starts only after your click and downloads the verified installer
+from the fixed official GitHub release. Cancellation is available until settings saving
+begins. Program update backups and automatic rollback are not provided. After an
+interruption, close the app and run the same installer again to repair program files.
 
-In Settings > About, **Open latest version link** opens the fixed official Releases
-page in your browser. Those browser requests also follow GitHub's privacy practices.
-
-Close the app and manually reinstall into the recorded folder to keep settings, presets and skins. Program-update backups and automatic rollback are not provided. Preset import still retains its own local recovery record until the import is confirmed or recovered; whole-app data export and import are not provided.
+The Microsoft Store installation uses Windows-managed updates and an Open Store
+button; it does not request the GitHub update feed or display-only GitHub version feed. Opening the Store button contacts Microsoft through the Store application. Both installations retain the same core
+input, pet and OBS features. Start-at-login is configured per installation; the first
+official instance started keeps running. Preset import retains its own recovery record
+until completion or recovery; whole-app data export and import are not provided.

@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
 use tokio::sync::{Mutex as AsyncMutex, broadcast, watch};
 
 const MAX_CLIENTS: usize = 8;
@@ -38,9 +38,7 @@ pub struct BroadcastState {
 
 impl BroadcastState {
     pub fn new(app: &tauri::AppHandle) -> Self {
-        let root = app
-            .path()
-            .app_local_data_dir()
+        let root = crate::data_paths::durable_root(app)
             .map_err(|_| "endpoint_unavailable".to_string());
         let loader: IdentityLoader = Arc::new(move |expected| {
             root.as_ref()

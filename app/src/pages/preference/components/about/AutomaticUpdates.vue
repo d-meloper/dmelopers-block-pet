@@ -10,7 +10,7 @@ import { reportDiagnostic } from '@/services/diagnostics'
 import { openReleaseDownloads } from '@/services/manualUpdates'
 
 const { t } = useI18n()
-const { appInfo: info, checking, phase, percent, failed, busy, check, update: install } = usePreferenceUpdates()
+const { appInfo: info, checking, phase, percent, failed, busy, canCancel, cancelling, cancel, check, update: install } = usePreferenceUpdates()
 const status = computed(() => {
   if (phase.value) return t(`inAppUpdates.${phase.value}`)
   if (checking.value) return t('inAppUpdates.checking')
@@ -40,7 +40,7 @@ async function openDownloads() {
       >
         <Button
           :disabled="busy"
-          @click="check"
+          @click="check(true)"
         >
           {{ t('inAppUpdates.check') }}
         </Button>
@@ -51,6 +51,13 @@ async function openDownloads() {
           @click="install"
         >
           {{ t('inAppUpdates.install') }}
+        </Button>
+        <Button
+          v-if="canCancel"
+          :loading="cancelling"
+          @click="cancel"
+        >
+          {{ t('inAppUpdates.cancel') }}
         </Button>
         <Button
           :disabled="busy"
@@ -67,7 +74,7 @@ async function openDownloads() {
     >
       {{ status }}
       <Progress
-        v-if="phase === 'downloading'"
+        v-if="phase === 'downloading' || phase === 'verifying'"
         :percent="percent"
       />
     </div>

@@ -825,6 +825,7 @@ describe('live preset manager', () => {
         throw new Error('reset crossed failed library gate')
       }
       await assert.rejects(withPresetReset(() => runProgramSettingsReset({
+        getAutostartStatus: async () => ({ enabled: false, state: 'disabled', canEnable: true, canDisable: true }),
         clearSkinLibrary: async () => {
           throw new Error('storage unavailable')
         },

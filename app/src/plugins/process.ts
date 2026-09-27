@@ -119,7 +119,7 @@ export function registerAppProcessOwner(ready: () => boolean): () => void {
       await quiesceEditors(payload.requestId)
       check()
       if (!ready()) throw new Error('APP_PROCESS_CANCELLED')
-      if (payload.action === 'restart') await invoke('restart_application')
+      if (payload.action === 'restart') await invoke('restart_application', { requestId: payload.requestId })
       else await exit(0)
       exited = true
     }

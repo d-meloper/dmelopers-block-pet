@@ -21,7 +21,6 @@
     "custom-window:default",
     "os:default",
     "process:allow-exit",
-    "process:allow-restart",
     "opener:allow-open-url",
     "opener:allow-default-urls",
     {
@@ -33,9 +32,9 @@
       ]
     },
     "pinia:default",
+    "pinia:deny-set-store-collection-path",
     "log:default",
     "prevent-default:default",
-    "autostart:default",
     "clipboard-manager:allow-write-text",
     "global-shortcut:allow-is-registered",
     "global-shortcut:allow-register",

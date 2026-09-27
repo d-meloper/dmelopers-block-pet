@@ -1,0 +1,52 @@
+{
+  "format": "dmeloper.petpreset",
+  "version": 1,
+  "name": "Preset Fixture",
+  "settings": {
+    "preset": {
+      "petRightArmBendPercent": 100,
+      "petRightArmSpreadDegrees": 0,
+      "petLeftArmBendPercent": 100,
+      "petLeftArmSpreadDegrees": 0,
+      "petHeadScalePercent": 100,
+      "petRotationDegrees": 0,
+      "petDeskOffset": 0,
+      "dmeloperEyebrows": {
+        "enabled": true,
+        "color": "#4A2818",
+        "centerOffsetPixels": 0,
+        "heightOffsetPixels": 0,
+        "spacingPixels": 1.5,
+        "widthPixels": 2,
+        "thicknessPixels": 0.5
+      },
+      "dmeloperPalmColor": "#CCCCCC",
+      "showDisplayArea": false,
+      "autoViewportEnabled": true,
+      "autoViewportPaddingPixels": 16,
+      "manualViewportRect": { "x": 0, "y": 0, "width": 500, "height": 422 },
+      "sceneRotationOffsetDegrees": 0,
+      "cameraHorizontalOffset": 0,
+      "cameraVerticalOffset": 0,
+      "cameraZoomPercent": 100,
+      "keyboardColor": "#d5d8dc",
+      "keyboardKeycapColor": "#f7f3e8",
+      "keyboardLegendColor": "#31343a",
+      "keyboardPressedColor": "#f2b36d",
+      "mouseColor": "#ffffff",
+      "mousePressedColor": "#f2b36d",
+      "mouseEnabled": true,
+      "mouseBaseXOffset": 0,
+      "mouseBaseZOffset": 0,
+      "mouseScalePercent": 100,
+      "keyboardBaseXOffset": 0,
+      "keyboardBaseZOffset": 0,
+      "keyboardScalePercent": 100,
+      "keyboardLegendLanguage": "ko"
+    },
+    "mirror": false,
+    "opacity": 100,
+    "eyebrowAnimationEnabled": true
+  },
+  "skin": { "mode": "nickname", "nickname": "Fixture_User" }
+}

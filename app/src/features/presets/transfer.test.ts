@@ -1,0 +1,193 @@
+/* eslint-disable test/no-import-node-test */
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { it } from 'node:test'
+
+import { DEFAULT_DESK_SETTINGS, DESK_SETTING_KEYS } from '@/config/desk'
+import { MinecraftSkinError } from '@/services/minecraftSkin'
+
+import { clonePreset, createDefaultPresetSnapshot } from './model'
+import { installPresetSkinBrowser } from './skin.test.utils'
+import { exportPortablePreset, MAX_PET_PRESET_BYTES, parsePortablePreset, resolvePortablePreset, serializePortablePreset, validatePortablePreset } from './transfer'
+import { PRESET_SETTING_KEYS } from './types'
+
+const fixture = readFileSync(new URL('./fixtures/portable-v1.json', import.meta.url))
+
+it('reads the frozen native/frontend v1 fixture with exactly the preset settings allowlist', () => {
+  const doc = parsePortablePreset(fixture)
+  assert.equal(doc.settings.preset.dmeloperEyebrows.depthPercent, 100)
+  for (const key of DESK_SETTING_KEYS) assert.equal(doc.settings.preset[key], DEFAULT_DESK_SETTINGS[key])
+  assert.deepEqual(Object.keys(doc.settings.preset).sort(), [...PRESET_SETTING_KEYS].sort())
+  assert.deepEqual(parsePortablePreset(new TextEncoder().encode(serializePortablePreset(doc))), doc)
+  assert.deepEqual(parsePortablePreset(new Uint8Array([0xEF, 0xBB, 0xBF, ...fixture])), doc)
+})
+
+it('projects nickname exports without reading images, issuing network calls or leaking local state', async () => {
+  const snapshot = createDefaultPresetSnapshot()
+  snapshot.appearance.minecraftSkinUsername = 'Fixture_User'
+  snapshot.appearance.dmeloperSkinDataUrl = 'data:image/png;base64,PRIVATE_BYTES'
+  snapshot.appearance.activeSkinLibraryEntryId = 'a'.repeat(64)
+  Object.assign(snapshot, { privateState: { filename: 'private.png' } })
+  const before = clonePreset(snapshot)
+  const document = await exportPortablePreset('공유 😶', snapshot, 'nickname')
+  assert.deepEqual(document.skin, { mode: 'nickname', nickname: 'Fixture_User' })
+  const serialized = serializePortablePreset(document)
+  for (const secret of ['PRIVATE_BYTES', 'activeSkinLibraryEntryId', 'privateState', 'filename', 'thumbnail', 'appearance']) assert.ok(!serialized.includes(secret))
+  assert.deepEqual(snapshot, before)
+  await assert.rejects(exportPortablePreset('Missing', createDefaultPresetSnapshot(), 'nickname'), { code: 'invalidNickname' })
+})
+
+it('exports immutable PNG bytes, resolved arm geometry and nickname provenance while keeping settings intact', async () => {
+  const browser = installPresetSkinBrowser()
+  try {
+    const snapshot = createDefaultPresetSnapshot()
+    snapshot.appearance.minecraftSkinUsername = 'Fixture_User'
+    snapshot.appearance.dmeloperSkinDataUrl = browser.dataUrl
+    snapshot.preset.dmeloperPalmColor = '#112233'
+    snapshot.preset.dmeloperEyebrows.color = '#445566'
+    snapshot.preset.dmeloperEyebrows.depthPercent = 0
+    const document = await exportPortablePreset('Frozen', snapshot, 'image')
+    assert.deepEqual(document.skin, { mode: 'image', pngBase64: browser.dataUrl.split(',')[1], model: 'wide', nickname: 'Fixture_User' })
+    assert.deepEqual(document.settings.preset, snapshot.preset)
+    assert.deepEqual(parsePortablePreset(new TextEncoder().encode(serializePortablePreset(document))), document)
+    const builtin = await exportPortablePreset('Default', createDefaultPresetSnapshot(), 'image')
+    assert.equal(builtin.skin.mode, 'image')
+    assert.ok(!('nickname' in builtin.skin))
+  } finally {
+    browser.restore()
+  }
+})
+
+it('rejects unsafe shapes, invalid ranges and version drift before any skin resolution', () => {
+  const mutations: Array<(doc: Record<string, any>) => void> = [
+    d => d.version++,
+    d => d.format = 'foreign',
+    d => d.name = '',
+    d => d.name = 'A\nB',
+    d => d.settings.visible = true,
+    d => d.settings.preset.viewportModeRevision = 99,
+    d => d.settings.preset.cameraZoomPercent = 1e20,
+    d => d.settings.preset.mouseEnabled = 'yes',
+    d => d.settings.preset.petRightArmBendPercent = -1,
+    d => d.settings.preset.dmeloperEyebrows.widthPixels = 100,
+    d => d.settings.preset.dmeloperEyebrows.script = 'evil',
+    d => d.settings.preset.manualViewportRect.width = 1,
+    d => d.settings.preset.manualViewportRect.x = 1e25,
+    d => d.skin.nickname = 'bad-name',
+    d => d.skin.pngBase64 = 'private',
+    d => d.skin.thumbnail = 'private',
+    d => d.settings.preset.keyboardColor = 'red',
+  ]
+  for (const mutate of mutations) {
+    const doc = JSON.parse(fixture.toString())
+    mutate(doc)
+    assert.throws(() => validatePortablePreset(doc), { name: 'PresetTransferError' }, mutate.toString())
+  }
+  assert.throws(() => parsePortablePreset(new Uint8Array(MAX_PET_PRESET_BYTES + 1)), { code: 'tooLarge' })
+  assert.throws(() => parsePortablePreset(new Uint8Array([0xFF])), { code: 'invalidFormat' })
+})
+
+it('resolves nickname exactly once, adopts current Wide/Slim and preserves colors through image re-export', async () => {
+  let lookups = 0
+  let model: 'wide' | 'slim' = 'slim'
+  let failLookup = false
+  const browser = installPresetSkinBrowser((command, args) => {
+    assert.equal(command, 'fetch_minecraft_skin')
+    assert.equal(args?.username, 'Fixture_User')
+    lookups++
+    if (failLookup) throw new MinecraftSkinError({ code: 'NETWORK', retryable: true })
+    return {
+      canonicalName: 'Fixture_User',
+      uuid: 'a'.repeat(32),
+      textureKey: 'b'.repeat(64),
+      sha256: 'c'.repeat(64),
+      model,
+      pngBase64: browser.dataUrl.split(',')[1],
+      width: 64,
+      height: 64,
+      cacheHit: false,
+    }
+  })
+  try {
+    const document = parsePortablePreset(fixture)
+    document.settings.preset.dmeloperPalmColor = '#123456'
+    document.settings.preset.dmeloperEyebrows.color = '#654321'
+    document.settings.preset.dmeloperEyebrows.depthPercent = 0
+    const resolved = await resolvePortablePreset(document)
+    assert.equal(lookups, 1)
+    assert.equal(resolved.model, 'slim')
+    assert.equal(resolved.snapshot.appearance.minecraftSkinUsername, 'Fixture_User')
+    assert.deepEqual(resolved.snapshot.preset, document.settings.preset)
+    const frozen = await exportPortablePreset(document.name, resolved.snapshot, 'image')
+    const restored = await resolvePortablePreset(frozen)
+    assert.equal(lookups, 1, 'image restore and re-export never fetch a linked nickname')
+    assert.deepEqual(restored.snapshot, resolved.snapshot)
+    model = 'wide'
+    assert.equal((await resolvePortablePreset(document)).model, 'wide')
+    assert.equal(lookups, 2)
+    failLookup = true
+    await assert.rejects(resolvePortablePreset(document), { code: 'NETWORK' })
+    assert.equal(lookups, 3)
+    assert.deepEqual(document.settings.preset, resolved.snapshot.preset)
+  } finally {
+    browser.restore()
+  }
+})
+
+it('round-trips all supported eyebrow depths and rejects malformed external depth values', () => {
+  for (const depthPercent of [0, 100, 200]) {
+    const document = parsePortablePreset(fixture)
+    document.settings.preset.dmeloperEyebrows.depthPercent = depthPercent
+    const parsed = parsePortablePreset(new TextEncoder().encode(serializePortablePreset(document)))
+    assert.equal(parsed.settings.preset.dmeloperEyebrows.depthPercent, depthPercent)
+  }
+  for (const invalid of [-1, 201, Number.NaN, Infinity, null, '0', false]) {
+    const document = JSON.parse(fixture.toString())
+    document.settings.preset.dmeloperEyebrows.depthPercent = invalid
+    assert.throws(() => validatePortablePreset(document), { code: 'invalidSettings' })
+  }
+})
+
+it('round-trips every desk setting and only supplies absent fields in partial legacy documents', async () => {
+  for (const deskHeightOffset of [-1, 0, 1]) {
+    for (const deskTransparent of [false, true]) {
+      const snapshot = createDefaultPresetSnapshot()
+      snapshot.appearance.minecraftSkinUsername = 'Fixture_User'
+      Object.assign(snapshot.preset, { deskTransparent, deskHeightOffset, deskColor: '#123aBC' })
+      const exported = await exportPortablePreset('Desk', snapshot, 'nickname')
+      const restored = parsePortablePreset(new TextEncoder().encode(serializePortablePreset(exported)))
+      assert.deepEqual(restored.settings.preset, snapshot.preset)
+      assert.equal(restored.version, 1)
+    }
+  }
+  const legacy = JSON.parse(fixture.toString())
+  legacy.settings.preset.deskTransparent = false
+  const restored = parsePortablePreset(new TextEncoder().encode(JSON.stringify(legacy)))
+  assert.equal(restored.settings.preset.deskTransparent, false)
+  assert.equal(restored.settings.preset.deskColor, DEFAULT_DESK_SETTINGS.deskColor)
+  assert.equal(restored.settings.preset.deskHeightOffset, 0)
+  assert.equal('deskColor' in legacy.settings.preset, false)
+})
+
+it('rejects invalid desk types, colors, heights and unknown fields before importing', () => {
+  for (const changes of [
+    { deskTransparent: null },
+    { deskTransparent: 1 },
+    { deskTransparent: 'false' },
+    { deskColor: '#12345' },
+    { deskColor: '#GGGGGG' },
+    { deskColor: null },
+    { deskHeightOffset: -1.01 },
+    { deskHeightOffset: 1.01 },
+    { deskHeightOffset: Number.NaN },
+    { deskHeightOffset: Infinity },
+    { deskHeightOffset: null },
+    { deskHeightOffset: '0' },
+    { deskHeightOffset: undefined },
+    { deskEnabled: true },
+  ]) {
+    const legacy = JSON.parse(fixture.toString())
+    Object.assign(legacy.settings.preset, changes)
+    assert.throws(() => validatePortablePreset(legacy), { code: 'invalidSettings' })
+  }
+})

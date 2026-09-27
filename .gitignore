@@ -1,0 +1,6 @@
+# Public projection build output
+node_modules/
+dist/
+target/
+*.log
+.env*

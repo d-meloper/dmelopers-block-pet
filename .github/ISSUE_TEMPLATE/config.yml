@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Private security report / 비공개 보안 제보
+    url: https://github.com/d-meloper/dmelopers-block-pet/security/advisories/new
+    about: Report vulnerabilities privately. 취약점은 비공개로 제보해 주세요.

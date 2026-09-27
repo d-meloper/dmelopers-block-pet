@@ -1,0 +1,19 @@
+{
+  "identifier": "com.dmeloper.blockpet",
+  "bundle": {
+    "windows": {
+      "digestAlgorithm": "sha256",
+      "webviewInstallMode": {
+        "type": "skip"
+      },
+      "nsis": {
+        "languages": [
+          "English",
+          "Korean"
+        ],
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}

@@ -1,0 +1,38 @@
+name: update-public-badges
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+  release:
+    types: [published, edited]
+permissions:
+  contents: read
+concurrency:
+  group: public-badges
+  cancel-in-progress: false
+jobs:
+  update-public-badges:
+    if: github.repository == 'd-meloper/dmelopers-block-pet'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - id: app
+        uses: actions/create-github-app-token@a8d616148505b5069dccd32f177bb87d7f39123b # v2.1.1
+        with:
+          app-id: ${{ secrets.DMEL_BADGE_APP_ID }}
+          private-key: ${{ secrets.DMEL_BADGE_APP_PRIVATE_KEY }}
+          owner: d-meloper
+          repositories: dmelopers-block-pet
+          permission-contents: write
+      - run: node .github/scripts/badges.mjs --publish
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GITHUB_REF: refs/heads/main

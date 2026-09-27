@@ -1,0 +1,1 @@
+export const DMELOPER_PALM_FALLBACK_COLOR = '#CCCCCC'

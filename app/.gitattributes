@@ -1,0 +1,9 @@
+.githooks/* text eol=lf
+*.py text eol=lf
+*.ps1 text eol=lf
+src/legal/* text eol=lf
+# Tauri rewrites this manifest using LF during production builds.
+src-tauri/Cargo.toml text eol=lf
+# Keep language statistics focused on application code.
+# Windows installer source remains tracked and reviewable.
+src-tauri/windows/installer.nsi -linguist-detectable

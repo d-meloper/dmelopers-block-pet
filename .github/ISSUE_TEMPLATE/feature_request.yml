@@ -1,0 +1,23 @@
+name: Feature request
+description: Propose a focused improvement.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Explain the user problem rather than only the proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: assets
+    attributes:
+      label: Asset provenance
+      description: If media or models are involved, identify their source and redistribution license.

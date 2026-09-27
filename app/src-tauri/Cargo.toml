@@ -1,0 +1,83 @@
+[package]
+name = "dmelopers-block-pet"
+version = "1.0.0"
+description = "DMeloper's Block Pet desktop companion"
+license = "MIT"
+authors = [ "DMeloper" ]
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "dmelopers_block_pet_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[test]]
+name = "asset_scope"
+path = "src/asset_scope_tests.rs"
+
+[[test]]
+name = "shortcut_store"
+path = "src/shortcut_store_tests.rs"
+
+[[test]]
+name = "general_defaults"
+path = "src/general_defaults_tests.rs"
+
+[[test]]
+name = "updater_startup"
+path = "src/updater_startup_tests.rs"
+required-features = ["test-repository"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws"] }
+base64 = "0.22"
+futures-util = "0.3"
+getrandom = "0.3"
+httpdate = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+log.workspace = true
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "system-proxy"] }
+sha2 = "0.10"
+tauri = { workspace = true, features = ["tray-icon", "image-png", "protocol-asset"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sysinfo = "0.39"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tauri-plugin-custom-window.workspace = true
+tauri-plugin-os = "2"
+tauri-plugin-process = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-pinia = "3"
+tauri-plugin-log = "2"
+tauri-plugin-prevent-default = "1"
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-updater = { version = "=2.11.0", optional = true, default-features = false, features = ["native-tls", "system-proxy"] }
+minisign-verify = { version = "=0.2.5", optional = true }
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-locale = "2"
+rdev = { git = "https://github.com/kunkunsh/rdev" }
+
+[target."cfg(target_os = \"windows\")".dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Graphics_Gdi", "Win32_UI_Controls_Dialogs", "Win32_Storage_FileSystem", "Win32_System_Performance", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_HiDpi", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_UI_Shell", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Environment"] }
+
+[dev-dependencies]
+tauri = { workspace = true, features = ["test"] }
+tempfile = "3"
+tokio-tungstenite = "0.29"
+
+[features]
+default = ["manual-nsis"]
+manual-nsis = []
+cargo-clippy = []
+# Recognize old invocations only to reject them explicitly in build.rs.
+private-update-qa = []
+test-repository = ["dep:tauri-plugin-updater", "dep:minisign-verify"]

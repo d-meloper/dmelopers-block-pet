@@ -1,0 +1,94 @@
+html {
+  --uno: select-none overscroll-none antialiased;
+
+  color-scheme: light;
+
+  body {
+    --uno: transition-opacity-300;
+  }
+
+  &.dark {
+    color-scheme: dark;
+  }
+
+  img {
+    -webkit-user-drag: none;
+  }
+
+  button {
+    outline: none !important;
+  }
+
+  .ant-card {
+    .ant-card-actions {
+      > li {
+        --uno: flex items-center justify-center;
+        > span {
+          --uno: inline-flex items-center justify-center min-w-unset;
+        }
+      }
+    }
+  }
+}
+
+html.main-window-shell {
+  height: 100%;
+  overflow: hidden;
+  width: 100%;
+
+  body,
+  #app {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    width: 100%;
+  }
+
+  .main-window-root {
+    height: 100%;
+    overflow: hidden;
+    position: fixed;
+    inset: 0;
+    width: 100%;
+
+    canvas {
+      display: block;
+    }
+  }
+}
+
+// Settings controls size to their text; translated options may be wider than
+// the selected value. Popups are teleported outside .preference-sections.
+html {
+  .preference-sections .ant-select {
+    flex-shrink: 0;
+    width: max-content;
+    min-width: 7rem;
+    max-width: 100%;
+
+    &.ant-select-single .ant-select-selector {
+      height: auto;
+      min-height: 32px;
+    }
+
+    .ant-select-selection-item {
+      padding-block: 4px;
+      line-height: 22px;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      text-overflow: clip;
+    }
+  }
+
+  .ant-select-dropdown,
+  .ant-dropdown {
+    max-width: calc(100vw - 24px);
+  }
+
+  .ant-select-item-option-content,
+  .ant-dropdown-menu-title-content {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+}

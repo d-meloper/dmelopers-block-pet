@@ -12,13 +12,12 @@ it('logs an autostart failure without poisoning later changes or logging success
   let fail = true
   const exports = {} as typeof import('./autostart')
   const native = {
-    isEnabled: async () => enabled,
-    enable: async () => {
-      if (fail) throw failure
-      enabled = true
-    },
-    disable: async () => {
-      enabled = false
+    invoke: async (command: string, args?: { enabled: boolean }) => {
+      if (command === 'autostart_status') return { enabled, state: enabled ? 'enabled' : 'disabled', canEnable: true, canDisable: true }
+      if (command === 'set_autostart_enabled') {
+        if (args?.enabled && fail) throw failure
+        enabled = args?.enabled === true
+      }
     },
   }
   const source = ts.transpileModule(readFileSync(new URL('./autostart.ts', import.meta.url), 'utf8'), {
@@ -26,10 +25,11 @@ it('logs an autostart failure without poisoning later changes or logging success
   }).outputText
   runInNewContext(source, {
     exports,
-    require: (id: string) => id === '@tauri-apps/plugin-autostart'
+    require: (id: string) => id === '@tauri-apps/api/core'
       ? native
       : { reportDiagnostic: (level: string, operation: string, error: unknown) => diagnostics.push({ level, operation, error }) },
   })
+  assert.equal((await exports.getAutostartStatus()).enabled, false)
   await exports.setAutostartEnabled(false)
   assert.deepEqual(diagnostics, [])
   await assert.rejects(exports.setAutostartEnabled(true), error => error === failure)

@@ -106,6 +106,7 @@ fn authorize_window(label: &str) -> Result<(), String> {
 #[tauri::command]
 pub fn latest_version_releases_url(window: tauri::WebviewWindow) -> Result<String, String> {
     authorize_window(window.label())?;
+    if cfg!(feature = "channel-store") { return Err("LATEST_VERSION_DISABLED".into()); }
     Ok(format!("https://github.com/{}/releases", feed::REPOSITORY))
 }
 
@@ -115,6 +116,7 @@ pub async fn check_latest_version(
     state: tauri::State<'_, LatestVersionState>,
 ) -> Result<LatestVersionResponse, String> {
     authorize_window(window.label())?;
+    if cfg!(feature = "channel-store") { return Err("LATEST_VERSION_DISABLED".into()); }
     Ok(state.service.check().await)
 }
 

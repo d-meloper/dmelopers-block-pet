@@ -9,6 +9,7 @@ import { compileScript, parse } from 'vue/compiler-sfc'
 
 import { APP_DISPLAY_NAME } from '@/constants/branding'
 import { isKoreanLanguage, selectByLanguage } from '@/locales/languageBranch'
+import { ProgramSettingsResetError } from '@/utils/programSettingsReset'
 
 function harness() {
   const locale = Vue.ref('ko-KR')
@@ -18,19 +19,27 @@ function harness() {
   const errors: string[] = []
   let failOpen = false
   let failCopy = false
+  let resetError: unknown
+  let confirmReset: (() => Promise<void>) | undefined
   const { descriptor } = parse(readFileSync(new URL('./index.vue', import.meta.url), 'utf8'))
   const script = compileScript(descriptor, { id: 'about-actions' })
   interface Actions {
     openDeveloperLink: () => Promise<void>
     copyDeveloperEmail: () => Promise<void>
     copyInfo: () => Promise<void>
+    confirmProgramReset: () => void
   }
   const module = { exports: {} as { default: { setup: (props: object, context: object) => Actions } } }
   const mocks: Record<string, unknown> = {
     '@/services/diagnostics': { reportDiagnostic: () => {} },
     'vue': { ...Vue, onMounted: () => {} },
     'vue-i18n': { useI18n: () => ({ locale, t: (key: string) => key }) },
-    'ant-design-vue': { message: { success: (key: string) => successes.push(key), error: (key: string) => errors.push(key) } },
+    'ant-design-vue': {
+      message: { success: (key: string) => successes.push(key), error: (key: string) => errors.push(key) },
+      Modal: { confirm: ({ onOk }: { onOk: () => Promise<void> }) => {
+        confirmReset = onOk
+      } },
+    },
     '@tauri-apps/api/app': { getTauriVersion: async () => '2.0.0' },
     '@tauri-apps/api/path': { appLogDir: async () => '/logs' },
     '@tauri-apps/plugin-os': { arch: () => 'x86_64', platform: () => 'windows', version: () => '10' },
@@ -45,7 +54,10 @@ function harness() {
     '@/locales/languageBranch': { selectByLanguage },
     '@/constants/branding': { APP_DISPLAY_NAME },
     '@/stores/app': { useAppStore: () => ({ version: '1.0.0' }) },
-    '@/composables/useProgramSettingsReset': { useProgramSettingsReset: () => ({ resetProgramSettings: async () => {} }) },
+    '@/composables/useProgramSettingsReset': { useProgramSettingsReset: () => ({ resetProgramSettings: async () => {
+      if (resetError) throw resetError
+    } }) },
+    '@/utils/programSettingsReset': { ProgramSettingsResetError },
   }
   runInNewContext(ts.transpileModule(script.content, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -57,6 +69,13 @@ function harness() {
     copied,
     successes,
     errors,
+    failReset: (error: unknown) => {
+      resetError = error
+    },
+    confirmReset: () => {
+      assert.ok(confirmReset)
+      return confirmReset()
+    },
     fail: () => {
       failOpen = true
       failCopy = true
@@ -96,4 +115,22 @@ it('reports native open and clipboard failures without success notifications', a
   await h.actions.copyDeveloperEmail()
   assert.deepEqual(h.errors, ['pages.preference.about.errors.openDeveloperLink', 'pages.preference.about.errors.copyEmail'])
   assert.deepEqual(h.successes, [])
+})
+
+it('distinguishes blocked, preflight and partial reset errors without closing the retry dialog', async () => {
+  for (const [outcome, key] of [
+    ['blocked', 'resetAutostartBlocked'],
+    ['preflight', 'resetPreflight'],
+    ['partial', 'resetPartial'],
+  ] as const) {
+    const h = harness()
+    const error = new ProgramSettingsResetError(outcome, outcome === 'partial' ? 'library' : 'preflight', new Error('failed'))
+    h.failReset(error)
+    h.actions.confirmProgramReset()
+    await assert.rejects(h.confirmReset(), value => value === error)
+    assert.deepEqual(h.errors, [`pages.preference.about.errors.${key}`])
+    h.failReset(undefined)
+    await h.confirmReset()
+    assert.deepEqual(h.successes, [])
+  }
 })

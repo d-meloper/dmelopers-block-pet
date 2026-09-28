@@ -1,4 +1,10 @@
 mod application_context;
+mod autostart;
+mod bootstrap;
+mod data_paths;
+mod distribution;
+mod native_operation;
+mod windows_process;
 mod asset_scope;
 mod broadcast;
 mod core;
@@ -11,7 +17,7 @@ mod settings_defaults;
 mod skin_library;
 mod state_safety;
 
-const RELEASE_MODE_MARKER: &str = "DMELoper_RELEASE_MODE_MANUAL_NSIS";
+const RELEASE_MODE_MARKER: &str = "DMELoper_CHANNEL_BOUND_SHARED_DATA_V1";
 
 /// Configured windows must wait until normal native state has been installed.
 struct StartupReady(tokio::sync::watch::Sender<bool>);
@@ -57,12 +63,20 @@ use skin_library::{
 };
 use tauri::{Emitter, Manager, WindowEvent, generate_handler};
 use tauri_plugin_custom_window::{
-    MAIN_WINDOW_LABEL, PREFERENCE_WINDOW_LABEL, set_webview_memory_active, show_preference_window,
+    MAIN_WINDOW_LABEL, PREFERENCE_WINDOW_LABEL, set_webview_memory_active,
 };
 
 pub fn run() {
     std::hint::black_box(RELEASE_MODE_MARKER);
+    let (lifetime_lock, roots) = match bootstrap::prepare() {
+        Ok(Some(ready)) => ready,
+        Ok(None) => return,
+        Err(message) => { bootstrap::error(&message); return; }
+    };
+    let pinia_root = roots.durable.join("tauri-plugin-pinia");
     let app = tauri::Builder::default()
+        .manage(roots)
+        .plugin(data_paths::storage_guard())
         .plugin(diagnostics::init())
         // Retain the existing log IPC permissions; the sole file writer is diagnostics.
         .plugin(tauri_plugin_log::Builder::new().skip_logger().build())
@@ -71,6 +85,7 @@ pub fn run() {
         // Configured webviews can invoke commands while setup is still running.
         .manage(StartupReady::new())
         .setup(|app| {
+            data_paths::assert_store_root(app.handle())?;
             state_safety::initialize_general_defaults(app.handle()).map_err(|code| {
                 diagnostics::error("settings.initialize_defaults", code);
                 // Setup failure terminates the app; never leave hidden webviews waiting
@@ -81,8 +96,8 @@ pub fn run() {
             app.manage(SkinLibraryState::new(app.handle()));
             app.manage(BroadcastState::new(app.handle()));
             app.manage(LatestVersionState::new(app.handle()));
-            #[cfg(feature = "test-repository")]
-            in_app_update::test_profile::initialize(app.handle()).map_err(|error| {
+            #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+            in_app_update::enabled_profile::initialize(app.handle()).map_err(|error| {
                 diagnostics::error("updater.initialize", "UPDATE_PLUGIN_INITIALIZATION_FAILED");
                 error
             })?;
@@ -108,6 +123,12 @@ pub fn run() {
             in_app_update::check_app_update,
             in_app_update::download_app_update,
             in_app_update::install_app_update,
+            in_app_update::cancel_app_update,
+            in_app_update::begin_app_update_save,
+            in_app_update::abort_app_update,
+            distribution::distribution_info,
+            autostart::autostart_status,
+            autostart::set_autostart_enabled,
             start_device_listening,
             set_device_input_active,
             set_device_mouse_enabled,
@@ -140,12 +161,8 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_pinia::init())
+        .plugin(tauri_plugin_pinia::Builder::new().path(pinia_root).build())
         .plugin(prevent_default::init())
-        .plugin(tauri_plugin_single_instance::init(
-            |app_handle, _argv, _cwd| show_preference_window(app_handle),
-        ))
-        .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_locale::init())
@@ -178,9 +195,16 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .build(application_context::generate())
-        .expect("error while running tauri application");
+        .build(application_context::generate());
+    let app = match app {
+        Ok(app) => app,
+        Err(error) => {
+            bootstrap::error(&format!("The application could not initialize safely.\n{error}"));
+            return;
+        }
+    };
 
+    lifetime_lock.listen(app.handle().clone());
     app.run(|app_handle, event| match event {
         tauri::RunEvent::Exit => {
             app_handle.state::<BroadcastState>().shutdown();
@@ -217,6 +241,17 @@ mod startup_tests {
 #[cfg(test)]
 mod capability_tests {
     use tauri::{ipc::Origin, test::MockRuntime};
+
+    #[test]
+    fn renderer_cannot_bypass_native_restart_or_shared_storage_policy() {
+        let mut context: tauri::Context<MockRuntime> = tauri::generate_context!();
+        let authority = context.runtime_authority_mut();
+        for command in ["plugin:process|restart", "plugin:pinia|set_store_collection_path", "plugin:autostart|enable", "plugin:autostart|disable"] {
+            for label in ["main", "preference"] {
+                assert!(authority.resolve_access(command, label, label, &Origin::Local).is_none(), "{command} cannot bypass native policy");
+            }
+        }
+    }
 
     #[test]
     fn removed_update_failure_window_has_no_store_permissions() {

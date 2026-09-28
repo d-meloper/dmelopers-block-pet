@@ -14,7 +14,6 @@ use base64::{Engine as _, engine::general_purpose};
 use image::GenericImageView;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::Manager;
 
 #[path = "preset_transfer.rs"]
 pub(crate) mod preset_transfer;
@@ -186,9 +185,7 @@ pub struct SkinLibraryState {
 
 impl SkinLibraryState {
     pub fn new(app_handle: &tauri::AppHandle) -> Self {
-        let root = app_handle
-            .path()
-            .app_data_dir()
+        let root = crate::data_paths::durable_root(app_handle)
             .inspect_err(|_| crate::diagnostics::warn("skin_library.initialize", "STORAGE_UNAVAILABLE"))
             .ok()
             .map(|path| path.join(LIBRARY_DIRECTORY));
@@ -674,6 +671,12 @@ fn validate_store_request(
 }
 
 fn read_local_skin_file_path(file_path: &str) -> Result<ReadLocalSkinFileResponse, LibraryError> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_SHARE_READ,
+    };
+
     let path = Path::new(file_path);
     if !path.is_absolute() {
         return Err(LibraryError::new(LibraryErrorKind::InvalidRequest));
@@ -683,24 +686,43 @@ fn read_local_skin_file_path(file_path: &str) -> Result<ReadLocalSkinFileRespons
         .and_then(|name| name.to_str())
         .filter(|name| is_safe_original_filename(name))
         .ok_or_else(|| LibraryError::new(LibraryErrorKind::InvalidRequest))?;
-    let metadata =
-        fs::symlink_metadata(path).map_err(|_| LibraryError::new(LibraryErrorKind::Io))?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() {
+    // Validate and read the same opened object. Do not follow a final reparse
+    // point or allow another opener to write/replace it while importing.
+    // BACKUP_SEMANTICS lets directory inputs retain their InvalidRequest result.
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+        .map_err(|_| LibraryError::new(LibraryErrorKind::Io))?;
+    let metadata = file.metadata().map_err(|_| LibraryError::new(LibraryErrorKind::Io))?;
+    if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
         return Err(LibraryError::new(LibraryErrorKind::InvalidRequest));
     }
-    if metadata.len() > RAW_PNG_LIMIT as u64 {
-        return Err(LibraryError::new(LibraryErrorKind::TooLarge));
-    }
 
-    let bytes = fs::read(path).map_err(|_| LibraryError::new(LibraryErrorKind::Io))?;
-    if bytes.len() > RAW_PNG_LIMIT {
-        return Err(LibraryError::new(LibraryErrorKind::TooLarge));
-    }
+    let bytes = read_local_skin_bytes(file, metadata.len())?;
     let png = validate_png(bytes, AssetKind::Raw)?;
     Ok(ReadLocalSkinFileResponse {
         original_filename: original_filename.to_owned(),
         png_base64: general_purpose::STANDARD.encode(png.bytes),
     })
+}
+
+fn read_local_skin_bytes(reader: impl Read, reported_size: u64) -> Result<Vec<u8>, LibraryError> {
+    if reported_size > RAW_PNG_LIMIT as u64 {
+        return Err(LibraryError::new(LibraryErrorKind::TooLarge));
+    }
+    // Metadata is only an early rejection. Bound the stream even if a source
+    // reports an outdated size; the extra byte distinguishes a full valid read.
+    let mut bytes = Vec::new();
+    reader
+        .take(RAW_PNG_LIMIT as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| LibraryError::new(LibraryErrorKind::Io))?;
+    if bytes.len() > RAW_PNG_LIMIT {
+        return Err(LibraryError::new(LibraryErrorKind::TooLarge));
+    }
+    Ok(bytes)
 }
 
 fn validate_display_name(value: &str) -> Result<String, LibraryError> {
@@ -1494,6 +1516,49 @@ mod tests {
 
     fn service(temp: &TempDir) -> SkinLibraryService {
         SkinLibraryService::new(Some(temp.path().join(LIBRARY_DIRECTORY)))
+    }
+
+    #[test]
+    fn local_skin_reader_bounds_a_source_that_grows_after_size_inspection() {
+        struct GrowingReader {
+            consumed: usize,
+        }
+        impl Read for GrowingReader {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                // The inspected source contained one byte; more bytes continue
+                // arriving after it. This deliberately never reaches EOF.
+                buffer.fill(0);
+                self.consumed += buffer.len();
+                Ok(buffer.len())
+            }
+        }
+        let mut reader = GrowingReader { consumed: 0 };
+        assert_eq!(
+            read_local_skin_bytes(&mut reader, 1).unwrap_err().kind,
+            LibraryErrorKind::TooLarge
+        );
+        assert_eq!(reader.consumed, RAW_PNG_LIMIT + 1);
+    }
+
+    #[test]
+    fn local_skin_reader_preserves_exact_limit_short_reads_and_io_errors() {
+        let bytes = read_local_skin_bytes(io::repeat(7).take(RAW_PNG_LIMIT as u64), 1).unwrap();
+        assert_eq!(bytes.len(), RAW_PNG_LIMIT);
+        assert!(bytes.iter().all(|byte| *byte == 7));
+        assert_eq!(read_local_skin_bytes(&b"short"[..], 100).unwrap(), b"short");
+
+        struct FailingReader;
+        impl Read for FailingReader {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::from(io::ErrorKind::PermissionDenied))
+            }
+        }
+        assert_eq!(read_local_skin_bytes(FailingReader, 1).unwrap_err().kind, LibraryErrorKind::Io);
+        // The metadata rejection must happen before attempting the failing read.
+        assert_eq!(
+            read_local_skin_bytes(FailingReader, RAW_PNG_LIMIT as u64 + 1).unwrap_err().kind,
+            LibraryErrorKind::TooLarge
+        );
     }
 
     #[test]

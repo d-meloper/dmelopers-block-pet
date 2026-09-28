@@ -57,8 +57,6 @@ tauri-plugin-opener = "2"
 tauri-plugin-pinia = "3"
 tauri-plugin-log = "2"
 tauri-plugin-prevent-default = "1"
-tauri-plugin-single-instance = "2"
-tauri-plugin-autostart = "2"
 tauri-plugin-updater = { version = "=2.11.0", optional = true, default-features = false, features = ["native-tls", "system-proxy"] }
 minisign-verify = { version = "=0.2.5", optional = true }
 tauri-plugin-clipboard-manager = "2"
@@ -67,7 +65,10 @@ tauri-plugin-locale = "2"
 rdev = { git = "https://github.com/kunkunsh/rdev" }
 
 [target."cfg(target_os = \"windows\")".dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Graphics_Gdi", "Win32_UI_Controls_Dialogs", "Win32_Storage_FileSystem", "Win32_System_Performance", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_HiDpi", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_UI_Shell", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Environment"] }
+windows-sys = { version = "0.61", features = ["Win32_Graphics_Gdi", "Win32_UI_Controls_Dialogs", "Win32_Storage_FileSystem", "Win32_System_Performance", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_HiDpi", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_UI_Shell", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Environment", "Win32_System_Com", "Win32_Globalization"] }
+windows = { version = "0.61", features = ["ApplicationModel"] }
+# windows 0.61 does not forward its std feature to WinRT futures.
+windows-future = { version = "0.2", features = ["std"] }
 
 [dev-dependencies]
 tauri = { workspace = true, features = ["test"] }
@@ -75,8 +76,10 @@ tempfile = "3"
 tokio-tungstenite = "0.29"
 
 [features]
-default = ["manual-nsis"]
-manual-nsis = []
+default = ["channel-github"]
+manual-nsis = ["channel-github"]
+channel-github = ["dep:tauri-plugin-updater", "dep:minisign-verify"]
+channel-store = []
 cargo-clippy = []
 # Recognize old invocations only to reject them explicitly in build.rs.
 private-update-qa = []

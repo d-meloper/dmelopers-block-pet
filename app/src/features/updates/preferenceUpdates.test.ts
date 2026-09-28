@@ -2,31 +2,28 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import type { DistributionChannel } from '@/services/distribution'
 import type { AppUpdateInfo } from '@/services/inAppUpdates'
-import type { LatestVersionResponse } from '@/services/manualUpdates'
 
 import { createPreferenceUpdates, UPDATE_REMINDER_WEEK } from './preferenceUpdates'
 
 const available = (version = '1.0.2'): AppUpdateInfo => ({ available: true, currentVersion: '1.0.1', version, bytes: 123 })
-function harness(automatic = true, storage = { deadline: 0 }) {
+function harness(channel: DistributionChannel = 'github', storage = { deadline: 0 }) {
   let time = 1_800_000_000_000
   let result = available()
   let request = async () => result
-  let manual: LatestVersionResponse = { status: 'available', currentVersion: '1.0.1', latestVersion: '1.0.2', errorCode: null, lastSuccessAt: 1, lastAttemptAt: 1, fromCache: false }
   const calls: string[] = []
+  const freshness: boolean[] = []
   const errors: string[] = []
   const updates = createPreferenceUpdates({
-    enabled: async () => {
+    channel: async () => {
       calls.push('profile')
-      return automatic
+      return channel
     },
-    checkApp: async () => {
+    checkApp: async (force) => {
+      freshness.push(force)
       calls.push('check')
       return request()
-    },
-    checkManual: async () => {
-      calls.push('manual')
-      return manual
     },
     install: async (phase, progress) => {
       calls.push('install')
@@ -35,8 +32,8 @@ function harness(automatic = true, storage = { deadline: 0 }) {
       phase('saving')
       phase('installing')
     },
-    openDownloads: async () => {
-      calls.push('open')
+    cancel: async () => {
+      calls.push('cancel')
     },
     hiddenUntil: () => storage.deadline,
     hideUntil: (value) => {
@@ -50,6 +47,7 @@ function harness(automatic = true, storage = { deadline: 0 }) {
   return {
     updates,
     calls,
+    freshness,
     errors,
     storage,
     setTime: (value: number) => {
@@ -57,9 +55,6 @@ function harness(automatic = true, storage = { deadline: 0 }) {
     },
     result: (value: AppUpdateInfo) => {
       result = value
-    },
-    manual: (value: Partial<LatestVersionResponse>) => {
-      manual = { ...manual, ...value }
     },
     request: (value: () => Promise<AppUpdateInfo>) => {
       request = value
@@ -91,7 +86,7 @@ test('a single seven-day expiry survives restart, covers other versions, and exp
   h.updates.snooze()
   assert.equal(h.storage.deadline, 1_800_000_000_000 + UPDATE_REMINDER_WEEK)
   assert.equal(h.updates.reminderVersion.value, undefined)
-  const restarted = harness(true, h.storage)
+  const restarted = harness('github', h.storage)
   restarted.result(available('1.0.3'))
   restarted.setTime(h.storage.deadline - 1)
   await restarted.updates.setVisible(true)
@@ -136,10 +131,6 @@ test('failed, current, stale and disposed checks never offer an update', async (
   h.updates.dispose()
   await h.updates.check()
   assert.equal(h.calls.filter(x => x === 'check').length, 2)
-  const manual = harness(false)
-  manual.manual({ errorCode: 'staleFeed', fromCache: true })
-  await manual.updates.setVisible(true)
-  assert.equal(manual.updates.reminderVersion.value, undefined)
 })
 
 test('the update button rechecks the accepted version and enters the existing install only once', async () => {
@@ -170,11 +161,23 @@ test('a changed latest version needs another click; a withdrawn or failed update
   assert.equal(h.updates.reminderVersion.value, undefined)
 })
 
-test('official builds only open the existing Releases page and never invoke the test updater', async () => {
-  const h = harness(false)
+test('Store and development never enter the GitHub check or installation path', async () => {
+  for (const channel of ['store', 'development'] as const) {
+    const h = harness(channel)
+    await h.updates.setVisible(true)
+    await h.updates.check()
+    await h.updates.update()
+    assert.deepEqual(h.calls, ['profile'])
+    assert.equal(h.updates.reminderVersion.value, undefined)
+  }
+})
+
+test('opening allows a display cache; explicit checks and installation always refresh', async () => {
+  const h = harness()
   await h.updates.setVisible(true)
+  await h.updates.check()
   await h.updates.update()
-  assert.deepEqual(h.calls, ['profile', 'manual', 'open'])
+  assert.deepEqual(h.freshness, [false, true, true])
 })
 
 test('reopening during install revalidation cancels that intent before a fresh opening check', async () => {

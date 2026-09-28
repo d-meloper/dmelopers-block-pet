@@ -1,7 +1,9 @@
 # Security Policy
 
-Report vulnerabilities privately through [GitHub private vulnerability reporting](https://github.com/d-meloper/dmelopers-block-pet/security/advisories/new). Include the affected version, impact, reproduction steps and sanitized evidence. Do not post exploit details or secrets in public issues.
+Report vulnerabilities privately through [GitHub private vulnerability reporting](https://github.com/d-meloper/dmelopers-block-pet/security/advisories/new). Include the affected version, channel, impact, reproduction steps and sanitized evidence. Keep secrets and exploit details out of public issues.
 
-Security fixes target the latest published stable version for Windows 11 24H2 or newer, x64. Update to the latest stable release before repeating a report.
+Security fixes target the latest published stable version for Windows 11 24H2 or newer, x64. GitHub and Store use the same product version (X.Y.Z; the Store package is X.Y.Z.0).
 
-Download installers from the official Releases page linked by the app. Each release provides the installer, its detached Tauri signature (`.sig`), and SHA-256 checksums for both files. Updates are installed manually; the app does not fetch or execute update packages. The first release has no Authenticode signature, so Windows may display an unknown-publisher prompt. A checksum detects changed bytes but does not itself authenticate the publisher.
+GitHub updates check signed metadata from the fixed official repository and verify the installer size, SHA-256 and detached Tauri signature before user-initiated installation. A Tauri signature is separate from Authenticode. Initial GitHub installers have no Authenticode signature and Windows may show an unknown publisher. A checksum detects changed bytes; it does not alone authenticate the publisher. Microsoft manages Store package signing and updates; the Microsoft-signed installed package can differ from the submitted package hash.
+
+Installation failures preserve shared Saved Games data. Repair an interrupted GitHub installation using the same installer; automatic rollback is not provided. Review logs before sharing them. This independent personal project does not claim SignPath signing or CI-produced official release binaries.

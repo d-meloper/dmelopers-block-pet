@@ -10,8 +10,8 @@ import type { PreferenceUpdates } from '@/features/updates/preferenceUpdates'
 
 import { createPreferenceUpdates } from '@/features/updates/preferenceUpdates'
 import { reportDiagnostic } from '@/services/diagnostics'
-import { checkAppUpdate, inAppUpdaterEnabled, installAppUpdate } from '@/services/inAppUpdates'
-import { checkLatestVersion, openReleaseDownloads } from '@/services/manualUpdates'
+import { getDistributionInfo } from '@/services/distribution'
+import { cancelAppUpdate, checkAppUpdate, installAppUpdate } from '@/services/inAppUpdates'
 import { useGeneralStore } from '@/stores/general'
 
 const PREFERENCE_UPDATES: InjectionKey<PreferenceUpdates> = Symbol('preference-updates')
@@ -20,20 +20,10 @@ export function providePreferenceUpdates() {
   const general = useGeneralStore()
   const { t } = useI18n()
   const updates = createPreferenceUpdates({
-    enabled: inAppUpdaterEnabled,
+    channel: async () => (await getDistributionInfo()).channel,
     checkApp: checkAppUpdate,
-    checkManual: checkLatestVersion,
-    install: async (onPhase, onProgress) => {
-      const release = await listen<[number, number]>('app-update-progress', ({ payload: [received, size] }) => {
-        if (size > 0) onProgress(Math.min(100, Math.floor(received * 100 / size)))
-      })
-      try {
-        await installAppUpdate(onPhase)
-      } finally {
-        release()
-      }
-    },
-    openDownloads: openReleaseDownloads,
+    install: installAppUpdate,
+    cancel: cancelAppUpdate,
     hiddenUntil: () => general.app.updateReminderHiddenUntil,
     hideUntil: (deadline) => {
       general.app.updateReminderHiddenUntil = deadline

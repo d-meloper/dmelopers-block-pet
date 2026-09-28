@@ -438,8 +438,11 @@ const menus = computed(() => [
   >
     <UpdateReminder
       :busy="updates.busy.value"
+      :can-cancel="updates.canCancel.value"
+      :cancelling="updates.cancelling.value"
       :status="updates.phase.value ? t(`inAppUpdates.${updates.phase.value}`) : undefined"
       :version="updates.reminderVersion.value"
+      @cancel="updates.cancel"
       @close="updates.dismiss"
       @snooze="updates.snooze"
       @update="updates.update"

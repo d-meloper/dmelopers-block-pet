@@ -1,5 +1,5 @@
-; Test updater installer. Keeps manual installation, adds Tauri /UPDATE and /R.
-; No additional executable, plugin DLL, automatic data migration or rollback.
+; Test installer: explicit Tauri update, manual repair and preserved shared data.
+; Uses the pinned official NSIS System plugin for the installation mutex.
 Unicode true
 RequestExecutionLevel user
 ManifestDPIAware true
@@ -9,12 +9,15 @@ AllowSkipFiles off
 !include LogicLib.nsh
 !include FileFunc.nsh
 !include WordFunc.nsh
-!define PRODUCTNAME "DMeloper's Block Pet"
+!include x64.nsh
+!define PRODUCTNAME "DMeloper's Block Pet Test"
 !define MAIN "{{main_binary_name}}.exe"
 !define VERSION "{{version}}"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}"
 !define WEBVIEWKEY "SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 !define MINWEBVIEW "{{minimum_webview2_version}}"
+Var InstallerMutex
+Var InstallMarker
 Var UpdateMode
 Var RestartAfterUpdate
 Var UpdateWait
@@ -75,6 +78,10 @@ UninstPage instfiles
 Function .onInit
   SetShellVarContext current
   SetRegView 64
+  ${IfNot} ${RunningX64}
+    SetErrorLevel 1633
+    Abort
+  ${EndIf}
   ${GetParameters} $0
   StrCpy $UpdateMode 0
   StrCpy $RestartAfterUpdate 0
@@ -141,6 +148,7 @@ wait_update_done:
 FunctionEnd
 
 Function RequireWebView
+retry_webview:
   ; Official registration views only. Never download or execute a runtime.
   ; A stale machine registration must not hide a compatible per-user runtime.
   SetRegView 32
@@ -158,7 +166,10 @@ Function RequireWebView
   Call RuntimeVersionSupported
   StrCmp $0 1 runtime_ready
   SetRegView 64
-  MessageBox MB_OK|MB_ICONSTOP "$(RuntimeMissing)" /SD IDOK
+  IfSilent runtime_abort
+  ExecShell "open" "https://developer.microsoft.com/microsoft-edge/webview2/"
+  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(RuntimeMissing)" /SD IDCANCEL IDRETRY retry_webview
+runtime_abort:
   SetErrorLevel 1603
   Abort
 runtime_ready:
@@ -187,11 +198,45 @@ FunctionEnd
     Abort
 !macroend
 
+!macro InstallationMutex PREFIX
+Function ${PREFIX}AcquireInstallerMutex
+installer_retry:
+  System::Call 'kernel32::CreateMutexW(p 0, i 0, w "Local\DMeloper.BlockPet.Test.Installer") p .r0 ?e'
+  Pop $1
+  StrCpy $InstallerMutex $0
+  StrCmp $0 0 installer_failed
+  StrCmp $1 183 installer_busy installer_ready
+installer_busy:
+  System::Call 'kernel32::CloseHandle(p $InstallerMutex)'
+  StrCpy $InstallerMutex 0
+  IfSilent installer_failed
+  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(FileFailure)" /SD IDCANCEL IDRETRY installer_retry
+installer_failed:
+  SetErrorLevel 1618
+  Abort
+installer_ready:
+FunctionEnd
+!macroend
+!insertmacro InstallationMutex ""
+!insertmacro InstallationMutex "un."
+
 Section Install
   Call RequireWebView
   Call WaitForUpdateExit
+  Call AcquireInstallerMutex
   ClearErrors
   SetOutPath "$INSTDIR"
+  !insertmacro CheckWrite
+  ClearErrors
+  FileOpen $InstallMarker "$INSTDIR\.block-pet-installing" w
+  !insertmacro CheckWrite
+  FileWrite $InstallMarker "Interrupted installation: repair with the same installer."
+  !insertmacro CheckWrite
+  System::Call 'kernel32::FlushFileBuffers(p $InstallMarker) i .r0'
+  StrCmp $0 0 0 +2
+    SetErrors
+  !insertmacro CheckWrite
+  FileClose $InstallMarker
   !insertmacro CheckWrite
   ; An in-use main blocks before replacing resources; there is no forced exit.
   ClearErrors
@@ -239,6 +284,11 @@ SectionEnd
 ; Manual success starts the installed app after optional shortcut handling.
 ; Update success retains the explicit /R contract and shares the single launch.
 Function .onInstSuccess
+  ClearErrors
+  Delete "$INSTDIR\.block-pet-installing"
+  !insertmacro CheckWrite
+  System::Call 'kernel32::CloseHandle(p $InstallerMutex)'
+  StrCpy $InstallerMutex 0
   StrCmp $UpdateMode 1 0 manual_success
   StrCmp $RestartAfterUpdate 1 desktop_done install_done
 manual_success:
@@ -349,6 +399,8 @@ FunctionEnd
 !insertmacro ShortcutOwned "un."
 
 Section Uninstall
+  ; Shared Saved Games data is deliberately not part of this inventory.
+  Call un.AcquireInstallerMutex
   ; Exact files only. Never recursively delete directories or user profiles.
   ClearErrors
   Delete "$INSTDIR\${MAIN}"

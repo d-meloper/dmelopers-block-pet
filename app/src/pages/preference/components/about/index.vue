@@ -15,12 +15,15 @@ import { useProgramSettingsReset } from '@/composables/useProgramSettingsReset'
 import { APP_DISPLAY_NAME } from '@/constants/branding'
 import { selectByLanguage } from '@/locales/languageBranch'
 import { reportDiagnostic } from '@/services/diagnostics'
+import { getDistributionInfo } from '@/services/distribution'
 import { useAppStore } from '@/stores/app'
+import { ProgramSettingsResetError } from '@/utils/programSettingsReset'
 
 import ProgramUpdates from './ProgramUpdates.vue'
 
 const appStore = useAppStore()
 const logDir = ref('')
+const dataDir = ref('')
 const legalNotices = ref('')
 const legalOpen = ref(false)
 const legalLoading = ref(false)
@@ -30,6 +33,11 @@ const { resetProgramSettings } = useProgramSettingsReset()
 
 onMounted(async () => {
   logDir.value = await appLogDir()
+  try {
+    dataDir.value = (await getDistributionInfo()).dataRoot
+  } catch (error) {
+    reportDiagnostic('warn', 'about.data_location', error)
+  }
 })
 
 async function openDeveloperLink() {
@@ -89,7 +97,10 @@ function confirmProgramReset() {
         await resetProgramSettings()
       } catch (error) {
         reportDiagnostic('error', 'settings.reset_all', error)
-        message.error(t('pages.preference.about.errors.resetAll'))
+        const key = error instanceof ProgramSettingsResetError
+          ? { blocked: 'resetAutostartBlocked', preflight: 'resetPreflight', partial: 'resetPartial' }[error.outcome]
+          : 'resetAll'
+        message.error(t(`pages.preference.about.errors.${key}`))
         throw error
       }
     },
@@ -136,6 +147,18 @@ function confirmProgramReset() {
       >
         <Button @click="copyInfo">
           {{ $t('pages.preference.about.buttons.copy') }}
+        </Button>
+      </ProListItem>
+
+      <ProListItem
+        :description="dataDir"
+        :title="t('dataLocation.title')"
+      >
+        <Button
+          :disabled="!dataDir"
+          @click="writeText(dataDir)"
+        >
+          {{ t('pages.preference.about.buttons.copy') }}
         </Button>
       </ProListItem>
 

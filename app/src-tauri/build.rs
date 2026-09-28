@@ -1,14 +1,37 @@
-// The production app uses user-selected manual installation only.
-// Historical helper sources and retained bytes remain outside this build graph.
+// GitHub and Store share the core but have mutually exclusive native delivery.
+// Historical update helper sources and retained bytes remain outside this graph.
 fn main() {
+    println!("cargo:rerun-if-env-changed=DMELOPER_STORE_PRODUCT_ID");
+    println!("cargo:rerun-if-env-changed=DMELOPER_STORE_IDENTITY_NAME");
+    println!("cargo:rerun-if-env-changed=DMELOPER_STORE_PUBLISHER");
+    if let Ok(id) = std::env::var("DMELOPER_STORE_PRODUCT_ID") {
+        assert!(
+            id.len() == 12 && id.bytes().all(|c| c.is_ascii_alphanumeric()),
+            "DMELOPER_STORE_PRODUCT_ID must be a Partner Center product ID"
+        );
+    }
     assert_eq!(
         std::env::var("CARGO_CFG_TARGET_OS").as_deref(),
         Ok("windows"),
         "DMeloper's Block Pet currently supports Windows only."
     );
-    assert!(
-        std::env::var_os("CARGO_FEATURE_MANUAL_NSIS").is_some(),
-        "this application requires the manual-nsis release mode"
+    let channels = [
+        "CARGO_FEATURE_CHANNEL_GITHUB",
+        "CARGO_FEATURE_CHANNEL_STORE",
+        "CARGO_FEATURE_TEST_REPOSITORY",
+    ];
+    assert_eq!(
+        channels
+            .iter()
+            .filter(|name| std::env::var_os(name).is_some())
+            .count(),
+        1,
+        "select exactly one native channel: channel-github, channel-store, test-repository (use --no-default-features)"
+    );
+    assert_eq!(
+        std::env::var("CARGO_CFG_TARGET_ARCH").as_deref(),
+        Ok("x86_64"),
+        "Windows x64 is required"
     );
     assert!(
         std::env::var_os("CARGO_FEATURE_PRIVATE_UPDATE_QA").is_none(),

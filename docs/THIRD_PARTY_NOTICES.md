@@ -25,7 +25,7 @@ part of the public source projection or installer.
 under its original MIT license, preserved at `../app/vendor/tauri-winres/LICENSE`, and
 retains the original Tauri Apps Contributors and Max Resch copyright notices.
 
-The installer-only `block_pet_installer_utils.dll` is derived from
+The retained historical installer helper `block_pet_installer_utils.dll` is derived from
 [Tauri nsis-tauri-utils 0.5.3](https://github.com/tauri-apps/nsis-tauri-utils/tree/nsis_tauri_utils-v0.5.3).
 Its source is retained at `../app/src-tauri/windows/installer-utils`, including
 the original MIT and Apache-2.0 texts, the original copyright
@@ -34,12 +34,11 @@ the pinned upstream archive/source hashes. The local derivative retains only
 version comparison, process inspection and non-elevated application launch;
 unused process-termination and string commands were removed. The vendored
 `nsis-plugin-api` and `nsis-fn` sources are unchanged. This locally built DLL is
-not an official or Authenticode-signed Tauri release.
+not an official or Authenticode-signed Tauri release. The current GitHub/Store packaging does not build or include this helper; its sources and notices remain for historical provenance.
 
-The application's shared update core and separate update worker are maintained
-under the project MIT license in `../app/crates/update-core`. Their external
-dependencies are included in the offline dependency notices, with the app,
-worker and installer plugin recorded as separate build consumers.
+The shared update core and retained historical update worker are maintained under the project MIT license in `../app/crates/update-core`. The current packages do not ship the separate worker. Its dependencies and the historical installer plugin are still recorded as separate source/build consumers in the offline notices; inclusion in that inventory does not mean the component is shipped.
+
+`../app/vendor/tauri-plugin-updater` contains the locally patched Tauri updater 2.11.0 used by the GitHub channel. Its MIT/Apache-2.0 license texts, upstream identity, and local changes are preserved in that directory and in the offline notices. Store packages do not use this updater.
 
 ## Runtime assets
 
@@ -79,11 +78,7 @@ project MIT license, privacy information, and dependency notices without an
 internet connection. The same text is included in `../app/src/legal/notices.txt`.
 The CycloneDX inventory is `../app/src/legal/dependencies.cdx.json`.
 
-The inventory covers locked Node production dependencies, Solar/Lucide icon
-data compiled into CSS, the x64 application's and update worker's Windows Rust
-normal/build dependency closure, and the x86 installer's independent utility
-plugin closure. Both Cargo lockfiles are recorded and development-only
-dependencies are excluded.
+The inventory covers locked Node production dependencies, Solar/Lucide icon data compiled into CSS, the GitHub/Store/test applications' Windows Rust normal/build dependency closures, and the retained historical worker and x86 installer helper closures. Both Cargo lockfiles are recorded and development-only dependencies are excluded. Consumer labels describe the reviewed source graphs; the historical worker/helper are not components of the current packages.
 Build dependencies are included conservatively; listing a package does not
 claim its code is linked into the installed executable.
 

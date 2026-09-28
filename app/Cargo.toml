@@ -22,3 +22,4 @@ tauri-plugin-custom-window = { path = "./src-tauri/src/plugins/window" }
 [patch.crates-io]
 # tauri-winres 0.3.5 incorrectly prefixes apostrophes in Windows version metadata.
 tauri-winres = { path = "vendor/tauri-winres" }
+tauri-plugin-updater = { path = "vendor/tauri-plugin-updater" }

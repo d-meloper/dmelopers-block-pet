@@ -460,10 +460,8 @@ fn write_journal(root: &Path, record: &PresetImportJournal) -> TransferResult<()
 }
 
 pub(crate) fn has_pending_import(app: &tauri::AppHandle) -> TransferResult<bool> {
-    let root = app
-        .path()
-        .app_data_dir()
-        .map_err(transfer_error)?
+    let root = crate::data_paths::durable_root(app)
+        .map_err(|_| "storage".to_string())?
         .join(LIBRARY_DIRECTORY);
     Ok(journal(&root)?.is_some_and(|record| record.phase == "prepared"))
 }

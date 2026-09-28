@@ -13,6 +13,7 @@ import en from '@/locales/en-US.json'
 import ko from '@/locales/ko-KR.json'
 import * as languageBranch from '@/locales/languageBranch'
 import { useCatStore } from '@/stores/cat'
+import { ProgramSettingsResetError } from '@/utils/programSettingsReset'
 
 interface ResetDialog {
   onOk: () => unknown
@@ -73,7 +74,10 @@ function harness(component: 'performance' | 'about', options: {
     }
     if (id === '@/config/performance') return performanceConfig
     if (id === '@/locales/languageBranch') return languageBranch
-    if (id === './ManualUpdates.vue') return { default: {} }
+    if (id === './ProgramUpdates.vue') return { default: {} }
+    if (id === '@/services/diagnostics') return { reportDiagnostic: () => {} }
+    if (id === '@/services/distribution') return { getDistributionInfo: async () => ({ dataRoot: '/data' }) }
+    if (id === '@/utils/programSettingsReset') return { ProgramSettingsResetError }
     if (id === '@/stores/cat') return { useCatStore: () => catStore }
     if (id === '@/stores/app') return { useAppStore: () => ({ name: '', version: '' }) }
     if (id === '@/stores/performance') {
@@ -81,9 +85,9 @@ function harness(component: 'performance' | 'about', options: {
     }
     if (id === '@/composables/useProgramSettingsReset') {
       return { useProgramSettingsReset: () => ({ resetProgramSettings: async () => {
-        if (options.resetFails) throw new Error('reset failed')
+        if (options.resetFails) throw new ProgramSettingsResetError('preflight', 'preflight', new Error('reset failed'))
         catStore.resetAllSettings()
-        if (options.resetFailsAfterChange) throw new Error('geometry reset failed')
+        if (options.resetFailsAfterChange) throw new ProgramSettingsResetError('partial', 'window', new Error('geometry reset failed'))
       } }) }
     }
     if (id.startsWith('@tauri-apps/') || id.startsWith('@/components/') || id === '@/constants/branding') {
@@ -132,14 +136,14 @@ describe('performance settings user actions', () => {
       await assert.rejects(Promise.resolve().then(() => h.dialogs[0].onOk()), /reset failed/)
       assert.equal(h.catStore.model.antialiasEnabled, resetFailsAfterChange)
       assert.equal(h.dialogs.length, 1)
-      assert.deepEqual(h.errors, [ko.pages.preference.about.errors.resetAll])
+      assert.deepEqual(h.errors, [ko.pages.preference.about.errors[resetFailsAfterChange ? 'resetPartial' : 'resetPreflight']])
     }
   })
 
-  it('does not blame skin deletion when window reset fails after settings changed', async () => {
+  it('reports possible partial changes in both languages when window reset fails', async () => {
     for (const [locale, expected] of [
-      ['ko-KR', '프로그램 초기화를 완료하지 못했습니다.'],
-      ['en-US', 'The program reset could not be completed.'],
+      ['ko-KR', ko.pages.preference.about.errors.resetPartial],
+      ['en-US', en.pages.preference.about.errors.resetPartial],
     ] as const) {
       const h = harness('about', { locale, antialias: false, resetFailsAfterChange: true })
       h.actions.confirmProgramReset()

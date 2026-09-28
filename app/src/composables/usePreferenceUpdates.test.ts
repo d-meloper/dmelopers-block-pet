@@ -5,13 +5,15 @@ import { test } from 'node:test'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 
+import type { DistributionChannel } from '@/services/distribution'
+
 import * as controller from '@/features/updates/preferenceUpdates'
 
 async function settle() {
   for (let i = 0; i < 30; i++) await Promise.resolve()
 }
 
-function harness() {
+function harness(channel: DistributionChannel = 'github') {
   let mount!: () => Promise<void>
   let unmount!: () => void
   let event!: (value: { payload: boolean }) => void
@@ -45,14 +47,13 @@ function harness() {
     } },
     '@tauri-apps/api/webviewWindow': { getCurrentWebviewWindow: () => ({ isVisible: () => visibility() }) },
     '@/features/updates/preferenceUpdates': controller,
+    '@/services/distribution': { getDistributionInfo: async () => ({ channel }) },
     '@/services/inAppUpdates': {
-      inAppUpdaterEnabled: async () => true,
       checkAppUpdate: async () => {
         checks++
         return { available: true, currentVersion: '1.0.1', version: '1.0.2', bytes: 10 }
       },
     },
-    '@/services/manualUpdates': {},
     '@/services/diagnostics': { reportDiagnostic: () => assert.fail('Unexpected diagnostic') },
     '@/stores/general': { useGeneralStore: () => general },
   }
@@ -124,4 +125,19 @@ test('a window opened before mounting is checked once after registration', async
   await settle()
   assert.equal(h.checks(), 1)
   h.unmount()
+})
+
+test('the Store window adapter never requests a GitHub update on opening or manual check', async () => {
+  const h = harness('store')
+  h.visibility(async () => true)
+  await h.mount()
+  await h.updates.check(true)
+  h.show(false)
+  h.show(true)
+  await settle()
+  assert.equal(h.updates.channel.value, 'store')
+  assert.equal(h.checks(), 0)
+  assert.equal(h.updates.reminderVersion.value, undefined)
+  h.unmount()
+  assert.equal(h.releases(), 1)
 })

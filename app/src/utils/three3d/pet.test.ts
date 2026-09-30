@@ -1,10 +1,10 @@
 /* eslint-disable test/no-import-node-test */
-import type { Object3D } from 'three'
+import type { Object3D, WebGLRenderer } from 'three'
 
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { describe, it } from 'node:test'
-import { Group, MathUtils, Matrix4, Quaternion, Vector3 } from 'three'
+import { Group, MathUtils, Matrix4, PerspectiveCamera, Quaternion, Scene, Vector3 } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 
 import { MODEL_3D_CONFIG } from '@/config/model3d'
@@ -13,6 +13,7 @@ import { DEFAULT_PET_ARM_POSE_SETTINGS } from '@/config/petArmPose'
 import { Three3DRenderer } from '../three3d'
 import { createDmeloperEyebrowController } from './dmeloperEyebrows'
 import { createKeyboardGroup } from './keyboard'
+import { createMouseGroup } from './mouse'
 import { createPetAnimator } from './pet'
 import { createVoxelSkinModelController } from './voxelSkin'
 
@@ -91,6 +92,106 @@ async function fixture(model: 'wide' | 'slim' = 'wide', mouseAtKeyboard = false)
 function close(actual: number[], expected: number[], epsilon = 0.00001) {
   actual.forEach((value, index) => assert.ok(Math.abs(value - expected[index]) < epsilon, `${value} != ${expected[index]}`))
 }
+
+function stillFrameFixture(rig: Awaited<ReturnType<typeof fixture>>) {
+  const renderer = new Three3DRenderer()
+  const scene = new Scene()
+  const sceneRoot = new Group()
+  const petGroup = new Group()
+  petGroup.name = 'petGroup'
+  petGroup.add(rig.root)
+  sceneRoot.add(petGroup, rig.keyboard.group, rig.anchor.parent!)
+  scene.add(sceneRoot)
+  const mouse = createMouseGroup()
+  const state = renderer as unknown as {
+    renderer: WebGLRenderer
+    scene: Scene
+    sceneRoot: Group
+    camera: PerspectiveCamera
+    keyboard: typeof rig.keyboard
+    mouse: typeof mouse
+    petAnimator: typeof rig.animator
+    lastAnimationAt: number
+  }
+  Object.assign(state, {
+    renderer: { render: () => scene.updateMatrixWorld(true) } as unknown as WebGLRenderer,
+    scene,
+    sceneRoot,
+    camera: new PerspectiveCamera(28, 500 / 422, 0.01, 100),
+    keyboard: rig.keyboard,
+    mouse,
+    petAnimator: rig.animator,
+  })
+  renderer.refitComposition()
+  return { renderer, mouse, state }
+}
+
+describe('live pose before broadcast auto crop', () => {
+  it('measures the extended actual rig rather than the previous narrow arm pose', async (t) => {
+    const rig = await fixture()
+    const { renderer, mouse } = stillFrameFixture(rig)
+    t.after(rig.dispose)
+    t.after(mouse.dispose)
+    renderer.setAutoViewportPadding(0)
+    renderer.setMouseEnabled(false)
+    renderer.setKeyboardScalePercent(50)
+    renderer.setPetHeadScalePercent(25)
+    renderer.setSceneRotation(0)
+    renderer.setPetArmPoseSettings({ ...DEFAULT_PET_ARM_POSE_SETTINGS, petLeftArmSpreadDegrees: -45, petRightArmSpreadDegrees: -45 })
+    renderer.renderStillFrame(50_000)
+    const narrow = renderer.getConservativeContentRect()
+    renderer.setPetArmPoseSettings({ ...DEFAULT_PET_ARM_POSE_SETTINGS, petLeftArmSpreadDegrees: 45, petRightArmSpreadDegrees: 45 })
+    assert.deepEqual(renderer.getConservativeContentRect(), narrow, 'settings alone have not updated the rig')
+    renderer.renderStillFrame(50_000)
+    const measured = renderer.getConservativeContentRect()
+    assert.ok(measured.x < narrow.x - 20, 'left arm would escape the previous crop')
+    assert.ok(measured.x + measured.width > narrow.x + narrow.width + 20, 'right arm would escape the previous crop')
+    rig.animator.update(16, 50_016)
+    const nextFrame = renderer.getConservativeContentRect()
+    assert.ok(nextFrame.x >= measured.x - 1)
+    assert.ok(nextFrame.x + nextFrame.width <= measured.x + measured.width + 1)
+  })
+
+  it('keeps held keys/buttons and their live clock through settling and the next frame', async (t) => {
+    let now = 50_000
+    t.mock.method(performance, 'now', () => now)
+    const rig = await fixture()
+    const { renderer, mouse, state } = stillFrameFixture(rig)
+    t.after(rig.dispose)
+    t.after(mouse.dispose)
+    const key = rig.keyboard.group.getObjectByName('keyboard-key-r2-c3-group')!
+    const button = mouse.group.getObjectByName('mouseRightButton')!
+    const restingKey = key.position.y
+    const restingButton = button.position.y
+    renderer.handleSemanticInput({ kind: 'typing', active: true, intensity: 1, contact: { row: 2, column: 3, pressed: true } })
+    renderer.handleSemanticInput({ kind: 'mouse_primary', active: true })
+    const keyUpdate = t.mock.method(rig.keyboard, 'update')
+    const mouseUpdate = t.mock.method(mouse, 'update')
+    const petUpdate = t.mock.method(rig.animator, 'update')
+    state.lastAnimationAt = now - 16
+    renderer.renderStillFrame(now)
+    for (const update of [keyUpdate, mouseUpdate, petUpdate]) {
+      assert.equal(update.mock.calls.length, 60)
+      assert.ok(update.mock.calls.every(call => call.arguments[1] === now), 'neither rewind nor advance input time')
+    }
+    assert.equal(state.lastAnimationAt, now - 16, 'leave the real frame clock unchanged')
+    const heldKey = key.position.y
+    const heldButton = button.position.y
+    assert.ok(heldKey < restingKey)
+    assert.ok(heldButton < restingButton)
+    now += 1000
+    rig.keyboard.update(16, now)
+    mouse.update(16, now)
+    rig.animator.update(16, now)
+    assert.equal(key.position.y, heldKey, 'held input survives beyond the minimum press pulse')
+    assert.equal(button.position.y, heldButton)
+    renderer.handleSemanticInput({ kind: 'typing', active: false, intensity: 0, contact: { row: 2, column: 3, pressed: false } })
+    renderer.handleSemanticInput({ kind: 'mouse_primary', active: false })
+    renderer.renderStillFrame(now)
+    assert.equal(key.position.y, restingKey)
+    assert.equal(button.position.y, restingButton)
+  })
+})
 
 describe('renderer input suspension', () => {
   it('releases every held keyboard contact when key-up arrives during a skin load', async (t) => {

@@ -1,11 +1,11 @@
 import { invoke } from '@tauri-apps/api/core'
-import { createPlugin } from '@tauri-store/pinia'
 import { createPinia } from 'pinia'
 import { createApp, watch } from 'vue'
 
 import App from './App.vue'
 import { editorsLocked, filterBackendSync, initializeStateSafety } from './features/stateSafety'
 import { i18n } from './locales'
+import { createSettingsStorePlugin } from './plugins/settingsStore'
 import router from './router'
 import { installDiagnostics, reportDiagnostic } from './services/diagnostics'
 
@@ -23,7 +23,10 @@ async function bootstrap() {
   await invoke('await_native_startup')
   await initializeStateSafety()
   const pinia = createPinia()
-  pinia.use(context => createPlugin({ saveOnChange: true, save: !editorsLocked.value, hooks: { beforeBackendSync: filterBackendSync } })(context))
+  pinia.use(createSettingsStorePlugin({
+    isSavingAllowed: () => !editorsLocked.value,
+    beforeBackendSync: filterBackendSync,
+  }))
   const app = createApp(App)
   app.config.errorHandler = error => reportDiagnostic('error', 'application.vue', error)
   app.config.warnHandler = message => reportDiagnostic('warn', 'application.vue_warning', message)

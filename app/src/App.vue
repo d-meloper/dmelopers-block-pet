@@ -30,11 +30,15 @@ const appStore = useAppStore()
 const catStore = useCatStore()
 const generalStore = useGeneralStore()
 const shortcutStore = useShortcutStore()
-registerStateSnapshots(() => [appStore, catStore, generalStore, shortcutStore].map(store => ({
+const appWindow = getCurrentWebviewWindow()
+// Cat's durable owner is Preferences. Main keeps acknowledged renderer/runtime
+// state while the owner's flush and backend readback protect saved Cat settings.
+registerStateSnapshots(() => [appStore, catStore, generalStore, shortcutStore].filter(store => (
+  appWindow.label !== WINDOW_LABEL.MAIN || store.$id !== 'cat'
+)).map(store => ({
   id: store.$id,
   state: JSON.parse(JSON.stringify(store.$state)) as Record<string, unknown>,
 })))
-const appWindow = getCurrentWebviewWindow()
 const { isRestored, restoreState } = useWindowState()
 const { locale } = useI18n()
 const router = useRouter()

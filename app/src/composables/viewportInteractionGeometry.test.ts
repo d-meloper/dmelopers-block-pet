@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { describe, it } from 'node:test'
 import { runInNewContext } from 'node:vm'
+import { createPinia } from 'pinia'
 import ts from 'typescript'
 import { compile } from 'vue'
 
@@ -20,7 +21,7 @@ import { capturePresetSnapshot, createDefaultPresetSnapshot } from '@/features/p
 import { PRESET_APPLY_CANCEL, PRESET_APPLY_REQUEST, PRESET_APPLY_RESPONSE } from '@/features/presets/types'
 import { SCENE_VIEWPORT_REQUEST, SCENE_VIEWPORT_RESPONSE } from '@/features/scene/types'
 import { createWindowVisibilityQueue } from '@/plugins/windowVisibility'
-import { createDefaultPet3dPreset } from '@/stores/cat'
+import { createDefaultPet3dPreset, useCatStore } from '@/stores/cat'
 
 import type { ApplyMainViewportGeometryInput, WindowState } from './useWindowState'
 
@@ -450,6 +451,7 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
   const sceneResponses: Array<{ requestId: string, success: boolean, state: { automatic: boolean, revision: number, rect: typeof rect } }> = []
   let measurementWait = Promise.resolve()
   const store = {
+    sanitizePet3dPreset: useCatStore(createPinia()).sanitizePet3dPreset,
     window: { visible: true, keepInScreen: false, opacity: 100 },
     model: { mirror: false, eyebrowAnimationEnabled: true },
     customization3d: {
@@ -648,9 +650,7 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
     },
     '@/features/stateSafety/bridge': { editorsLocked: editorGate },
     '@/features/stateSafety/runtime': {
-      updateRecovery: { value: undefined },
       registerNativeDrain: () => {},
-      setUpdateHealthRenderer: () => {},
     },
     '@/utils/three3d': { default: renderer },
   }

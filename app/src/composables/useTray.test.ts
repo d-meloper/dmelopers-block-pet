@@ -13,6 +13,8 @@ import { APP_DISPLAY_NAME, WINDOW_LABEL } from '@/constants'
 import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import { createLatestAsyncTaskQueue } from '@/utils/latestAsyncTask'
 
+import type { useTray } from './useTray'
+
 interface MenuSnapshot {
   visible: boolean
   scale: number
@@ -37,22 +39,26 @@ function deferred() {
 async function flush() {
   for (let i = 0; i < 60; i += 1) await Promise.resolve()
 }
-function trayHarness() {
+function trayHarness(existingTray = false) {
   const cat = vue.reactive({
     window: { visible: true, opacity: 100, keepInScreen: true, alwaysOnTop: false },
     activePet3dPreset: { cameraZoomPercent: 100, sceneRotationOffsetDegrees: 0 },
   })
-  const general = vue.reactive({ app: { trayVisible: true }, appearance: { language: 'ko-KR' } })
+  const general = vue.reactive({ app: { trayVisible: true }, appearance: { language: 'ko-KR' }, broadcast: { enabled: false, showOnDesktop: false } })
+  const locked = vue.ref(false)
+  const editable = vue.ref(true)
   const created: MockMenu[] = []
   const attached: MockMenu[] = []
   const visibility: boolean[] = []
-  const shown: string[] = []
+  const shown: Array<string | undefined> = []
   const requests: Array<{ label: string, event: string, visible: boolean }> = []
   let trayOptions: Pick<TrayIconOptions, 'action' | 'showMenuOnLeftClick'> = {}
   let focusWait = async () => {}
   const errors: unknown[] = []
   const unmounts: Array<() => void> = []
-  let trayExists = false
+  let trayExists = existingTray
+  let creations = 0
+  let removals = 0
   let buildWait: (menu: MockMenu) => Promise<void> = async () => {}
   let attachWait: (menu: MockMenu) => Promise<void> = async () => {}
   const tray = {
@@ -64,7 +70,7 @@ function trayHarness() {
       visibility.push(visible)
     },
   }
-  const exports = {} as { useTray: () => void }
+  const exports = {} as { useTray: typeof useTray }
   const mocks: Record<string, unknown> = {
     '@tauri-apps/api/app': { getVersion: async () => '0.2.0' },
     '@tauri-apps/api/event': { emitTo: async (label: string, event: string, payload: { visible: boolean }) => {
@@ -74,7 +80,16 @@ function trayHarness() {
     '@tauri-apps/api/path': { resolveResource: async (path: string) => path },
     '@tauri-apps/api/tray': { TrayIcon: {
       getById: async () => trayExists ? tray : null,
+      removeById: async (id: string) => {
+        assert.equal(id, 'DMELOPERS_BLOCK_PET_TRAY')
+        assert.equal(trayExists, true)
+        removals++
+        trayExists = false
+        trayOptions = {}
+      },
       new: async ({ menu, tooltip, ...options }: { menu: MockMenu, tooltip: string } & typeof trayOptions) => {
+        assert.equal(trayExists, false, 'Replace a retained native icon before creating another')
+        creations++
         assert.equal(tooltip, `${APP_DISPLAY_NAME} v0.2.0`)
         trayOptions = options
         attached.push(menu)
@@ -85,14 +100,13 @@ function trayHarness() {
     'vue': { ...vue, onBeforeUnmount: (fn: () => void) => unmounts.push(fn) },
     '@/constants': { APP_DISPLAY_NAME, WINDOW_LABEL },
     '@/features/presets/types': { PRESET_EDIT_REQUEST },
-    '@/plugins/window': { showWindow: async (label: string) => {
+    '@/plugins/window': { showWindow: async (label?: string) => {
       await focusWait()
       shown.push(label)
     } },
     '@/stores/cat': { useCatStore: () => cat },
     '@/stores/general': { useGeneralStore: () => general },
-    '@/services/updateDelivery': { updateStatus: vue.ref({ phase: 'idle', targetVersion: null }), updateProgress: vue.ref(0) },
-    '@/features/stateSafety': { editorsLocked: vue.ref(false) },
+    '@/features/stateSafety': { editorsLocked: locked },
     '@/utils/latestAsyncTask': { createLatestAsyncTaskQueue },
     './useAppMenu': { useAppMenu: () => ({
       getAppMenu: async () => {
@@ -122,8 +136,11 @@ function trayHarness() {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, { exports, console: { error: (...args: unknown[]) => errors.push(args) }, require: (name: string) => mocks[name] })
   const scope = vue.effectScope()
-  scope.run(() => exports.useTray())
+  const state = scope.run(() => exports.useTray(() => editable.value))!
   return {
+    state,
+    locked,
+    editable,
     cat,
     general,
     created,
@@ -134,6 +151,12 @@ function trayHarness() {
     errors,
     get trayOptions() {
       return trayOptions
+    },
+    get creations() {
+      return creations
+    },
+    get removals() {
+      return removals
     },
     click: (button: 'Left' | 'Right' | 'Middle', buttonState: 'Up' | 'Down') => {
       const event: TrayIconEvent = {
@@ -163,6 +186,160 @@ function trayHarness() {
 }
 
 describe('live shared tray menu', () => {
+  it('reclaims a retained native tray after reload and keeps the new click handler across menu refreshes', async () => {
+    const h = trayHarness(true)
+    try {
+      h.general.broadcast.enabled = true
+      h.general.broadcast.showOnDesktop = false
+      await flush()
+      h.click('Left', 'Up')
+      await flush()
+      assert.equal(h.state.broadcastPromptOpen.value, true)
+      assert.deepEqual(h.shown, [undefined])
+      assert.equal(h.removals, 1)
+      assert.equal(h.creations, 1)
+      assert.equal(h.trayOptions.showMenuOnLeftClick, false)
+
+      h.state.cancelBroadcastRestore()
+      h.state.finishBroadcastPrompt()
+      h.general.appearance.language = 'en-US'
+      await flush()
+      h.click('Left', 'Up')
+      await flush()
+      assert.equal(h.state.broadcastPromptOpen.value, true)
+      assert.equal(h.removals, 1)
+      assert.equal(h.creations, 1)
+      h.state.confirmBroadcastRestore()
+      assert.equal(h.general.broadcast.showOnDesktop, true)
+      assert.equal(h.cat.window.visible, true)
+      assert.equal(h.general.broadcast.enabled, true)
+      assert.deepEqual(h.errors, [])
+    } finally {
+      h.stop()
+    }
+  })
+
+  it('offers restore only for broadcast-enabled hidden combinations and preserves all settings until confirmation', async () => {
+    for (const enabled of [false, true]) {
+      for (const visible of [false, true]) {
+        for (const showOnDesktop of [false, true]) {
+          const h = trayHarness()
+          try {
+            h.general.broadcast.enabled = enabled
+            h.general.broadcast.showOnDesktop = showOnDesktop
+            h.cat.window.visible = visible
+            await flush()
+            const before = JSON.stringify({ cat: h.cat, general: h.general })
+            h.click('Left', 'Up')
+            await flush()
+            const needsPrompt = enabled && (!visible || !showOnDesktop)
+            assert.equal(h.state.broadcastPromptOpen.value, needsPrompt)
+            if (needsPrompt) {
+              assert.deepEqual(h.shown, [undefined]) // Native current window; no navigation destination.
+              assert.deepEqual(h.requests, [])
+              assert.equal(JSON.stringify({ cat: h.cat, general: h.general }), before)
+              const preset = JSON.stringify(h.cat.activePet3dPreset)
+              h.state.confirmBroadcastRestore()
+              assert.equal(h.cat.window.visible, true)
+              assert.equal(h.general.broadcast.showOnDesktop, true)
+              assert.equal(h.general.broadcast.enabled, true)
+              assert.equal(JSON.stringify(h.cat.activePet3dPreset), preset)
+              assert.equal(h.state.broadcastPromptOpen.value, false)
+              assert.equal(h.state.broadcastPromptActive.value, true)
+              h.state.finishBroadcastPrompt()
+              assert.equal(h.state.broadcastPromptActive.value, false)
+            } else {
+              assert.deepEqual(h.shown, visible ? [WINDOW_LABEL.MAIN] : [])
+              assert.equal(h.requests.length, visible ? 0 : 1)
+              assert.equal(h.general.broadcast.showOnDesktop, showOnDesktop)
+            }
+          } finally {
+            h.stop()
+          }
+        }
+      }
+    }
+  })
+
+  it('does not duplicate a prompt or mutate cancelled choices, including its closing transition', async () => {
+    const h = trayHarness()
+    try {
+      h.general.broadcast.enabled = true
+      h.cat.window.visible = false
+      await flush()
+      for (const button of ['Right', 'Middle'] as const) h.click(button, 'Up')
+      h.click('Left', 'Down')
+      assert.equal(h.state.broadcastPromptActive.value, false)
+      h.click('Left', 'Up')
+      h.click('Left', 'Up')
+      await flush()
+      assert.equal(h.state.broadcastPromptOpen.value, true)
+      h.state.cancelBroadcastRestore()
+      h.state.confirmBroadcastRestore() // A stale OK callback cannot accept a cancelled prompt.
+      h.click('Left', 'Up')
+      assert.equal(h.state.broadcastPromptOpen.value, false)
+      assert.equal(h.state.broadcastPromptActive.value, true)
+      assert.equal(h.cat.window.visible, false)
+      assert.equal(h.general.broadcast.showOnDesktop, false)
+      h.state.finishBroadcastPrompt()
+      h.click('Left', 'Up')
+      assert.equal(h.state.broadcastPromptOpen.value, true)
+    } finally {
+      h.stop()
+    }
+  })
+
+  it('blocks both opening and confirmation during editor locks or preset work, and ignores stale callbacks after unmount', async () => {
+    const h = trayHarness()
+    h.general.broadcast.enabled = true
+    h.cat.window.visible = false
+    await flush()
+    for (const block of [h.locked, h.editable]) {
+      block.value = block === h.locked
+      h.click('Left', 'Up')
+      assert.equal(h.state.broadcastPromptOpen.value, false)
+      block.value = block !== h.locked
+    }
+    h.click('Left', 'Up')
+    for (const block of [h.locked, h.editable]) {
+      block.value = block === h.locked
+      assert.equal(h.state.broadcastRestoreDisabled.value, true)
+      h.state.confirmBroadcastRestore()
+      assert.equal(h.cat.window.visible, false)
+      assert.equal(h.general.broadcast.showOnDesktop, false)
+      block.value = block !== h.locked
+    }
+    h.stop()
+    h.state.confirmBroadcastRestore()
+    h.click('Left', 'Up')
+    assert.equal(h.state.broadcastPromptOpen.value, false)
+    assert.equal(h.state.broadcastPromptActive.value, false)
+    assert.equal(h.cat.window.visible, false)
+    assert.equal(h.general.broadcast.showOnDesktop, false)
+  })
+
+  it('retains a failed-to-show prompt for a later tray retry without changing visibility', async () => {
+    const h = trayHarness()
+    try {
+      h.general.broadcast.enabled = true
+      h.setFocusWait(async () => {
+        throw new Error('native show failed')
+      })
+      await flush()
+      h.click('Left', 'Up')
+      await flush()
+      assert.equal(h.errors.length, 1)
+      assert.equal(h.state.broadcastPromptOpen.value, true)
+      assert.equal(h.general.broadcast.showOnDesktop, false)
+      h.setFocusWait(async () => {})
+      h.click('Left', 'Up')
+      await flush()
+      assert.deepEqual(h.shown, [undefined])
+    } finally {
+      h.stop()
+    }
+  })
+
   it('focuses the pet once on left release and keeps the existing right-click menu', async () => {
     const h = trayHarness()
     try {
@@ -248,7 +425,10 @@ describe('live shared tray menu', () => {
           h.cat.window.keepInScreen = false
         },
         () => {
-          h.cat.window.alwaysOnTop = true
+          h.general.broadcast.enabled = true
+        },
+        () => {
+          h.general.broadcast.showOnDesktop = true
         },
         () => {
           h.general.appearance.language = 'en-US'
@@ -271,7 +451,7 @@ describe('live shared tray menu', () => {
         rotation: 360,
         opacity: 44,
         keepInScreen: false,
-        alwaysOnTop: true,
+        alwaysOnTop: false,
         language: 'en-US',
       })
       assert.equal(h.visibility.at(-1), false)

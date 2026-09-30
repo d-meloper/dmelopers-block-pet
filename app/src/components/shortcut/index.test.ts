@@ -362,11 +362,13 @@ describe('shortcut cancellation and complete panel', () => {
     })
   }
 
-  it('renders all twelve actions in order and checks new bindings against all other actions', async () => {
+  it('labels all twelve recorder groups and checks new bindings against all other actions', async () => {
     const h = mountShortcuts()
     const keys = ['visibleCat', 'toggleBroadcast', 'visiblePreference', 'showDisplayArea', 'mouseEnabled', 'mirrorMode', 'cycleZoom', 'cycleRotation', 'keepInScreen', 'penetrable', 'hideOnHover', 'alwaysOnTop'] as const
     try {
       assert.equal(h.inputs().length, keys.length)
+      assert.ok(h.inputs().every(input => input.props.role === 'group'))
+      assert.deepEqual(h.inputs().map(input => input.props['aria-label']), h.rows().map(row => row.props.title))
       assert.deepEqual(h.rows().map(row => row.props.description), [
         'pages.preference.shortcut.hints.toggleCat',
         'pages.preference.shortcut.hints.toggleBroadcast',
@@ -384,6 +386,8 @@ describe('shortcut cancellation and complete panel', () => {
       for (const [index, key] of keys.entries()) {
         await h.record(index, [[`F${index + 1}`, `F${index + 1}`]])
         assert.equal(h.store[key], `F${index + 1}`)
+        const clear = walk(h.inputs()[index]).find(node => node.props['aria-label'] === 'components.shortcut.buttons.clear')
+        assert.equal(clear?.props.type, 'button')
       }
       await h.record(6, [['F8', 'F8']])
       assert.equal(h.store.cycleZoom, 'F7')

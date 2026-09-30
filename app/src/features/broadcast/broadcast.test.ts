@@ -103,8 +103,9 @@ describe('broadcast settings and projection', () => {
     cat.window.passThrough = true
     Object.assign(cat.customization3d.preset, { legacyPrivatePath: 'private-path' })
     Object.assign(cat.customization3d.preset.dmeloperEyebrows, { legacyPrivateName: 'private-name' })
+    Object.assign(cat.customization3d.preset.lighting.key, { legacyPrivateName: 'private-light-name' })
     assert.deepEqual(captureBroadcastScene(cat), before)
-    assert.equal(Object.keys(before.preset).length, 36)
+    assert.equal(Object.keys(before.preset).length, 37)
     assert.equal('pixelFilterEnabled' in before.preset, false)
     assert.equal('antialiasEnabled' in before.preset, false)
     assert.equal(before.preset.showDisplayArea, false)

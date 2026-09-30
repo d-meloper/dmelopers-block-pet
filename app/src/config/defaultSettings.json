@@ -31,6 +31,14 @@
     "useDefaultDmeloperSkin": true
   },
   "preset": {
+    "lighting": {
+      "key": {
+        "color": "#ffffff",
+        "azimuthDegrees": -39,
+        "elevationDegrees": 44,
+        "strengthPercent": 100
+      }
+    },
     "deskTransparent": true,
     "deskHeightOffset": 0,
     "deskColor": "#D9D9D9",

@@ -15,30 +15,49 @@ import { useProgramSettingsReset } from '@/composables/useProgramSettingsReset'
 import { APP_DISPLAY_NAME } from '@/constants/branding'
 import { selectByLanguage } from '@/locales/languageBranch'
 import { reportDiagnostic } from '@/services/diagnostics'
-import { getDistributionInfo } from '@/services/distribution'
 import { useAppStore } from '@/stores/app'
 import { ProgramSettingsResetError } from '@/utils/programSettingsReset'
 
-import ProgramUpdates from './ProgramUpdates.vue'
+import AutomaticUpdates from './AutomaticUpdates.vue'
 
 const appStore = useAppStore()
 const logDir = ref('')
-const dataDir = ref('')
 const legalNotices = ref('')
 const legalOpen = ref(false)
 const legalLoading = ref(false)
+const dataNotice = ref('')
+const dataNoticeOpen = ref(false)
+const dataNoticeLoading = ref(false)
 const { t, locale } = useI18n()
 const developerEmail = 'dmeloper@gmail.com'
 const { resetProgramSettings } = useProgramSettingsReset()
 
 onMounted(async () => {
-  logDir.value = await appLogDir()
   try {
-    dataDir.value = (await getDistributionInfo()).dataRoot
+    logDir.value = await appLogDir()
   } catch (error) {
-    reportDiagnostic('warn', 'about.data_location', error)
+    reportDiagnostic('warn', 'about.log_directory', error)
   }
 })
+
+async function openAboutLink(url: string) {
+  try {
+    await openUrl(url)
+  } catch (error) {
+    reportDiagnostic('error', 'about.open_link', error)
+    message.error(t('pages.preference.about.errors.openLink'))
+  }
+}
+
+async function openLogs() {
+  try {
+    logDir.value ||= await appLogDir()
+    await openPath(logDir.value)
+  } catch (error) {
+    reportDiagnostic('error', 'about.open_logs', error)
+    message.error(t('pages.preference.about.errors.openLog'))
+  }
+}
 
 async function openDeveloperLink() {
   try {
@@ -60,18 +79,21 @@ async function copyDeveloperEmail() {
 }
 
 async function copyInfo() {
-  const info = {
-    appName: APP_DISPLAY_NAME,
-    appVersion: appStore.version,
-    tauriVersion: await getTauriVersion(),
-    platform: platform(),
-    platformArch: arch(),
-    platformVersion: version(),
+  try {
+    const info = {
+      appName: APP_DISPLAY_NAME,
+      appVersion: appStore.version,
+      tauriVersion: await getTauriVersion(),
+      platform: platform(),
+      platformArch: arch(),
+      platformVersion: version(),
+    }
+    await writeText(JSON.stringify(info, null, 2))
+    message.success(t('pages.preference.about.hints.copySuccess'))
+  } catch (error) {
+    reportDiagnostic('error', 'about.copy_info', error)
+    message.error(t('pages.preference.about.errors.copyInfo'))
   }
-
-  await writeText(JSON.stringify(info, null, 2))
-
-  message.success(t('pages.preference.about.hints.copySuccess'))
 }
 
 async function showLegalNotices() {
@@ -84,6 +106,25 @@ async function showLegalNotices() {
     message.error(t('pages.preference.about.errors.legalNotices'))
   } finally {
     legalLoading.value = false
+  }
+}
+
+async function showDataNotice() {
+  if (dataNoticeLoading.value) return
+  dataNoticeLoading.value = true
+  try {
+    const load = selectByLanguage(
+      locale.value,
+      () => import('@/legal/data-permissions.ko-KR.txt?raw'),
+      () => import('@/legal/data-permissions.en-US.txt?raw'),
+    )
+    dataNotice.value = (await load()).default
+    dataNoticeOpen.value = true
+  } catch (error) {
+    reportDiagnostic('error', 'about.data_notice', error)
+    message.error(t('pages.preference.about.errors.legalNotices'))
+  } finally {
+    dataNoticeLoading.value = false
   }
 }
 
@@ -110,21 +151,17 @@ function confirmProgramReset() {
 
 <template>
   <PreferenceSections>
-    <ProgramUpdates />
-
     <ProList :title="$t('pages.preference.about.labels.aboutApp')">
-      <ProListItem
-        :description="`v${appStore.version}`"
-        :title="APP_DISPLAY_NAME"
-      >
-        <template #icon>
-          <div class="b b-color-2 rounded-xl b-solid">
-            <img
-              class="size-12"
-              src="/logo.png"
-            >
-          </div>
-        </template>
+      <AutomaticUpdates />
+
+      <ProListItem :title="$t('pages.preference.about.labels.releaseNotes')">
+        <Flex
+          :gap="8"
+          wrap="wrap"
+        >
+          <Button>{{ $t('pages.preference.about.buttons.notion') }}</Button>
+          <Button>{{ $t('pages.preference.about.buttons.github') }}</Button>
+        </Flex>
       </ProListItem>
 
       <ProListItem :title="$t('pages.preference.about.labels.introduction')">
@@ -132,10 +169,10 @@ function confirmProgramReset() {
           :gap="8"
           wrap="wrap"
         >
-          <Button @click="openUrl('https://app.notion.com/p/aismash/0da2dc0bb4ae82ab8db301718dde497b?source=copy_link')">
+          <Button @click="openAboutLink('https://app.notion.com/p/aismash/0da2dc0bb4ae82ab8db301718dde497b?source=copy_link')">
             {{ $t('pages.preference.about.buttons.notion') }}
           </Button>
-          <Button @click="openUrl('https://github.com/d-meloper/dmelopers-block-pet')">
+          <Button @click="openAboutLink('https://github.com/d-meloper/dmelopers-block-pet')">
             {{ $t('pages.preference.about.buttons.github') }}
           </Button>
         </Flex>
@@ -151,22 +188,10 @@ function confirmProgramReset() {
       </ProListItem>
 
       <ProListItem
-        :description="dataDir"
-        :title="t('dataLocation.title')"
-      >
-        <Button
-          :disabled="!dataDir"
-          @click="writeText(dataDir)"
-        >
-          {{ t('pages.preference.about.buttons.copy') }}
-        </Button>
-      </ProListItem>
-
-      <ProListItem
         :description="logDir"
         :title="$t('pages.preference.about.labels.appLog')"
       >
-        <Button @click="openPath(logDir)">
+        <Button @click="openLogs">
           {{ $t('pages.preference.about.buttons.viewLog') }}
         </Button>
       </ProListItem>
@@ -178,6 +203,17 @@ function confirmProgramReset() {
         <Button
           :loading="legalLoading"
           @click="showLegalNotices"
+        >
+          {{ $t('pages.preference.about.buttons.viewLegalNotices') }}
+        </Button>
+      </ProListItem>
+      <ProListItem
+        :description="$t('pages.preference.about.hints.dataNotice')"
+        :title="$t('pages.preference.about.labels.dataNotice')"
+      >
+        <Button
+          :loading="dataNoticeLoading"
+          @click="showDataNotice"
         >
           {{ $t('pages.preference.about.buttons.viewLegalNotices') }}
         </Button>
@@ -235,6 +271,18 @@ function confirmProgramReset() {
       class="legal-notices"
       tabindex="0"
     >{{ legalNotices }}</pre>
+  </Modal>
+
+  <Modal
+    v-model:open="dataNoticeOpen"
+    :footer="null"
+    :title="$t('pages.preference.about.labels.dataNotice')"
+    :width="900"
+  >
+    <pre
+      class="legal-notices"
+      tabindex="0"
+    >{{ dataNotice }}</pre>
   </Modal>
 </template>
 

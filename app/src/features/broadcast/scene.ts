@@ -1,5 +1,6 @@
 import type { CatStore } from '@/stores/cat'
 
+import { normalizeLightingSettings } from '@/config/lighting'
 import { PRESET_SETTING_KEYS } from '@/features/presets/types'
 
 import type { BroadcastScene } from './types'
@@ -19,6 +20,7 @@ export function captureBroadcastScene(store: CatStore): BroadcastScene {
     skinModel: store.customization3d.dmeloperSkinModel === 'slim' ? 'slim' : 'wide',
     preset: {
       ...Object.fromEntries(PRESET_SETTING_KEYS.map(key => [key, preset[key]])),
+      lighting: normalizeLightingSettings(preset.lighting),
       manualViewportRect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       dmeloperEyebrows: {
         enabled: eyebrows.enabled,

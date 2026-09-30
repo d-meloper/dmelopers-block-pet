@@ -1,5 +1,6 @@
 import type {
   BufferGeometry,
+  DirectionalLight,
   Material,
   Object3D,
   Skeleton,
@@ -9,9 +10,7 @@ import {
   Box3,
   BoxGeometry,
   Color,
-  DirectionalLight,
   Group,
-  HemisphereLight,
   LoaderUtils,
   MathUtils,
   Mesh,
@@ -35,6 +34,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import type { DeskSettings } from '@/config/desk'
 import type { DeviceColorSettings } from '@/config/deviceColors'
 import type { DmeloperEyebrowPreset } from '@/config/dmeloperEyebrows'
+import type { LightingSettings } from '@/config/lighting'
 import type { PetModelId } from '@/config/model3d'
 import type { ShadowQuality } from '@/config/performance'
 import type { PetArmPoseSettings } from '@/config/petArmPose'
@@ -44,6 +44,7 @@ import { DEFAULT_DESK_SETTINGS, normalizeDeskSettings } from '@/config/desk'
 import { DEFAULT_DEVICE_COLORS, DEVICE_COLOR_KEYS, normalizeDeviceColors } from '@/config/deviceColors'
 import { createDefaultDmeloperEyebrowPreset } from '@/config/dmeloperEyebrows'
 import { DMELOPER_PALM_FALLBACK_COLOR } from '@/config/dmeloperPalms'
+import { createDefaultLightingSettings, normalizeLightingSettings } from '@/config/lighting'
 import { MODEL_3D_CONFIG } from '@/config/model3d'
 import { DEFAULT_PERFORMANCE_SETTINGS, MAX_FPS, normalizeShadowQuality } from '@/config/performance'
 import { DEFAULT_PET_ARM_POSE_SETTINGS, normalizePetArmPoseSettings } from '@/config/petArmPose'
@@ -95,6 +96,7 @@ import {
   normalizeOutputDimension,
   selectAdaptiveShadowMapSize,
 } from './three3d/renderSizing'
+import { applyLightingOutput, SceneLighting } from './three3d/sceneLighting'
 import { installSoftShadows } from './three3d/softShadows'
 import {
   applyVoxelSkin,
@@ -130,6 +132,9 @@ export class Three3DRenderer {
   private sceneRoot?: Group
   private camera?: PerspectiveCamera
   private directionalLight?: DirectionalLight
+  private lighting?: SceneLighting
+  private lightingSettings = createDefaultLightingSettings()
+  private lightingBoundsDirty = true
   private keyboard?: KeyboardGroupResult
   private mouse?: MouseGroupResult
   private petAnimator?: PetAnimator
@@ -158,7 +163,7 @@ export class Three3DRenderer {
   private pixelFilterEnabled = false
   private antialiasRequested = true
   private antialiasGeneration = 0
-  private readonly highShadows = { value: false }
+  private readonly highShadows = { value: DEFAULT_PERFORMANCE_SETTINGS.shadowQuality === 'high' }
   private shadowQuality: ShadowQuality = DEFAULT_PERFORMANCE_SETTINGS.shadowQuality
   private readonly compositionWidth: number = MODEL_3D_CONFIG.baseWindow.width
   private readonly compositionHeight: number = MODEL_3D_CONFIG.baseWindow.height
@@ -236,6 +241,7 @@ export class Three3DRenderer {
       this.renderer = renderer
       this.antialiasRequested = startupOptions.antialiasEnabled ?? DEFAULT_PERFORMANCE_SETTINGS.antialiasEnabled
       renderer.outputColorSpace = SRGBColorSpace
+      applyLightingOutput(renderer)
       renderer.setClearColor(0x000000, 0)
       this.applyPixelRatio()
       renderer.shadowMap.enabled = this.shadowsEnabled
@@ -446,7 +452,10 @@ export class Three3DRenderer {
     this.updateShadowMapSize()
     // Changing the drawing buffer clears it. Draw the current pose in this
     // task instead of exposing an empty canvas until the FPS gate next opens.
-    if (this.scene) this.renderer.render(this.scene, this.camera)
+    if (this.scene) {
+      this.prepareLighting()
+      this.renderer.render(this.scene, this.camera)
+    }
   }
 
   getCompositionSize(): { width: number, height: number } {
@@ -618,6 +627,7 @@ export class Three3DRenderer {
       renderer.shadowMap.autoUpdate = false
       renderer.shadowMap.needsUpdate = false
       renderer.clear(true, true, true)
+      this.prepareLighting()
       renderer.render(scene, measurementCamera)
     } catch (error) {
       renderFailure = error
@@ -840,11 +850,31 @@ export class Three3DRenderer {
     return renderer
   }
 
+  setLightingSettings(value: LightingSettings): void {
+    const next = normalizeLightingSettings(value)
+    if (JSON.stringify(next) === JSON.stringify(this.lightingSettings)) return
+    this.lightingSettings = next
+    this.noteActivity()
+    if (this.renderer) applyLightingOutput(this.renderer)
+    this.lighting?.apply(next)
+    this.lightingBoundsDirty = true
+    this.updateShadowMapSize()
+  }
+
+  private prepareLighting(): void {
+    if (!this.lightingBoundsDirty || !this.lighting || !this.sceneRoot) return
+    this.lighting.fitShadow(this.sceneRoot, this.lightingSettings)
+    this.lightingBoundsDirty = false
+  }
+
   setSceneRotation(degrees: number): void {
     if (!Number.isFinite(degrees)) return
     if (degrees !== this.rotationDegrees) this.invalidateContentMeasurement()
     this.rotationDegrees = degrees
-    if (this.sceneRoot) this.sceneRoot.rotation.y = MathUtils.degToRad(degrees)
+    if (this.sceneRoot) {
+      this.sceneRoot.rotation.y = MathUtils.degToRad(degrees)
+      this.lightingBoundsDirty = true
+    }
   }
 
   setCameraElevation(degrees: number): void {
@@ -1153,6 +1183,8 @@ export class Three3DRenderer {
     this.sceneRoot = undefined
     this.camera = undefined
     this.directionalLight = undefined
+    this.lighting = undefined
+    this.lightingBoundsDirty = true
     this.keyboard = undefined
     this.mouse = undefined
     this.desk = undefined
@@ -1235,20 +1267,11 @@ export class Three3DRenderer {
     desk.renderOrder = -100
     sceneRoot.add(desk, petGroup, keyboard.group, mouse.group)
 
-    const hemisphereLight = new HemisphereLight(0xFFFFFF, 0x647080, 2.15)
-    const directionalLight = new DirectionalLight(0xFFFFFF, 3.1)
-    directionalLight.position.set(-3.4, 5.2, 4.2)
-    directionalLight.castShadow = true
-    directionalLight.shadow.mapSize.set(512, 512)
-    directionalLight.shadow.camera.left = -4
-    directionalLight.shadow.camera.right = 4
-    directionalLight.shadow.camera.top = 4
-    directionalLight.shadow.camera.bottom = -2
-    directionalLight.shadow.camera.near = 0.1
-    directionalLight.shadow.camera.far = 14
-    directionalLight.shadow.bias = -0.0004
-    this.directionalLight = directionalLight
-    scene.add(sceneRoot, hemisphereLight, directionalLight)
+    this.lighting = new SceneLighting()
+    this.directionalLight = this.lighting.key
+    this.lighting.apply(this.lightingSettings)
+    this.lightingBoundsDirty = true
+    scene.add(sceneRoot, this.lighting.group)
     installSoftShadows(sceneRoot, this.highShadows)
   }
 
@@ -1522,6 +1545,7 @@ export class Three3DRenderer {
   }
 
   private invalidateContentMeasurement(): void {
+    this.lightingBoundsDirty = true
     this.contentMeasurementGeneration += 1
     this.noteActivity()
   }
@@ -1661,19 +1685,21 @@ export class Three3DRenderer {
   /** Request-bound recovery proof for the loaded pet asset. */
   renderHealthFrame(): boolean {
     if (this.runtimeFaulted || !this.renderer || !this.scene || !this.camera || !this.petModel) return false
+    this.prepareLighting()
     return renderPetHealthFrame(this.renderer, this.scene, this.camera, this.petModel)
   }
 
-  /** Deterministic idle pose for one-shot previews; no input or frame loop. */
-  renderStillFrame(): void {
+  /** Settle a preview, or the current input pose at one unchanged live timestamp. */
+  renderStillFrame(currentTimestamp?: number): void {
     if (!this.renderer || !this.scene || !this.camera) return
     for (let frame = 0; frame < 60; frame++) {
-      const timestamp = 1000 + frame * 16
+      const timestamp = currentTimestamp ?? 1000 + frame * 16
       this.keyboard?.update(16, timestamp)
       this.mouse?.update(16, timestamp)
       this.petAnimator?.update(16, timestamp)
       this.dmeloperEyebrowController?.update(timestamp)
     }
+    this.prepareLighting()
     this.renderer.render(this.scene, this.camera)
   }
 
@@ -1703,6 +1729,7 @@ export class Three3DRenderer {
         this.mouse?.update(delta, timestamp)
         this.petAnimator?.update(delta, timestamp)
         this.dmeloperEyebrowController?.update(timestamp)
+        this.prepareLighting()
         this.renderer.render(this.scene, this.camera)
         if (!this.runtimeFaulted && this.petModel && this.firstFrameRendered) {
           const notify = this.firstFrameRendered

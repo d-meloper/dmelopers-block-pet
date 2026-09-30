@@ -11,6 +11,7 @@ import PreferenceSections from '@/components/preference-sections/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
 import { DESK_HEIGHT_LIMITS } from '@/config/desk'
+import presetRanges from '@/config/presetRanges.json'
 import { markPresetUserEdit } from '@/features/presets/editIntent'
 import { createDefaultPet3dPreset, useCatStore } from '@/stores/cat'
 
@@ -40,7 +41,6 @@ const keyboardLanguage = computed({
     activePet3dPreset.value.keyboardLegendLanguage = value
   },
 })
-
 function applyColorSetting(key: DeviceColorKey, color: string) {
   if (key === 'deskColor' && activePet3dPreset.value.deskTransparent) return
   if ((key === 'mouseColor' || key === 'mousePressedColor') && !activePet3dPreset.value.mouseEnabled) return
@@ -104,8 +104,6 @@ function confirmObjectReset(object: 'desk' | 'keyboard' | 'mouse') {
           :default-value="defaultPet3dPreset.deskHeightOffset"
           :max="DESK_HEIGHT_LIMITS.max"
           :min="DESK_HEIGHT_LIMITS.min"
-          :step="DESK_HEIGHT_LIMITS.step"
-          :tip-formatter="(value) => value?.toFixed(2)"
           :value="activePet3dPreset.deskHeightOffset"
           @update:value="updateViewportSetting('deskHeightOffset', $event)"
         />
@@ -168,10 +166,8 @@ function confirmObjectReset(object: 'desk' | 'keyboard' | 'mouse') {
         <DefaultSnapSlider
           class="m-[0]!"
           :default-value="defaultPet3dPreset.keyboardBaseXOffset"
-          :max="1.5"
-          :min="-1.5"
-          :step="0.01"
-          :tip-formatter="(value) => value?.toFixed(2)"
+          :max="presetRanges.preset.keyboardBaseXOffset.max"
+          :min="presetRanges.preset.keyboardBaseXOffset.min"
           :value="activePet3dPreset.keyboardBaseXOffset"
           @update:value="updateViewportSetting('keyboardBaseXOffset', $event)"
         />
@@ -185,10 +181,8 @@ function confirmObjectReset(object: 'desk' | 'keyboard' | 'mouse') {
         <DefaultSnapSlider
           class="m-[0]!"
           :default-value="defaultPet3dPreset.keyboardBaseZOffset"
-          :max="1.5"
-          :min="-1.5"
-          :step="0.01"
-          :tip-formatter="(value) => value?.toFixed(2)"
+          :max="presetRanges.preset.keyboardBaseZOffset.max"
+          :min="presetRanges.preset.keyboardBaseZOffset.min"
           :value="activePet3dPreset.keyboardBaseZOffset"
           @update:value="updateViewportSetting('keyboardBaseZOffset', $event)"
         />
@@ -204,8 +198,6 @@ function confirmObjectReset(object: 'desk' | 'keyboard' | 'mouse') {
           :default-value="defaultPet3dPreset.keyboardScalePercent"
           :max="200"
           :min="50"
-          :step="1"
-          :tip-formatter="(value) => `${value}%`"
           :value="activePet3dPreset.keyboardScalePercent"
           @update:value="updateViewportSetting('keyboardScalePercent', $event)"
         />
@@ -268,10 +260,8 @@ function confirmObjectReset(object: 'desk' | 'keyboard' | 'mouse') {
         <DefaultSnapSlider
           class="m-[0]!"
           :default-value="defaultPet3dPreset.mouseBaseXOffset"
-          :max="1.5"
-          :min="-1.5"
-          :step="0.01"
-          :tip-formatter="(value) => value?.toFixed(2)"
+          :max="presetRanges.preset.mouseBaseXOffset.max"
+          :min="presetRanges.preset.mouseBaseXOffset.min"
           :value="activePet3dPreset.mouseBaseXOffset"
           @update:value="updateViewportSetting('mouseBaseXOffset', $event)"
         />
@@ -285,10 +275,8 @@ function confirmObjectReset(object: 'desk' | 'keyboard' | 'mouse') {
         <DefaultSnapSlider
           class="m-[0]!"
           :default-value="defaultPet3dPreset.mouseBaseZOffset"
-          :max="1.5"
-          :min="-1.5"
-          :step="0.01"
-          :tip-formatter="(value) => value?.toFixed(2)"
+          :max="presetRanges.preset.mouseBaseZOffset.max"
+          :min="presetRanges.preset.mouseBaseZOffset.min"
           :value="activePet3dPreset.mouseBaseZOffset"
           @update:value="updateViewportSetting('mouseBaseZOffset', $event)"
         />
@@ -304,8 +292,6 @@ function confirmObjectReset(object: 'desk' | 'keyboard' | 'mouse') {
           :default-value="defaultPet3dPreset.mouseScalePercent"
           :max="200"
           :min="50"
-          :step="1"
-          :tip-formatter="(value) => `${value}%`"
           :value="activePet3dPreset.mouseScalePercent"
           @update:value="updateViewportSetting('mouseScalePercent', $event)"
         />

@@ -8,6 +8,7 @@ can carry release provenance. Receipts prove inputs, not reproducible CI bytes.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -315,7 +316,62 @@ def verify_msix(path, app_version, store):
                 for name in sorted(names) if not name.endswith('/')]
 
 
+def checked_cache_path(path):
+    path = Path(path)
+    require(path.is_absolute(), 'Compiler cache must use an absolute path')
+    for item in (path, *path.parents):
+        if os.path.lexists(item):
+            require(not item.is_symlink() and not (getattr(item.lstat(), 'st_file_attributes', 0) & 0x400),
+                    'Compiler cache cannot traverse a reparse point')
+    return path.resolve()
+
+
+@contextmanager
+def compiler_cache(path, output):
+    if path is None:
+        yield None
+        return
+    root = checked_cache_path(path)
+    source = ROOT.parent if ROOT.name == 'app' else ROOT
+    output = Path(output).resolve()
+    require(not root.is_relative_to(source.resolve()) and not source.resolve().is_relative_to(root),
+            'Compiler cache must be separate from source')
+    require(not root.is_relative_to(output) and not output.is_relative_to(root),
+            'Compiler cache and candidate output must be separate')
+    root.mkdir(parents=True, exist_ok=True)
+    lock_path = checked_cache_path(root / '.build.lock')
+    with lock_path.open('a+b') as lock:
+        lock.seek(0, os.SEEK_END)
+        if lock.tell() == 0:
+            lock.write(b'0')
+            lock.flush()
+        lock.seek(0)
+        import msvcrt
+        try:
+            msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError as error:
+            raise ValueError('Compiler cache is already in use') from error
+        try:
+            yield root
+        finally:
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def cache_target(root, channel, tools, flags, store):
+    require(channel in ('github', 'store'), 'Unsupported compiler cache channel')
+    inputs = {'contract': 1, 'target': TARGET, 'channel': channel, 'tools': tools,
+              'flags': flags, 'storeIdentity': store if channel == 'store' else None}
+    key = hashlib.sha256(json.dumps(inputs, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    return checked_cache_path(root / (channel + '-' + key))
+
+
 def build(args):
+    with compiler_cache(getattr(args, 'cache_root', None), args.output) as cache:
+        return build_packages(args, cache)
+
+
+def build_packages(args, cache):
     require(os.name == 'nt', 'Packaging requires Windows x64')
     store = identity(args.identity, args.validation)
     source = source_identity(args.reviewed_public_commit, args.validation)
@@ -356,7 +412,7 @@ def build(args):
     write(output / 'observed-tool-lock.json', pinned_tools)
     outputs, payloads = {}, {}
     for channel in ('github', 'store'):
-        target = output / ('target-' + channel)
+        target = cache_target(cache, channel, pinned_tools, rust_flags, store) if cache else output / ('target-' + channel)
         env['CARGO_TARGET_DIR'] = str(target)
         for key in ('DMELOPER_STORE_IDENTITY_NAME', 'DMELOPER_STORE_PUBLISHER', 'DMELOPER_STORE_PRODUCT_ID'):
             env.pop(key, None)
@@ -369,8 +425,15 @@ def build(args):
         run(command, env, output / ('build-' + channel + '.log'))
         assert_source_state(source['publicCommit'], 'after ' + channel + ' native build')
         commands.append([Path(x).name if str(ROOT) in x else x for x in command])
+        compiled = target / TARGET / 'release' / MAIN
+        require(compiled.is_file(), 'Expected channel executable missing')
+        # Retained payloads and NSIS tools never live in the mutable compiler cache.
+        target = output / ('target-' + channel)
         binary = target / TARGET / 'release' / MAIN
-        require(binary.is_file(), 'Expected channel executable missing')
+        if compiled != binary:
+            binary.parent.mkdir(parents=True)
+            shutil.copyfile(compiled, binary)
+        env['CARGO_TARGET_DIR'] = str(target)
         screen_private_paths(binary.read_bytes(), [ROOT, ROOT.parent, Path.home(),
             Path(os.environ.get('CARGO_HOME', str(Path.home() / '.cargo'))),
             Path(os.environ.get('RUSTUP_HOME', str(Path.home() / '.rustup')))])
@@ -446,6 +509,7 @@ def main():
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--reviewed-public-commit', required=True)
     parser.add_argument('--identity', type=Path)
+    parser.add_argument('--cache-root', type=Path, help='Optional external compiler cache; exclusively locked and channel/tool separated')
     parser.add_argument('--projection-manifest', type=Path)
     parser.add_argument('--tool-lock', type=Path)
     parser.add_argument('--validation', action='store_true')

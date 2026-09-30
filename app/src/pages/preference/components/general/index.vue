@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Button, Divider, Flex, InputNumber, message, Modal, Select, Switch } from 'ant-design-vue'
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { Button, Divider, Flex, InputNumber, message, Modal, Select, Switch, Tooltip } from 'ant-design-vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { AutostartStatus } from '@/services/autostart'
@@ -22,6 +22,11 @@ const { t } = useI18n()
 
 const autostart = ref<AutostartStatus>()
 const autostartBusy = ref(false)
+const resetting = ref(false)
+const autostartTooltipOpen = ref(false)
+const autostartDisabled = computed(() => !autostart.value || autostartBusy.value
+  || (autostart.value.enabled ? !autostart.value.canDisable : !autostart.value.canEnable))
+const autostartHint = computed(() => t(`autostartStatus.${autostart.value?.state ?? 'unknown'}`))
 let disposed = false
 async function refreshAutostart() {
   try {
@@ -55,15 +60,42 @@ onBeforeUnmount(() => {
 })
 
 function confirmGeneralReset() {
+  if (disposed || autostartBusy.value || resetting.value) return
   Modal.confirm({
     title: t('pages.preference.general.confirm.reset'),
     okType: 'danger',
     onOk: async () => {
-      catStore.resetGeneralSettings()
-      generalStore.reset()
-      await generalStore.init()
-      await setAutostartEnabled(false)
-      await refreshAutostart()
+      if (disposed || autostartBusy.value || resetting.value) return
+      resetting.value = true
+      autostartBusy.value = true
+      let failure = 'resetPreflight'
+      try {
+        const before = await getAutostartStatus()
+        if (!disposed) autostart.value = before
+        if (before.enabled && !before.canDisable) {
+          failure = 'resetAutostartBlocked'
+          throw new Error('AUTOSTART_RESET_BLOCKED')
+        }
+        if (before.enabled) {
+          await setAutostartEnabled(false)
+          const after = await getAutostartStatus()
+          if (!disposed) autostart.value = after
+          if (after.enabled) throw new Error('AUTOSTART_RESET_NOT_DISABLED')
+        }
+        if (disposed) return
+        failure = 'resetPartial'
+        catStore.resetGeneralSettings()
+        generalStore.reset()
+        await generalStore.init()
+      } catch (error) {
+        reportDiagnostic('error', 'settings.reset_general', error)
+        if (!disposed) message.error(t(`pages.preference.general.errors.${failure}`))
+        throw error
+      } finally {
+        await refreshAutostart()
+        autostartBusy.value = false
+        resetting.value = false
+      }
     },
   })
 }
@@ -125,15 +157,31 @@ function confirmGeneralReset() {
       :title="$t('pages.preference.general.labels.appSettings')"
     >
       <ProListItem
-        :description="t(`autostartStatus.${autostart?.state ?? 'unknown'}`)"
+        :description="$t('pages.preference.general.hints.launchOnStartup')"
         :title="$t('pages.preference.general.labels.launchOnStartup')"
       >
-        <Switch
-          :checked="autostart?.enabled ?? false"
-          :disabled="!autostart || autostartBusy || (autostart.enabled ? !autostart.canDisable : !autostart.canEnable)"
-          :loading="autostartBusy"
-          @change="changeAutostart"
-        />
+        <Tooltip
+          v-model:open="autostartTooltipOpen"
+          :title="autostartHint"
+          :trigger="['hover', 'focus']"
+        >
+          <span
+            :aria-label="autostartDisabled ? `${t('pages.preference.general.labels.launchOnStartup')}: ${autostartHint}` : undefined"
+            class="inline-flex"
+            :tabindex="autostartDisabled ? 0 : undefined"
+            @focusin="autostartTooltipOpen = true"
+            @focusout="autostartTooltipOpen = false"
+          >
+            <Switch
+              :aria-label="$t('pages.preference.general.labels.launchOnStartup')"
+              :checked="autostart?.enabled ?? false"
+              :disabled="autostartDisabled"
+              :loading="autostartBusy"
+              :title="autostartHint"
+              @change="changeAutostart"
+            />
+          </span>
+        </Tooltip>
       </ProListItem>
 
       <ProListItem
@@ -166,6 +214,8 @@ function confirmGeneralReset() {
       <Button
         block
         :danger="true"
+        :disabled="autostartBusy"
+        :loading="resetting"
         @click="confirmGeneralReset"
       >
         {{ $t('pages.preference.general.labels.reset') }}

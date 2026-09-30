@@ -576,7 +576,7 @@ describe('unsupported persisted model identities', () => {
           mouseEnabled: false,
           cameraZoomPercent: 143,
           keyboardScalePercent: 123,
-          petRotationDegrees: 47,
+          petRotationDegrees: 27,
         },
       },
     })
@@ -588,7 +588,7 @@ describe('unsupported persisted model identities', () => {
     assert.equal(store.activePet3dPreset.mouseEnabled, false)
     assert.equal(store.activePet3dPreset.cameraZoomPercent, 143)
     assert.equal(store.activePet3dPreset.keyboardScalePercent, 123)
-    assert.equal(store.activePet3dPreset.petRotationDegrees, 47)
+    assert.equal(store.activePet3dPreset.petRotationDegrees, 27)
     assert.equal('selectedPetModelId' in store.customization3d, false)
     assert.equal('presets' in store.customization3d, false)
   })
@@ -662,7 +662,7 @@ describe('Dmeloper skin-model persistence', () => {
     const store = createStore()
     const preservedPreset = {
       ...createDefaultPet3dPreset(),
-      petRotationDegrees: 47,
+      petRotationDegrees: 27,
     } as Partial<ReturnType<typeof createDefaultPet3dPreset>>
     delete preservedPreset.cameraHorizontalOffset
     delete preservedPreset.cameraVerticalOffset
@@ -688,7 +688,7 @@ describe('Dmeloper skin-model persistence', () => {
     )
     assert.equal(store.customization3d.dmeloperSkinModel, 'slim')
     assert.equal(store.customization3d.useDefaultDmeloperSkin, false)
-    assert.equal(store.customization3d.preset.petRotationDegrees, 47)
+    assert.equal(store.customization3d.preset.petRotationDegrees, 27)
     assert.equal(store.customization3d.preset.cameraHorizontalOffset, 0)
     assert.equal(store.customization3d.preset.cameraVerticalOffset, 0)
     assert.equal(store.customization3d.preset.cameraZoomPercent, 100)
@@ -958,10 +958,10 @@ describe('3D preset sanitization', () => {
       ...createDefaultPet3dPreset(),
       windowScalePercent: 82,
       sceneRotationOffsetDegrees: 47,
-      petRotationDegrees: -31,
-      petDeskOffset: 0.75,
+      petRotationDegrees: -21,
+      petDeskOffset: 0.35,
       mouseBaseXOffset: -0.25,
-      mouseBaseZOffset: 0.5,
+      mouseBaseZOffset: 0.3,
       keyboardBaseXOffset: 0.35,
       keyboardBaseZOffset: -0.45,
       keyboardLegendLanguage: 'en' as const,
@@ -1053,8 +1053,8 @@ describe('3D preset sanitization', () => {
       color: '#523830',
       centerOffsetPixels: 1.5,
       heightOffsetPixels: -3,
-      spacingPixels: 0.2,
-      widthPixels: 6,
+      spacingPixels: 0.5,
+      widthPixels: 4,
       thicknessPixels: 0.2,
       depthPercent: 50,
     })
@@ -1073,9 +1073,9 @@ describe('3D preset sanitization', () => {
       color: '#523830',
       centerOffsetPixels: -1.5,
       heightOffsetPixels: 3,
-      spacingPixels: 4,
-      widthPixels: 0.75,
-      thicknessPixels: 2,
+      spacingPixels: 3,
+      widthPixels: 0.8,
+      thicknessPixels: 1.4,
       depthPercent: 50,
     })
 
@@ -1375,14 +1375,14 @@ describe('device palette persistence', () => {
     source.init()
     const colors = { keyboardColor: '#112233', keyboardKeycapColor: '#445566', keyboardLegendColor: '#778899', keyboardPressedColor: '#aabbcc', mouseColor: '#ddeeff', mousePressedColor: '#123456' }
     Object.assign(source.activePet3dPreset, colors)
-    source.activePet3dPreset.petDeskOffset = 0.42
+    source.activePet3dPreset.petDeskOffset = 0.32
     const restored = createStore()
     restored.$patch(JSON.parse(JSON.stringify(source.$state)))
     restored.init()
     for (const key of DEVICE_COLOR_KEYS) assert.equal(restored.activePet3dPreset[key], colors[key])
     restored.resetEnvironment3d()
     for (const key of DEVICE_COLOR_KEYS) assert.equal(restored.activePet3dPreset[key], DEFAULT_DEVICE_COLORS[key])
-    assert.equal(restored.activePet3dPreset.petDeskOffset, 0.42)
+    assert.equal(restored.activePet3dPreset.petDeskOffset, 0.32)
   })
 
   it('supplies absent colors and sanitizes malformed values without changing other settings', () => {

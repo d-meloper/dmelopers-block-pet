@@ -21,6 +21,7 @@ interface SettingsStore {
   $tauri: { start: () => Promise<void> }
   $dispose: () => void
   init?: () => void | Promise<void>
+  reset?: () => void
 }
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
@@ -47,6 +48,7 @@ function harness() {
   let heldOwner: string | undefined
   let saves = 0
   function window(label: string) {
+    let syncFrozen = false
     const modules = new Map<string, { exports: any }>()
     const invoke = async (command: string, args: { id: string, state: State }) => {
       if (command === 'plugin:pinia|load' || command === 'plugin:pinia|get_store_state') {
@@ -127,7 +129,11 @@ function harness() {
     }
     const plugin = load('@tauri-store/pinia') as typeof import('@tauri-store/pinia')
     const pinia = createPinia()
-    pinia.use(plugin.createPlugin({ saveOnChange: true }))
+    const { createSettingsStorePlugin } = load('@/plugins/settingsStore') as typeof import('@/plugins/settingsStore')
+    pinia.use(createSettingsStorePlugin({
+      isSavingAllowed: () => true,
+      beforeBackendSync: state => syncFrozen ? undefined : state,
+    }))
     createSSRApp({ render: () => null }).use(pinia)
     const stores: SettingsStore[] = ['app', 'cat', 'general', 'shortcut'].map((id) => {
       const definitions = load(`@/stores/${id}`)
@@ -136,6 +142,9 @@ function harness() {
     })
     return {
       stores,
+      freeze: (frozen: boolean) => {
+        syncFrozen = frozen
+      },
       general: stores.find(store => store.$id === 'general')!.$state,
       initialize: async () => {
         for (const store of stores) {
@@ -193,6 +202,41 @@ async function seededHarness() {
 }
 
 describe('general defaults and real two-window Pinia persistence', () => {
+  it('freezes pet and general backend writes while retaining the pet frontend migration hook', async () => {
+    const h = await seededHarness()
+    const persisted = h.backend.get('cat')!
+    delete persisted.model.pixelFilterEnabled
+    persisted.model.facePixelFilterEnabled = true
+    const main = h.window('main')
+    const preference = h.window('preference')
+    try {
+      const local = preference.stores.find(store => store.$id === 'cat')!
+      await local.$tauri.start()
+      assert.equal(local.$state.model.pixelFilterEnabled, true)
+      assert.equal('facePixelFilterEnabled' in local.$state.model, false)
+      await main.initialize()
+      await preference.initialize()
+      const beforePet = clone(h.backend.get('cat'))
+      const beforeGeneral = clone(h.backend.get('general'))
+      preference.freeze(true)
+      local.$state.window.opacity = 37.9
+      preference.general.app.taskbarVisible = true
+      await settle()
+      assert.deepEqual(h.backend.get('cat'), beforePet, 'per-store hooks must not bypass the common save barrier')
+      assert.deepEqual(h.backend.get('general'), beforeGeneral)
+      preference.freeze(false)
+      local.$state.window.opacity = 46.9
+      preference.general.app.taskbarVisible = false
+      await settle()
+      assert.equal(h.backend.get('cat')!.window.opacity, 46.9)
+      assert.equal(main.stores.find(store => store.$id === 'cat')!.$state.window.opacity, 46.9)
+      assert.equal(h.backend.get('general')!.app.taskbarVisible, false)
+    } finally {
+      main.dispose()
+      preference.dispose()
+    }
+  })
+
   it('retains a reminder expiry through both windows and a restarted store', async () => {
     const h = await seededHarness()
     const main = h.window('main')

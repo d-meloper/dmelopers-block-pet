@@ -5,11 +5,13 @@ import { Menu } from '@tauri-apps/api/menu'
 import { useI18n } from 'vue-i18n'
 
 import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
+import { isDesktopPetVisible } from '@/features/broadcast/visibility'
 import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import { editorsLocked } from '@/features/stateSafety'
 import { APP_PROCESS_FAILED, quitApp, restartApp } from '@/plugins/process'
 import { showWindow } from '@/plugins/window'
 import { useCatStore } from '@/stores/cat'
+import { useGeneralStore } from '@/stores/general'
 
 import type { MenuViewportSettingRequest } from './menuViewportSetting'
 
@@ -34,6 +36,7 @@ function numericMenuItems(
 
 export function useAppMenu() {
   const catStore = useCatStore()
+  const generalStore = useGeneralStore()
   const { t } = useI18n()
   const runProcess = (action: 'quit' | 'restart') => (action === 'quit' ? quitApp() : restartApp()).catch(async () => {
     await showWindow({ label: WINDOW_LABEL.PREFERENCE, destination: 'presets' })
@@ -47,19 +50,24 @@ export function useAppMenu() {
     return emitTo(WINDOW_LABEL.PREFERENCE, LISTEN_KEY.MENU_VIEWPORT_SETTING_REQUEST, { key, value })
   }
 
+  const visibilityMenuItem = () => {
+    const visible = isDesktopPetVisible(catStore.window.visible, generalStore.broadcast)
+    return {
+      text: t(`composables.useAppMenu.labels.${visible ? 'hideCat' : 'showCat'}`),
+      action: () => {
+        if (editorsLocked.value) return
+        return emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { desktopVisible: !visible })
+      },
+    }
+  }
+
   const getAppMenu = () => Menu.new({
     items: [
       {
         text: t('composables.useAppMenu.labels.petSettings'),
         action: () => showWindow({ label: WINDOW_LABEL.PREFERENCE, destination: 'pet' }),
       },
-      {
-        text: catStore.window.visible ? t('composables.useAppMenu.labels.hideCat') : t('composables.useAppMenu.labels.showCat'),
-        action: () => {
-          if (editorsLocked.value) return
-          void emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { visible: !catStore.window.visible })
-        },
-      },
+      visibilityMenuItem(),
       { item: 'Separator' },
       {
         text: t('composables.useAppMenu.labels.windowSize'),
@@ -97,22 +105,14 @@ export function useAppMenu() {
         checked: catStore.window.keepInScreen,
         action: () => {
           if (editorsLocked.value) return
-          catStore.window.keepInScreen = !catStore.window.keepInScreen
-        },
-      },
-      {
-        text: t('pages.preference.general.labels.alwaysOnTop'),
-        checked: catStore.window.alwaysOnTop,
-        action: () => {
-          if (editorsLocked.value) return
-          catStore.window.alwaysOnTop = !catStore.window.alwaysOnTop
+          return emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { keepInScreen: !catStore.window.keepInScreen })
         },
       },
       { item: 'Separator' },
       {
         text: t('composables.useAppMenu.labels.preference'),
         accelerator: '',
-        action: () => showWindow({ label: WINDOW_LABEL.PREFERENCE, destination: 'general' }),
+        action: () => showWindow(WINDOW_LABEL.PREFERENCE),
       },
       {
         text: t('composables.useAppMenu.labels.restartApp'),

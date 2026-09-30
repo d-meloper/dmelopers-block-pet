@@ -15,8 +15,11 @@ import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
 import { createDefaultDmeloperEyebrowPreset, DMELOPER_EYEBROW_LIMITS } from '@/config/dmeloperEyebrows'
 import { PET_MODEL_OPTIONS } from '@/config/model3d'
+import presetRanges from '@/config/presetRanges.json'
 import { BUILTIN_DMELOPER_SKIN, getSkinSelectionId } from '@/config/skinIdentity'
 import { markPresetUserEdit, onPresetSelectionChange } from '@/features/presets/editIntent'
+import { beginPresetNativeEdit } from '@/features/presets/operations'
+import { editorsLocked } from '@/features/stateSafety/bridge'
 import { reportDiagnostic } from '@/services/diagnostics'
 import { resolveDefaultDmeloperPalmColor, resolveDmeloperSkinUrl } from '@/services/dmeloperSkin'
 import {
@@ -158,6 +161,7 @@ watch(
 watch(
   () => catStore.customization3d.dmeloperSkinDataUrl,
   async (storedDataUrl) => {
+    const release = beginPresetNativeEdit()
     const generation = ++skinResolutionGeneration
     analyzedSkin.value = undefined
     try {
@@ -174,6 +178,8 @@ watch(
       else if (catStore.customization3d.dmeloperSkinModel === 'auto') catStore.setDmeloperSkinModel(decoded.model)
     } catch (error) {
       if (!disposed && generation === skinResolutionGeneration) reportDiagnostic('warn', 'skin.analyze_saved', error)
+    } finally {
+      release()
     }
   },
   { immediate: true },
@@ -202,11 +208,13 @@ function formatMinecraftSkinError(error: unknown): string {
 }
 
 async function applyMinecraftSkinNickname() {
+  if (disposed || editorsLocked.value) return
   const requestedName = minecraftSkinUsernameDraft.value.trim()
   invalidateMinecraftSkinRequest()
   minecraftSkinError.value = undefined
 
   if (!requestedName) {
+    const release = beginPresetNativeEdit()
     const generation = minecraftSkinRequestGate.begin()
     minecraftSkinLoading.value = true
     try {
@@ -221,6 +229,7 @@ async function applyMinecraftSkinNickname() {
         minecraftSkinError.value = formatMinecraftSkinError(error)
       }
     } finally {
+      release()
       if (minecraftSkinRequestGate.isCurrent(generation)) minecraftSkinLoading.value = false
     }
     return
@@ -234,6 +243,7 @@ async function applyMinecraftSkinNickname() {
   }
 
   const generation = minecraftSkinRequestGate.begin()
+  const release = beginPresetNativeEdit()
   minecraftSkinLoading.value = true
 
   try {
@@ -313,6 +323,7 @@ async function applyMinecraftSkinNickname() {
         : formatMinecraftSkinError(error)
     }
   } finally {
+    release()
     if (minecraftSkinRequestGate.isCurrent(generation)) {
       minecraftSkinLoading.value = false
     }
@@ -320,8 +331,9 @@ async function applyMinecraftSkinNickname() {
 }
 
 async function migrateStoredSkinToLibrary() {
+  const release = beginPresetNativeEdit()
   try {
-    if (disposed) return
+    if (disposed || editorsLocked.value) return
     const migration = catStore.getPendingSkinLibraryMigration()
     if (!migration) {
       if (!catStore.customization3d.skinLibraryMigrationCompleted) {
@@ -357,6 +369,7 @@ async function migrateStoredSkinToLibrary() {
   } catch (error) {
     if (!disposed) reportDiagnostic('warn', 'skin.library_migration', error)
   } finally {
+    release()
     skinLibraryMigrationLoading.value = false
   }
 }
@@ -393,7 +406,7 @@ function confirmEyebrowReset() {
 
 <template>
   <PreferenceSections>
-    <ProList>
+    <ProList :title="$t('pages.preference.cat.title')">
       <ProListItem
         :description="$t('pages.preference.general.hints.visible')"
         :title="$t('pages.preference.general.labels.visible')"
@@ -511,8 +524,6 @@ function confirmEyebrowReset() {
           :default-value="defaultPet3dPreset.petHeadScalePercent"
           :max="200"
           :min="25"
-          :step="1"
-          :tip-formatter="(value) => `${value}%`"
           :value="activePet3dPreset.petHeadScalePercent"
           @update:value="updateViewportSetting('petHeadScalePercent', $event)"
         />
@@ -526,10 +537,8 @@ function confirmEyebrowReset() {
         <DefaultSnapSlider
           class="m-[0]!"
           :default-value="defaultPet3dPreset.petRotationDegrees"
-          :max="180"
-          :min="-180"
-          :step="1"
-          :tip-formatter="(value) => `${value}°`"
+          :max="presetRanges.preset.petRotationDegrees.max"
+          :min="presetRanges.preset.petRotationDegrees.min"
           :value="activePet3dPreset.petRotationDegrees"
           @update:value="updateViewportSetting('petRotationDegrees', $event)"
         />
@@ -543,10 +552,8 @@ function confirmEyebrowReset() {
         <DefaultSnapSlider
           class="m-[0]!"
           :default-value="defaultPet3dPreset.petDeskOffset"
-          :max="1.5"
-          :min="-1.5"
-          :step="0.01"
-          :tip-formatter="(value) => value?.toFixed(2)"
+          :max="presetRanges.preset.petDeskOffset.max"
+          :min="presetRanges.preset.petDeskOffset.min"
           :value="activePet3dPreset.petDeskOffset"
           @update:value="updateViewportSetting('petDeskOffset', $event)"
         />
@@ -562,8 +569,6 @@ function confirmEyebrowReset() {
           :default-value="defaultPet3dPreset.petRightArmBendPercent"
           :max="400"
           :min="0"
-          :step="1"
-          :tip-formatter="(value) => `${value}%`"
           :value="activePet3dPreset.petRightArmBendPercent"
           @update:value="updateViewportSetting('petRightArmBendPercent', $event)"
         />
@@ -579,8 +584,6 @@ function confirmEyebrowReset() {
           :default-value="defaultPet3dPreset.petRightArmSpreadDegrees"
           :max="45"
           :min="-45"
-          :step="1"
-          :tip-formatter="(value) => `${value}°`"
           :value="activePet3dPreset.petRightArmSpreadDegrees"
           @update:value="updateViewportSetting('petRightArmSpreadDegrees', $event)"
         />
@@ -596,8 +599,6 @@ function confirmEyebrowReset() {
           :default-value="defaultPet3dPreset.petLeftArmBendPercent"
           :max="400"
           :min="0"
-          :step="1"
-          :tip-formatter="(value) => `${value}%`"
           :value="activePet3dPreset.petLeftArmBendPercent"
           @update:value="updateViewportSetting('petLeftArmBendPercent', $event)"
         />
@@ -613,8 +614,6 @@ function confirmEyebrowReset() {
           :default-value="defaultPet3dPreset.petLeftArmSpreadDegrees"
           :max="45"
           :min="-45"
-          :step="1"
-          :tip-formatter="(value) => `${value}°`"
           :value="activePet3dPreset.petLeftArmSpreadDegrees"
           @update:value="updateViewportSetting('petLeftArmSpreadDegrees', $event)"
         />
@@ -695,8 +694,6 @@ function confirmEyebrowReset() {
           :disabled="!dmeloperEyebrowsEnabled"
           :max="DMELOPER_EYEBROW_LIMITS.heightOffsetPixels.max"
           :min="DMELOPER_EYEBROW_LIMITS.heightOffsetPixels.min"
-          :step="DMELOPER_EYEBROW_LIMITS.step"
-          :tip-formatter="(value) => `${value?.toFixed(2)}px`"
         />
       </ProListItem>
 
@@ -711,8 +708,6 @@ function confirmEyebrowReset() {
           :disabled="!dmeloperEyebrowsEnabled"
           :max="DMELOPER_EYEBROW_LIMITS.spacingPixels.max"
           :min="DMELOPER_EYEBROW_LIMITS.spacingPixels.min"
-          :step="DMELOPER_EYEBROW_LIMITS.step"
-          :tip-formatter="(value) => `${value?.toFixed(2)}px`"
         />
       </ProListItem>
 
@@ -727,8 +722,6 @@ function confirmEyebrowReset() {
           :disabled="!dmeloperEyebrowsEnabled"
           :max="DMELOPER_EYEBROW_LIMITS.widthPixels.max"
           :min="DMELOPER_EYEBROW_LIMITS.widthPixels.min"
-          :step="DMELOPER_EYEBROW_LIMITS.step"
-          :tip-formatter="(value) => `${value?.toFixed(2)}px`"
         />
       </ProListItem>
 
@@ -743,8 +736,6 @@ function confirmEyebrowReset() {
           :disabled="!dmeloperEyebrowsEnabled"
           :max="DMELOPER_EYEBROW_LIMITS.thicknessPixels.max"
           :min="DMELOPER_EYEBROW_LIMITS.thicknessPixels.min"
-          :step="DMELOPER_EYEBROW_LIMITS.step"
-          :tip-formatter="(value) => `${value?.toFixed(2)}px`"
         />
       </ProListItem>
 
@@ -759,8 +750,6 @@ function confirmEyebrowReset() {
           :disabled="!dmeloperEyebrowsEnabled"
           :max="DMELOPER_EYEBROW_LIMITS.centerOffsetPixels.max"
           :min="DMELOPER_EYEBROW_LIMITS.centerOffsetPixels.min"
-          :step="DMELOPER_EYEBROW_LIMITS.step"
-          :tip-formatter="(value) => `${value?.toFixed(2)}px`"
         />
       </ProListItem>
 
@@ -775,8 +764,6 @@ function confirmEyebrowReset() {
           :disabled="!dmeloperEyebrowsEnabled"
           :max="DMELOPER_EYEBROW_LIMITS.depthPercent.max"
           :min="DMELOPER_EYEBROW_LIMITS.depthPercent.min"
-          :step="1"
-          :tip-formatter="(value) => `${value}%`"
         />
       </ProListItem>
 

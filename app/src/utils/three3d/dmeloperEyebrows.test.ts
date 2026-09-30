@@ -552,8 +552,10 @@ it('moves both eyebrow front faces from nearly flush to their authored depth, in
   assert.notEqual(left.quaternion.z, 0, 'focus tilt remains enabled at zero depth')
   assert.ok(Math.abs(left.position.z + 0.325 - 4 - 0.03095) < 1e-10)
   controller.setAnimationEnabled(false, time + 401)
-  controller.setPreset(createDefaultDmeloperEyebrowPreset())
-  assert.ok(Math.abs(left.position.z + 0.325 - 4 - 0.315475) < 1e-10, '100% is the new midpoint default')
+  const defaults = createDefaultDmeloperEyebrowPreset()
+  controller.setPreset(defaults)
+  const defaultProtrusion = 0.03095 + (0.6 - 0.03095) * defaults.depthPercent / 200
+  assert.ok(Math.abs(left.position.z + 0.325 - 4 - defaultProtrusion) < 1e-10, 'reset follows the authored depth default')
   controller.setPreset({ ...createDefaultDmeloperEyebrowPreset(), depthPercent: 200 })
   assert.equal(left.position.z, 4.275, '200% restores the exact authored center')
   assert.equal(right.position.z, 4.275)

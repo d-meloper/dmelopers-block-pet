@@ -13,6 +13,8 @@ import {
   Object3D,
 } from 'three'
 
+import { DMELOPER_EYEBROW_FALLBACK_COLOR } from '@/config/dmeloperEyebrows'
+
 import type { NormalizedVoxelSkin, VoxelSkinTopology } from './voxelSkin'
 
 import {
@@ -181,7 +183,7 @@ describe('voxel skin normalization', () => {
   })
 
   it('uses the fallback for a transparent head and supports legacy 64x32 head colors', () => {
-    assert.equal(suggestVoxelSkinEyebrowColor(new Uint8Array(SKIN_64_LENGTH)), '#4A2818')
+    assert.equal(suggestVoxelSkinEyebrowColor(new Uint8Array(SKIN_64_LENGTH)), DMELOPER_EYEBROW_FALLBACK_COLOR)
 
     const legacy = new Uint8Array(64 * 32 * 4)
     fillHeadCandidateArea(legacy, [70, 80, 90, 255])

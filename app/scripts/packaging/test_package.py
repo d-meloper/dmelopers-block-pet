@@ -101,7 +101,7 @@ class PackageContracts(unittest.TestCase):
                 log.write_text('fixture tool output', encoding='utf-8')
                 target = Path(env['CARGO_TARGET_DIR']) / builder.TARGET / 'release'
                 if command[2] == 'build':
-                    target.mkdir(parents=True)
+                    target.mkdir(parents=True, exist_ok=True)
                     (target / builder.MAIN).write_bytes(native_fixture())
                 elif command[2] == 'bundle':
                     bundle = target / 'bundle/nsis'
@@ -145,6 +145,22 @@ class PackageContracts(unittest.TestCase):
             self.assertEqual(set(retained['outputs']), {'github', 'storeSubmittedPackage'})
             self.assertNotEqual(retained['payloads']['githubCompiled']['sha256'],
                                 retained['payloads']['github']['sha256'])
+            # Warm compiler targets are reused, but every retained candidate is independent.
+            args.cache_root = base / 'cache'
+            snapshots = []
+            for iteration in range(2):
+                args.output = base / ('cached-output-' + str(iteration))
+                cached = builder.build(args)
+                snapshots.append((args.output, cached))
+            targets = list(args.cache_root.glob('github-*')) + list(args.cache_root.glob('store-*'))
+            self.assertEqual(len(targets), 2)
+            for target in targets:
+                (target / builder.TARGET / 'release' / builder.MAIN).write_bytes(b'changed cache')
+            for directory, cached in snapshots:
+                for channel in ('github', 'store'):
+                    retained_binary = directory / ('target-' + channel) / builder.TARGET / 'release' / builder.MAIN
+                    self.assertEqual(retained_binary.read_bytes(), native_fixture())
+                self.assertEqual(cached['outputs']['github']['sha256'], builder.digest(directory / cached['outputs']['github']['name']))
             # A dirty GitHub build must stop before bundling or compiling Store.
             run_logs.clear()
             dirty_stage = 'build-github.log'
@@ -152,6 +168,36 @@ class PackageContracts(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'after github native build'):
                 builder.build(args)
             self.assertEqual(run_logs, ['build-github.log'])
+
+    def test_compiler_cache_is_exclusive_separate_and_released_after_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            cache, output = base / 'cache', base / 'candidate'
+            with builder.compiler_cache(cache, output):
+                with self.assertRaisesRegex(ValueError, 'already in use'):
+                    with builder.compiler_cache(cache, base / 'other'): pass
+            with self.assertRaisesRegex(RuntimeError, 'build failed'):
+                with builder.compiler_cache(cache, output): raise RuntimeError('build failed')
+            with builder.compiler_cache(cache, output): pass
+            for bad_cache, bad_output in ((cache, cache / 'candidate'), (output / 'cache', output)):
+                with self.assertRaisesRegex(ValueError, 'separate'):
+                    with builder.compiler_cache(bad_cache, bad_output): pass
+            with self.assertRaisesRegex(ValueError, 'absolute'):
+                with builder.compiler_cache(Path('relative-cache'), output): pass
+            with patch.object(builder, 'ROOT', base / 'source'):
+                with self.assertRaisesRegex(ValueError, 'source'):
+                    with builder.compiler_cache(base / 'source/cache', output): pass
+
+    def test_cache_namespace_separates_channel_tools_flags_and_store_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            values = [('github', {'rustc': 'one'}, ['flag'], builder.SYNTHETIC),
+                      ('store', {'rustc': 'one'}, ['flag'], builder.SYNTHETIC),
+                      ('github', {'rustc': 'two'}, ['flag'], builder.SYNTHETIC),
+                      ('github', {'rustc': 'one'}, ['other'], builder.SYNTHETIC),
+                      ('store', {'rustc': 'one'}, ['flag'], {**builder.SYNTHETIC, 'name': 'Real.Product'})]
+            self.assertEqual(len({builder.cache_target(root, *value) for value in values}), len(values))
+            self.assertEqual(builder.cache_target(root, *values[0]), builder.cache_target(root, *values[0]))
 
     def test_nsis_transform_is_exact_and_rejects_ambiguous_or_signed_inputs(self):
         raw = native_fixture()

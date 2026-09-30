@@ -36,6 +36,27 @@ describe('failure diagnostics', () => {
     assert.equal(diagnosticCode('Settings synchronization was not acknowledged.'), 'settings_acknowledgement_timeout')
   })
 
+  it('retains exact deployed update, startup and save failure codes without accepting payload-shaped variants', () => {
+    for (const code of [
+      'UPDATE_SIGNATURE_INVALID',
+      'UPDATE_HASH_INVALID',
+      'UPDATE_NETWORK_FAILED',
+      'UPDATE_INSTALL_FAILED',
+      'AUTOSTART_OWNERSHIP_CONFLICT',
+      'AUTOSTART_WRITE_FAILED',
+      'SAVE_VERIFICATION_FAILED',
+      'INVALID_CURRENT_STATE',
+    ]) {
+      assert.equal(diagnosticCode(code), code)
+      assert.equal(diagnosticCode(new Error(code)), code)
+      assert.equal(diagnosticCode({ code, message: 'private settings' }), code)
+      assert.notEqual(diagnosticCode(`${code}: private settings`), code)
+      assert.notEqual(diagnosticCode(`C:\\Users\\${code}\\private.bin`), code)
+    }
+    assert.equal(diagnosticCode('UPDATE_PRIVATE_USER_TOKEN'), 'unclassified_failure')
+    assert.equal(diagnosticCode({ code: 'AUTOSTART_PRIVATE_USER_TOKEN' }), 'unclassified_failure')
+  })
+
   it('accepts only known console operation text and safe application locations', () => {
     assert.equal(consoleOperation('warn', 'Failed to synchronize the broadcast scene.'), 'broadcast.synchronize')
     assert.equal(consoleOperation('warn', 'User private-name has private-data'), 'console.warn')
@@ -77,7 +98,7 @@ describe('failure diagnostics', () => {
     const calls: { command: string, args: { level: number, message: string } }[] = []
     const handlers = new Map<string, (event: { error?: unknown, message?: string, reason?: unknown }) => void>()
     const logger = { warn() {}, error() {}, info() {}, log() {}, debug() {} }
-    const exports: { installDiagnostics?: () => void } = {}
+    const exports: { installDiagnostics?: () => void, reportDiagnostic?: typeof import('./diagnostics').reportDiagnostic } = {}
     const source = ts.transpileModule(readFileSync(new URL('./diagnostics.ts', import.meta.url), 'utf8'), {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
     }).outputText
@@ -109,11 +130,17 @@ describe('failure diagnostics', () => {
     error('Failed to apply visible-content fallback bounds.', new TypeError('private scene'))
     handlers.get('error')!({ error: new RangeError('private input') })
     handlers.get('unhandledrejection')!({ reason: new Error('window.hide not allowed. private user') })
+    exports.reportDiagnostic!('warn', 'updates.check', 'UPDATE_SIGNATURE_INVALID')
+    exports.reportDiagnostic!('error', 'autostart.apply', { code: 'AUTOSTART_WRITE_FAILED', message: 'private registry path' })
+    error('The pet renderer failed unexpectedly.', new Error('private model'))
+    warn('The scene viewport acknowledgement timed out.')
     await Promise.resolve()
-    assert.equal(calls.length, 4)
-    assert.deepEqual(calls.map(call => call.args.level), [4, 5, 5, 5])
+    assert.equal(calls.length, 8)
+    assert.deepEqual(calls.map(call => call.args.level), [4, 5, 5, 5, 4, 5, 5, 4])
     const records = calls.map(call => JSON.parse(call.args.message))
-    assert.deepEqual(records.map(record => record.operation), ['renderer.model_load', 'viewport.fallback', 'application.uncaught', 'application.unhandled_rejection'])
+    assert.deepEqual(records.map(record => record.operation), ['renderer.model_load', 'viewport.fallback', 'application.uncaught', 'application.unhandled_rejection', 'updates.check', 'autostart.apply', 'renderer.runtime_failure', 'viewport.acknowledgement_timeout'])
+    assert.equal(records[4].code, 'UPDATE_SIGNATURE_INVALID')
+    assert.equal(records[5].code, 'AUTOSTART_WRITE_FAILED')
     assert.ok(records.every(record => record.source === 'preference'))
     assert.ok(calls.every(call => call.command === 'plugin:log|log' && Object.keys(call.args).length === 2))
     assert.doesNotMatch(JSON.stringify(calls), /private/)

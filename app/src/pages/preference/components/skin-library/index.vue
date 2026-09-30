@@ -20,6 +20,8 @@ import type { NormalizedVoxelSkin } from '@/utils/three3d/voxelSkin'
 
 import { getSkinSelectionId } from '@/config/skinIdentity'
 import { onPresetSelectionChange } from '@/features/presets/editIntent'
+import { beginPresetNativeEdit } from '@/features/presets/operations'
+import { editorsLocked } from '@/features/stateSafety/bridge'
 import { reportDiagnostic } from '@/services/diagnostics'
 import { BUILTIN_DMELOPER_SKIN, resolveDefaultDmeloperPalmColor, resolveDmeloperSkinThumbnailUrl } from '@/services/dmeloperSkin'
 import {
@@ -171,8 +173,9 @@ async function readImportCandidate(
 }
 
 async function selectCard(entryId: string) {
-  if (busy.value) return
+  if (!mounted || busy.value || editorsLocked.value) return
   if (entryId === BUILTIN_DMELOPER_SKIN.id) {
+    const release = beginPresetNativeEdit()
     const generation = applyRequestGate.begin()
     applying.value = true
     cancelNameEdit()
@@ -187,6 +190,7 @@ async function selectCard(entryId: string) {
         message.error(t('pages.preference.skinLibrary.errors.apply'))
       }
     } finally {
+      release()
       if (applyRequestGate.isCurrent(generation)) applying.value = false
     }
     return
@@ -243,7 +247,7 @@ function cancelNameEdit() {
 
 async function saveEditedName(entry: SkinLibraryEntry) {
   if (
-    editingEntryId.value !== entry.id
+    !mounted || editorsLocked.value || editingEntryId.value !== entry.id
     || renaming.value
     || busy.value
     || applying.value
@@ -265,6 +269,7 @@ async function saveEditedName(entry: SkinLibraryEntry) {
 
   busy.value = true
   renaming.value = true
+  const release = beginPresetNativeEdit()
   let shouldRetry = false
   try {
     const renamed = await renameSkinLibraryEntry(entry.id, displayName)
@@ -278,6 +283,7 @@ async function saveEditedName(entry: SkinLibraryEntry) {
     message.error(t('pages.preference.skinLibrary.errors.rename'))
     shouldRetry = true
   } finally {
+    release()
     renaming.value = false
     if (shouldRetry) await focusRenameInput()
     busy.value = false
@@ -455,7 +461,8 @@ function showImportResult(
 }
 
 async function importCandidates(candidates: readonly SkinLibraryImportCandidate[]) {
-  if (candidates.length === 0 || busy.value || applying.value || loading.value) return
+  if (!mounted || editorsLocked.value || candidates.length === 0 || busy.value || applying.value || loading.value) return
+  const release = beginPresetNativeEdit()
   const generation = applyRequestGate.begin()
   busy.value = true
   importing.value = true
@@ -505,6 +512,7 @@ async function importCandidates(candidates: readonly SkinLibraryImportCandidate[
       }))
     }
   } finally {
+    release()
     if (applyRequestGate.isCurrent(generation)) {
       busy.value = false
       importing.value = false
@@ -545,7 +553,8 @@ async function cleanupLibraryFiles() {
 }
 
 async function deleteSelected(entryIds: readonly string[], generation: number) {
-  if (!applyRequestGate.isCurrent(generation) || busy.value || applying.value || cleaningUp.value) return
+  if (!mounted || editorsLocked.value || !applyRequestGate.isCurrent(generation) || busy.value || applying.value || cleaningUp.value) return
+  const release = beginPresetNativeEdit()
   const originalSkinId = activeEntryId.value
   const originalPresetId = catStore.presetCollection?.activeId
   const isCurrent = () => mounted && applyRequestGate.isCurrent(generation)
@@ -577,6 +586,7 @@ async function deleteSelected(entryIds: readonly string[], generation: number) {
       message.error(t('pages.preference.skinLibrary.errors.delete'))
     }
   } finally {
+    release()
     // A stale completion must not unlock a newer import/apply/delete operation.
     if (isCurrent()) busy.value = false
   }
@@ -656,6 +666,7 @@ async function applyJavaEntry(entry: SkinLibraryEntry, generation: number) {
 }
 
 async function applyEntry(entryId: string) {
+  if (!mounted || editorsLocked.value) return
   const entry = entries.value.find(candidate => candidate.id === entryId)
   if (!entry) return
   const generation = applyRequestGate.begin()
@@ -663,6 +674,7 @@ async function applyEntry(entryId: string) {
     applying.value = false
     return
   }
+  const release = beginPresetNativeEdit()
   applying.value = true
   try {
     if (entry.source === 'java') await applyJavaEntry(entry, generation)
@@ -673,6 +685,7 @@ async function applyEntry(entryId: string) {
       message.error(t('pages.preference.skinLibrary.errors.apply'))
     }
   } finally {
+    release()
     if (applyRequestGate.isCurrent(generation)) applying.value = false
   }
 }

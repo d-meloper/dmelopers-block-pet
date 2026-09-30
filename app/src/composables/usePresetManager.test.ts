@@ -11,6 +11,7 @@ import { runInNewContext } from 'node:vm'
 import { createPinia, setActivePinia } from 'pinia'
 import ts from 'typescript'
 import * as vue from 'vue'
+import { compileScript, parse } from 'vue/compiler-sfc'
 
 import type { createDefaultPresetSnapshot } from '@/features/presets/model'
 import type { PortablePetPreset, PresetExportMode } from '@/features/presets/transfer'
@@ -30,12 +31,15 @@ import { installPresetSkinBrowser } from '@/features/presets/skin.test.utils'
 import { PresetTransferError } from '@/features/presets/transfer'
 import { BUILTIN_PRESET_ID, PRESET_APPLY_REQUEST, PRESET_APPLY_RESPONSE } from '@/features/presets/types'
 import { editorsLocked, initializePetForStartup, registerPresetFlush, stateOwners } from '@/features/stateSafety/bridge'
+import { createQuiescenceOwner } from '@/features/stateSafety/quiescence'
 import { getRequiredPetAssetMutation } from '@/pages/main/petAssetSelection'
 import { createVisibleBoundsSelectionSignature, visibleBoundsSelectionChanged } from '@/pages/main/viewportSelection'
 import { getResolvedDmeloperSkinUrl } from '@/services/dmeloperSkin'
 import { MinecraftSkinError } from '@/services/minecraftSkin'
 import { preparePetStateForSync, useCatStore } from '@/stores/cat'
+import { useGeneralStore } from '@/stores/general'
 import { runProgramSettingsReset } from '@/utils/programSettingsReset'
+import { saveSynchronizedSettings } from '@/utils/settingsPersistence'
 
 import type { PresetManager } from './usePresetManager'
 
@@ -43,6 +47,161 @@ const require = createRequire(import.meta.url)
 const source = ts.transpileModule(readFileSync(new URL('./usePresetManager.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText
+
+for (const mode of ['selection', 'materialization'] as const) {
+  it(`keeps the save owner unready through asynchronous skin ${mode}`, async () => {
+    const h = await harness()
+    let holdAnalysis = false
+    let resolvePalm!: (color: string) => void
+    const palm = new Promise<string>((resolve) => {
+      resolvePalm = resolve
+    })
+    const unmounts: Array<() => void> = []
+    const scope = vue.effectScope()
+    const component = mode === 'selection' ? 'skin-library' : 'cat'
+    const { descriptor } = parse(readFileSync(new URL(`../pages/preference/components/${component}/index.vue`, import.meta.url), 'utf8'))
+    const compiled = ts.transpileModule(compileScript(descriptor, { id: 'pending-skin-save-owner' }).content, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText
+    const module = { exports: {} as { default: { setup: (props: object, context: object) => { selectCard: (id: string) => Promise<void> } } } }
+    // The actual SFC and preset manager share their real operation/readiness state.
+    // Only framework rendering, native I/O and the delayed asset decoder are stubbed.
+    runInNewContext(compiled, {
+      module,
+      exports: module.exports,
+      fetch: async () => ({ ok: true, blob: async () => new Blob() }),
+      require: (id: string) => {
+        if (id === 'vue') return { ...vue, onMounted: () => {}, onBeforeUnmount: (callback: () => void) => unmounts.push(callback) }
+        if (id === 'vue-i18n') return { useI18n: () => ({ t: (key: string) => key }) }
+        if (id === 'ant-design-vue') return {}
+        if (id === '@/features/presets/operations') return presetOperations
+        if (id === '@/features/stateSafety/bridge') return { editorsLocked }
+        if (id === '@/stores/cat') return { ...require(fileURLToPath(new URL('../stores/cat.ts', import.meta.url))), useCatStore: () => h.store }
+        if (id.startsWith('@/components/')) return {}
+        if (id === '@/utils/three3d/voxelSkin') {
+          return { decodeVoxelSkin: async () => {
+            if (holdAnalysis) await palm
+            return { wideArmLayoutCompatible: true, model: 'wide' }
+          } }
+        }
+        if (id === '@/services/dmeloperSkin') {
+          return {
+            BUILTIN_DMELOPER_SKIN: { id: 'builtin:dmeloper' },
+            resolveDmeloperSkinUrl: async (url: string) => url || 'default',
+            resolveDefaultDmeloperPalmColor: () => palm,
+          }
+        }
+        if (id.startsWith('@/')) return require(fileURLToPath(new URL(`../${id.slice(2)}`, import.meta.url)))
+        return require(id)
+      },
+    })
+    const control = scope.run(() => module.exports.default.setup({}, { expose: () => {}, emit: () => {} }))!
+    type Runtime = typeof import('@/features/stateSafety/runtime')
+    type Handler = (event: { payload: any }) => unknown
+    const handlers = new Map<string, Handler>()
+    const runtime = {} as Runtime
+    const saved: Array<ReturnType<typeof useCatStore>['$state']> = []
+    let acknowledged = false
+    const runtimeSource = ts.transpileModule(readFileSync(new URL('../features/stateSafety/runtime.ts', import.meta.url), 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText
+    runInNewContext(runtimeSource, {
+      exports: runtime,
+      performance,
+      console,
+      setTimeout,
+      clearTimeout,
+      document: { addEventListener: () => {}, removeEventListener: () => {} },
+      require: (id: string) => {
+        if (id === 'vue') return vue
+        if (id === './bridge') return { editorsLocked, stateOwners, shortcutWarnings: new Set() }
+        if (id === './quiescence') return { createQuiescenceOwner }
+        if (id === '@/utils/settingsPersistence') return { saveSynchronizedSettings }
+        if (id === '@/plugins/window') return { setWindowMemoryActive: () => {} }
+        if (id === '@/services/diagnostics') return { reportDiagnostic: () => {} }
+        if (id === '@tauri-apps/api/webviewWindow') return { getCurrentWebviewWindow: () => ({ label: 'preference', isVisible: async () => true }) }
+        if (id === '@tauri-apps/api/core') {
+          return { invoke: async (command: string) => {
+            if (command === 'acknowledge_state_quiescence') acknowledged = true
+          } }
+        }
+        if (id === '@tauri-store/pinia') {
+          return {
+            getStoreState: async () => clonePreset(h.store.$state),
+            saveAllNow: async () => {
+              saved.push(clonePreset(h.store.$state))
+            },
+          }
+        }
+        if (id === '@tauri-apps/api/event') {
+          return {
+            listen: async (event: string, handler: Handler) => {
+              handlers.set(event, handler)
+              return () => handlers.delete(event)
+            },
+            emit: async (event: string, payload: { requestId: string }) => {
+              void handlers.get(event)?.({ payload })
+              // The other webview's independent acknowledgement is the native boundary.
+              if (event === 'state-quiesce-request') handlers.get('state-quiesce-response')?.({ payload: { ...payload, label: 'main', success: true, warnings: [] } })
+            },
+          }
+        }
+        throw new Error(`Unexpected save barrier import: ${id}`)
+      },
+    })
+    await runtime.initializeStateSafety()
+    runtime.registerStateSnapshots(() => [{ id: h.store.$id, state: { ...clonePreset(h.store.$state) } }])
+    runtime.markStoresReady()
+    const selecting = mode === 'selection' ? control.selectCard('builtin:dmeloper') : Promise.resolve()
+    let saving: Promise<void> | undefined
+    try {
+      if (mode === 'materialization') {
+        h.store.setDmeloperSkinDataUrl(undefined)
+        for (let index = 0; index < 20; index++) await vue.nextTick()
+        assert.equal(h.quitReady(), true)
+        assert.equal(h.store.customization3d.dmeloperSkinDataUrl, undefined)
+        holdAnalysis = true
+        saving = runtime.quiesceEditors('pending-skin-save')
+        await assert.rejects(saving, /QUIESCE_FAILED/, 'a flush-created analysis must fail the save barrier before it freezes state')
+        assert.equal(acknowledged, false)
+        assert.equal(saved.length, 0)
+        assert.ok(runtime.filterBackendSync({}))
+        resolvePalm('#123456')
+        for (let index = 0; index < 20; index++) await vue.nextTick()
+        assert.equal(h.quitReady(), true)
+        await runtime.quiesceEditors('retry-skin-save')
+        assert.equal(acknowledged, true)
+        assert.equal(saved.at(-1)?.customization3d.dmeloperSkinDataUrl, h.store.customization3d.dmeloperSkinDataUrl)
+        await runtime.releaseEditors('retry-skin-save')
+        return
+      }
+      assert.equal(h.quitReady(), false, 'Quit/restart must not seal a snapshot while the accepted skin edit can still change it')
+      assert.equal(stateOwners.presetsReady?.(), false, 'the update save barrier must wait for the same accepted skin edit')
+      assert.equal(await stateOwners.flushPresets?.(), false)
+      saving = runtime.quiesceEditors('pending-skin-save')
+      await vue.nextTick()
+      assert.equal(acknowledged, false)
+      assert.ok(runtime.filterBackendSync({}), 'the live barrier must not freeze the in-flight result')
+      resolvePalm('#123456')
+      await selecting
+      await saving
+      assert.equal(acknowledged, true)
+      assert.equal(runtime.filterBackendSync({}), undefined)
+      assert.equal(h.quitReady(), true)
+      assert.equal(saved.at(-1)?.customization3d.preset.dmeloperPalmColor, '#123456')
+    } finally {
+      resolvePalm('#123456')
+      await selecting
+      await saving?.catch(() => {})
+      await runtime.releaseEditors('pending-skin-save')
+      runtime.disposeStateSafety()
+      editorsLocked.value = false
+      scope.stop()
+      unmounts.forEach(callback => callback())
+      h.dispose()
+    }
+  })
+}
 
 interface TransferBoundary {
   document: PortablePetPreset
@@ -107,6 +266,7 @@ async function harness(
 ) {
   setActivePinia(createPinia())
   const store = useCatStore()
+  const general = useGeneralStore()
   if (initialState) store.$patch(clonePreset(initialState) as _DeepPartial<typeof store.$state>)
   // Most cases exercise an existing editable catalog. A fresh installation now
   // starts with only the immutable built-in entry, covered explicitly below.
@@ -132,6 +292,7 @@ async function harness(
   let rendered = 0
   let thumbnailFails = false
   const saves: unknown[] = []
+  const generalSaves: unknown[] = []
   const diagnostics: Array<{ level: string, operation: string }> = []
   const prepare = async (snapshot: ReturnType<typeof createDefaultPresetSnapshot>) => {
     const result = clonePreset(snapshot)
@@ -203,11 +364,13 @@ async function harness(
             }
             if (saveFails || (saveFailureAfter !== undefined && saves.length >= saveFailureAfter)) throw new Error('disk full')
             saves.push(clonePreset(store.$state))
+            generalSaves.push(clonePreset(general.$state))
           },
         }
       }
       if (id === '@/features/stateSafety/bridge') return { editorsLocked, stateOwners, initializePetForStartup, registerPresetFlush }
       if (id === '@/stores/cat') return { useCatStore: () => store }
+      if (id === '@/stores/general') return { useGeneralStore: () => general }
       if (id === '@/plugins/process') {
         return { registerAppProcessOwner: (ready: () => boolean) => {
           quitReady = ready
@@ -325,6 +488,8 @@ async function harness(
   if (seededCatalog) applies = 0
   return {
     store,
+    general,
+    generalSaves,
     manager,
     saves,
     diagnostics,
@@ -394,6 +559,94 @@ async function waitFor(predicate: () => boolean) {
 }
 
 describe('live preset manager', () => {
+  it('accepts renderer skin resolution only for the current selection and keeps the save freeze intact', async () => {
+    const h = await harness()
+    try {
+      h.store.customization3d.dmeloperSkinDataUrl = 'data:image/png;base64,YQ=='
+      h.store.customization3d.dmeloperSkinModel = 'auto'
+      const correction = { resolvedSkinModel: { modelId: 'dmeloper', skinDataUrl: 'data:image/png;base64,YQ==', requested: 'auto', resolved: 'slim' } }
+      h.manager.setListVisible(false)
+      editorsLocked.value = true
+      h.emitEdit(correction)
+      assert.equal(h.store.customization3d.dmeloperSkinModel, 'auto')
+      editorsLocked.value = false
+      h.emitEdit({ resolvedSkinModel: { ...correction.resolvedSkinModel, skinDataUrl: 'data:image/png;base64,Yg==' } })
+      assert.equal(h.store.customization3d.dmeloperSkinModel, 'auto')
+      h.emitEdit(correction)
+      assert.equal(h.store.customization3d.dmeloperSkinModel, 'slim')
+      h.emitEdit({ resolvedSkinModel: { ...correction.resolvedSkinModel, resolved: 'wide' } })
+      assert.equal(h.store.customization3d.dmeloperSkinModel, 'slim', 'a later manual/accepted preference wins over a stale result')
+      for (const resolvedSkinModel of [null, 1, {}, { ...correction.resolvedSkinModel, resolved: 'invalid' }]) {
+        assert.doesNotThrow(() => h.emitEdit({ resolvedSkinModel }))
+        assert.equal(h.store.customization3d.dmeloperSkinModel, 'slim')
+      }
+      assert.equal(await h.manager.retry(), true)
+      assert.equal((h.saves.at(-1)! as ReturnType<typeof useCatStore>['$state']).customization3d.dmeloperSkinModel, 'slim')
+    } finally {
+      editorsLocked.value = false
+      h.dispose()
+    }
+  })
+
+  it('applies and saves desktop visibility as one owner without changing presets or broadcast output', async () => {
+    const h = await harness()
+    try {
+      const before = clonePreset(h.store.presetCollection)
+      for (const enabled of [false, true]) {
+        h.general.broadcast.enabled = enabled
+        h.general.broadcast.showOnDesktop = false
+        for (const desktopVisible of [true, false]) {
+          h.emitEdit({ desktopVisible })
+          assert.equal(h.store.window.visible, desktopVisible)
+          assert.equal(h.general.broadcast.showOnDesktop, enabled && desktopVisible)
+          assert.equal(h.general.broadcast.enabled, enabled)
+          assert.equal(await h.manager.retry(), true)
+          const saved = h.saves.at(-1) as ReturnType<typeof useCatStore>['$state']
+          const general = h.generalSaves.at(-1) as ReturnType<typeof useGeneralStore>['$state']
+          assert.equal(saved.window.visible, desktopVisible)
+          assert.equal(general.broadcast.showOnDesktop, enabled && desktopVisible)
+          assert.deepEqual(saved.presetCollection, before)
+        }
+      }
+      for (const desktopVisible of [undefined, 'true', 1, null]) h.emitEdit({ desktopVisible })
+      assert.equal(h.store.window.visible, false)
+      assert.equal(h.general.broadcast.showOnDesktop, false)
+      editorsLocked.value = true
+      h.emitEdit({ desktopVisible: true })
+      editorsLocked.value = false
+      const releaseNative = presetOperations.beginPresetNativeEdit()
+      try {
+        h.emitEdit({ desktopVisible: true })
+      } finally {
+        releaseNative()
+      }
+      assert.equal(h.store.window.visible, false)
+      assert.equal(h.general.broadcast.showOnDesktop, false)
+      // Existing shortcut/basic-visibility requests retain their independent meaning.
+      h.emitEdit({ visible: true })
+      assert.equal(h.store.window.visible, true)
+      assert.equal(h.general.broadcast.showOnDesktop, false)
+    } finally {
+      editorsLocked.value = false
+      h.dispose()
+    }
+  })
+
+  it('persists desktop context-menu window requests without editing a visual preset', async () => {
+    const h = await harness(undefined, undefined, undefined, undefined, undefined, true)
+    try {
+      h.emitEdit({ keepInScreen: !h.store.window.keepInScreen })
+      h.emitEdit({ alwaysOnTop: !h.store.window.alwaysOnTop })
+      assert.equal(h.manager.entries.value.length, 1)
+      assert.equal(await h.manager.retry(), true)
+      const saved = h.saves.at(-1)! as ReturnType<typeof useCatStore>['$state']
+      assert.equal(saved.window.keepInScreen, h.store.window.keepInScreen)
+      assert.equal(saved.window.alwaysOnTop, h.store.window.alwaysOnTop)
+    } finally {
+      h.dispose()
+    }
+  })
+
   it('starts a fresh installation with only the authored built-in preset', async () => {
     const h = await harness(undefined, undefined, undefined, undefined, undefined, true)
     try {

@@ -12,6 +12,8 @@ import * as constants from '@/constants'
 import * as presetEditIntent from '@/features/presets/editIntent'
 import * as presetOperations from '@/features/presets/operations'
 import * as sceneTypes from '@/features/scene/types'
+import * as viewportSettings from '@/features/scene/viewportSettings'
+import { editorsLocked } from '@/features/stateSafety/bridge'
 
 import type { useSceneViewport } from './useSceneViewport'
 
@@ -58,6 +60,7 @@ function viewportHarness(emitRequest?: Parameters<typeof useSceneViewport>[0]) {
   let focus: ((event: { payload: boolean }) => void) | undefined
   let delayedEmission: ReturnType<typeof deferred> | undefined
   let registrationDelay: ReturnType<typeof deferred> | undefined
+  let registrationFailure: string | undefined
   const source = readFileSync(new URL('./useSceneViewport.ts', import.meta.url), 'utf8')
   const context = {
     exports: {} as { useSceneViewport: typeof useSceneViewport },
@@ -72,6 +75,8 @@ function viewportHarness(emitRequest?: Parameters<typeof useSceneViewport>[0]) {
       if (name === 'vue-i18n') return { useI18n: () => ({ t: (key: string) => key }) }
       if (name === '@/constants') return constants
       if (name === '@/features/scene/types') return sceneTypes
+      if (name === '@/features/scene/viewportSettings') return viewportSettings
+      if (name === '@/features/stateSafety/bridge') return { editorsLocked }
       if (name === '@/features/presets/editIntent') return presetEditIntent
       if (name === '@/features/presets/operations') return presetOperations
       if (name === '@/stores/cat') return { useCatStore: () => store }
@@ -84,6 +89,7 @@ function viewportHarness(emitRequest?: Parameters<typeof useSceneViewport>[0]) {
             if (delay) await delay.promise
           },
           listen: async (event: string, callback: (event: { payload: unknown }) => void) => {
+            if (registrationFailure === event) throw new Error('Temporary subscription failure')
             listeners.set(event, callback)
             if (registrationDelay) await registrationDelay.promise
             return () => listeners.delete(event)
@@ -94,6 +100,7 @@ function viewportHarness(emitRequest?: Parameters<typeof useSceneViewport>[0]) {
         return {
           getCurrentWebviewWindow: () => ({
             onFocusChanged: async (callback: typeof focus) => {
+              if (registrationFailure === 'focus') throw new Error('Temporary focus subscription failure')
               focus = callback
               if (registrationDelay) await registrationDelay.promise
               return () => {
@@ -143,10 +150,87 @@ function viewportHarness(emitRequest?: Parameters<typeof useSceneViewport>[0]) {
       registrationDelay = deferred()
       return registrationDelay
     },
+    failRegistration: (event?: string) => {
+      registrationFailure = event
+    },
   }
 }
 
 describe('scene viewport request acknowledgements', () => {
+  it('adopts a native manual clamp only for the exact current request outside a save freeze', async () => {
+    const h = viewportHarness()
+    try {
+      await h.mount()
+      h.ack(state(false))
+      const requested = { ...h.store.activePet3dPreset.manualViewportRect, width: 2400 }
+      const applied = viewportSettings.normalizeManualViewport(requested, state().monitorSize)
+      const correction = { ...state(false), manualCorrection: { requested, applied } }
+      h.store.activePet3dPreset.manualViewportRect = { ...requested }
+      editorsLocked.value = true
+      h.publish(correction)
+      assert.deepEqual(h.store.activePet3dPreset.manualViewportRect, requested)
+      editorsLocked.value = false
+      h.publish(correction)
+      assert.deepEqual({ ...h.store.activePet3dPreset.manualViewportRect }, applied)
+      const newer = { ...requested, width: 1800 }
+      h.store.activePet3dPreset.manualViewportRect = newer
+      h.publish(correction)
+      assert.deepEqual(h.store.activePet3dPreset.manualViewportRect, newer)
+      h.store.activePet3dPreset.manualViewportRect = { ...requested }
+      h.store.activePet3dPreset.viewportModeRevision = 1
+      h.publish(correction)
+      assert.deepEqual(h.store.activePet3dPreset.manualViewportRect, requested)
+      for (const manualCorrection of [null, 1, [], {}, { requested, applied: { ...applied, width: Number.NaN } }]) {
+        assert.doesNotThrow(() => h.publish({ ...correction, revision: 1, manualCorrection }))
+        assert.deepEqual(h.store.activePet3dPreset.manualViewportRect, requested)
+      }
+    } finally {
+      editorsLocked.value = false
+      h.unmount()
+    }
+  })
+
+  it('keeps a newer manual size when a focus readback completes after the edit', async () => {
+    const h = viewportHarness()
+    try {
+      await h.mount()
+      h.ack(state(false))
+      await h.focus()
+      const newer = { x: -100, y: -150, width: 1000, height: 750 }
+      h.store.activePet3dPreset.manualViewportRect = newer
+      h.ack(state(false))
+      assert.deepEqual(h.store.activePet3dPreset.manualViewportRect, newer)
+      assert.equal(h.api.viewportPending.value, false)
+    } finally {
+      h.unmount()
+    }
+  })
+
+  for (const failedSubscription of [sceneTypes.SCENE_VIEWPORT_STATE, sceneTypes.SCENE_VIEWPORT_RESPONSE, 'focus']) {
+    it(`cleans partial subscriptions and retries after ${failedSubscription} registration fails`, async () => {
+      const h = viewportHarness()
+      try {
+        h.failRegistration(failedSubscription)
+        await h.mount()
+        assert.equal(h.api.viewportPending.value, false)
+        assert.equal(h.api.viewportError.value, 'pages.preference.scene.errors.unavailable')
+        assert.equal(h.listeners.size, 0, 'a failed registration must remove every successful listener')
+        assert.equal(h.events.length, 0)
+        h.failRegistration()
+        const retry = h.api.requestViewportMode()
+        await flush()
+        assert.equal(h.listeners.size, 2)
+        assert.equal(h.api.viewportPending.value, true)
+        h.ack()
+        assert.equal(await retry, true)
+        assert.equal(h.api.viewportError.value, undefined)
+        assert.equal(presetOperations.presetNativeEditPending.value, 0)
+      } finally {
+        h.unmount()
+      }
+    })
+  }
+
   it('confirms a user edit even when synchronization applied the same state before its reply', async () => {
     const h = viewportHarness()
     let confirmations = 0

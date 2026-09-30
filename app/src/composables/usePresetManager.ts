@@ -34,19 +34,21 @@ import { createPresetRequestClient } from '@/features/presets/request'
 import { preparePresetSkin } from '@/features/presets/skin'
 import { renderPresetThumbnail } from '@/features/presets/thumbnail'
 import { exportPortablePreset, PresetTransferError, resolvePortablePreset } from '@/features/presets/transfer'
-import { BUILTIN_PRESET_ID, PRESET_APPLY_RESPONSE } from '@/features/presets/types'
+import { BUILTIN_PRESET_ID, isResolvedSkinModelRequest, PRESET_APPLY_RESPONSE } from '@/features/presets/types'
 import { editorsLocked, registerPresetFlush } from '@/features/stateSafety/bridge'
 import { registerAppProcessOwner } from '@/plugins/process'
 import { reportDiagnostic } from '@/services/diagnostics'
 import { MinecraftSkinError } from '@/services/minecraftSkin'
 import { finishPresetImport, preparePresetImport, readPortablePreset, readPresetImport, writePortablePreset } from '@/services/presetTransfer'
 import { useCatStore } from '@/stores/cat'
+import { useGeneralStore } from '@/stores/general'
 import { saveSynchronizedSettings } from '@/utils/settingsPersistence'
 
 export function usePresetManager(
   emit: (event: string, payload: unknown) => Promise<unknown> = (event, payload) => emitTo(WINDOW_LABEL.MAIN, event, payload),
 ) {
   const store = useCatStore()
+  const general = useGeneralStore()
   const { t } = useI18n()
   const ready = ref(false)
   const localBusy = ref(true)
@@ -488,6 +490,16 @@ export function usePresetManager(
 
   function handleExternalEdit(payload: unknown) {
     if (!ready.value || busy.value || !payload || typeof payload !== 'object') return
+    if (isResolvedSkinModelRequest(payload)) {
+      const selection = store.customization3d
+      const correction = payload.resolvedSkinModel
+      if (selection.selectedModelId === correction.modelId
+        && selection.dmeloperSkinDataUrl === correction.skinDataUrl
+        && selection.dmeloperSkinModel === correction.requested) {
+        store.setDmeloperSkinModel(correction.resolved)
+      }
+      return
+    }
     if (isCycleViewportSettingRequest(payload)) {
       markPresetUserEdit()
       // Resolve against the owner's latest value, including earlier queued presses.
@@ -499,9 +511,16 @@ export function usePresetManager(
       store.activePet3dPreset[payload.key] = payload.value
       return
     }
-    const request = payload as { visible?: unknown, opacity?: unknown, mirror?: unknown, showDisplayArea?: unknown }
-    if (typeof request.visible === 'boolean') {
+    const request = payload as { desktopVisible?: unknown, visible?: unknown, opacity?: unknown, mirror?: unknown, showDisplayArea?: unknown, keepInScreen?: unknown, alwaysOnTop?: unknown }
+    if (typeof request.desktopVisible === 'boolean') {
+      if (general.broadcast.enabled) general.broadcast.showOnDesktop = request.desktopVisible
+      store.window.visible = request.desktopVisible
+    } else if (typeof request.visible === 'boolean') {
       store.window.visible = request.visible
+    } else if (typeof request.keepInScreen === 'boolean') {
+      store.window.keepInScreen = request.keepInScreen
+    } else if (typeof request.alwaysOnTop === 'boolean') {
+      store.window.alwaysOnTop = request.alwaysOnTop
     } else if (typeof request.showDisplayArea === 'boolean') {
       markPresetUserEdit()
       store.activePet3dPreset.showDisplayArea = request.showDisplayArea
@@ -558,7 +577,9 @@ export function usePresetManager(
   const stopQuitOwner = registerAppProcessOwner(dataFlushReady)
   const stopDataFlush = registerPresetFlush(async () => {
     if (!dataFlushReady()) return false
-    return flush()
+    // Materializing a missing PNG can start the Pet tab's asynchronous analysis.
+    // Do not seal the backend while that new owner can still change its settings.
+    return (await flush()) && dataFlushReady()
   }, dataFlushReady)
 
   onBeforeUnmount(() => {

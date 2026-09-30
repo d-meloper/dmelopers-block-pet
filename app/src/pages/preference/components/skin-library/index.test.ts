@@ -12,8 +12,10 @@ import type { SkinLibraryCleanupResponse, SkinLibraryDeleteResponse, SkinLibrary
 import * as skinIdentity from '@/config/skinIdentity'
 import * as presetEditIntent from '@/features/presets/editIntent'
 import { applyPresetSnapshot, capturePresetSnapshot, clonePreset, createPresetCollection } from '@/features/presets/model'
+import * as presetOperations from '@/features/presets/operations'
 import { preparePresetSkin } from '@/features/presets/skin'
 import { installPresetSkinBrowser } from '@/features/presets/skin.test.utils'
+import * as stateSafety from '@/features/stateSafety/bridge'
 import * as dmeloperSkin from '@/services/dmeloperSkin'
 import * as minecraftSkin from '@/services/minecraftSkin'
 import * as skinLibrary from '@/services/skinLibrary'
@@ -146,6 +148,8 @@ function mountLibrary(options: {
     }
     if (id === '@/config/skinIdentity') return skinIdentity
     if (id === '@/features/presets/editIntent') return presetEditIntent
+    if (id === '@/features/presets/operations') return presetOperations
+    if (id === '@/features/stateSafety/bridge') return stateSafety
     if (id === '@/stores/cat') return { useCatStore: () => store }
     if (id === '@/services/dmeloperSkin') {
       return {
@@ -241,6 +245,39 @@ function mountLibrary(options: {
 }
 
 describe('built-in skin library card', () => {
+  for (const outcome of ['failure', 'disposed', 'superseded'] as const) {
+    it(`releases its pending save lease after a ${outcome} default selection`, async () => {
+      await flush()
+      const before = presetOperations.presetNativeEditPending.value
+      const sample = deferred<string>()
+      const control = mountLibrary({ defaultPalm: () => sample.promise })
+      await flush()
+      const selecting = control.click(control.cards()[0])
+      try {
+        assert.equal(presetOperations.presetNativeEditPending.value, before + 1)
+        if (outcome === 'disposed') control.app.unmount()
+        if (outcome === 'superseded') presetEditIntent.invalidatePresetSelection()
+        const previous = capturePresetSnapshot(control.store)
+        if (outcome === 'failure') sample.reject(new Error('Default skin unavailable'))
+        else sample.resolve('#123456')
+        await selecting
+        assert.equal(presetOperations.presetNativeEditPending.value, before)
+        assert.deepEqual(capturePresetSnapshot(control.store), previous)
+        if (outcome !== 'disposed') {
+          stateSafety.editorsLocked.value = true
+          await control.click(control.cards()[0])
+          assert.equal(presetOperations.presetNativeEditPending.value, before)
+          assert.deepEqual(capturePresetSnapshot(control.store), previous)
+        }
+      } finally {
+        stateSafety.editorsLocked.value = false
+        sample.resolve('#123456')
+        await selecting
+        if (outcome !== 'disposed') control.app.unmount()
+      }
+    })
+  }
+
   for (const key of ['Enter', 'Escape']) {
     it(`does not submit or cancel a name while IME handles ${key}`, async () => {
       const previousInput = Object.getOwnPropertyDescriptor(globalThis, 'HTMLInputElement')

@@ -85,10 +85,19 @@ impl PerformanceMonitor {
             crate::diagnostics::warn("performance.processes", "ROOT_PID_UNAVAILABLE");
             None
         })?;
-        let processes = process::snapshot().map_err(|error| {
-            crate::diagnostics::warn("performance.process_snapshot", &format!("IO_{:?}_OS_{}", error.kind(), error.raw_os_error().unwrap_or(0)));
-        }).ok()?;
-        let selected = select_monitor_processes(
+        let processes = process::snapshot()
+            .map_err(|error| {
+                crate::diagnostics::warn(
+                    "performance.process_snapshot",
+                    &format!(
+                        "IO_{:?}_OS_{}",
+                        error.kind(),
+                        error.raw_os_error().unwrap_or(0)
+                    ),
+                );
+            })
+            .ok()?;
+        let selected = select_monitor_processes_with_diagnostic(
             root,
             processes.into_iter().map(|entry| {
                 (
@@ -96,7 +105,31 @@ impl PerformanceMonitor {
                     Some(Pid::from_u32(entry.parent_pid)),
                 )
             }),
+            |code| crate::diagnostics::warn("performance.processes", code),
         )?;
+        self.refresh_selected_processes(&selected);
+        Some(selected)
+    }
+
+    fn refresh_selected_processes(&mut self, selected: &HashSet<Pid>) {
+        // sysinfo only evicts dead PIDs included in ProcessesToUpdate::Some.
+        // A child that left the selected tree would otherwise keep its cached
+        // Process (and Windows process handle) for the rest of this session.
+        // Its public API cannot remove one cached entry, so rebuild only when
+        // needed, without collecting details about no-longer-selected PIDs.
+        if self
+            .system
+            .processes()
+            .keys()
+            .any(|pid| !selected.contains(pid))
+        {
+            self.system = System::new();
+            self.system.refresh_cpu_list(CpuRefreshKind::nothing());
+            self.logical_cpu_count = self.system.cpus().len().max(1);
+            // The replacement System has no CPU delta baseline. Let sample's
+            // existing unavailable path wait for a complete new interval.
+            self.last_refresh = None;
+        }
         let mut selected_ids: Vec<_> = selected.iter().copied().collect();
         selected_ids.sort_unstable_by_key(|pid| pid.as_u32());
         self.system.refresh_processes_specifics(
@@ -107,7 +140,6 @@ impl PerformanceMonitor {
                 .with_memory()
                 .without_tasks(),
         );
-        Some(selected)
     }
 
     fn sample(&mut self) -> PerformanceSample {
@@ -207,6 +239,18 @@ fn select_monitor_processes(
     Some(collect_descendants(root, process_parents))
 }
 
+fn select_monitor_processes_with_diagnostic(
+    root: Pid,
+    process_parents: impl IntoIterator<Item = (Pid, Option<Pid>)>,
+    mut report: impl FnMut(&'static str),
+) -> Option<HashSet<Pid>> {
+    let selected = select_monitor_processes(root, process_parents);
+    if selected.is_none() {
+        report("ROOT_PROCESS_NOT_ENUMERATED");
+    }
+    selected
+}
+
 fn collect_descendants<T>(
     root: T,
     process_parents: impl IntoIterator<Item = (T, Option<T>)>,
@@ -300,11 +344,25 @@ mod tests {
         let root = Pid::from_u32(1);
         let child = Pid::from_u32(2);
         let unrelated = Pid::from_u32(9);
-        assert_eq!(select_monitor_processes(root, [(child, Some(root))]), None);
+        let mut warnings = Vec::new();
         assert_eq!(
-            select_monitor_processes(root, [(root, None), (child, Some(root)), (unrelated, None)]),
+            select_monitor_processes_with_diagnostic(root, [(child, Some(root))], |code| {
+                warnings.push(code)
+            }),
+            None
+        );
+        assert_eq!(warnings, ["ROOT_PROCESS_NOT_ENUMERATED"]);
+
+        warnings.clear();
+        assert_eq!(
+            select_monitor_processes_with_diagnostic(
+                root,
+                [(root, None), (child, Some(root)), (unrelated, None)],
+                |code| warnings.push(code),
+            ),
             Some(HashSet::from([root, child]))
         );
+        assert!(warnings.is_empty());
     }
 
     #[test]
@@ -320,6 +378,54 @@ mod tests {
         assert!(aggregate_process_tree(&system, root, &HashSet::new(), 1).is_none());
         let snapshot = aggregate_process_tree(&system, root, &HashSet::from([root]), 1).unwrap();
         assert_eq!(snapshot.process_ids, HashSet::from([root.as_u32()]));
+    }
+
+    #[test]
+    fn releases_cached_processes_that_leave_the_selected_tree() {
+        let root = sysinfo::get_current_pid().unwrap();
+        let selected = HashSet::from([root]);
+        let mut monitor = PerformanceMonitor::new();
+        monitor.refresh_selected_processes(&selected);
+        assert!(monitor.system.process(root).is_some());
+        monitor.last_refresh = Some(Instant::now());
+
+        // Reproduce the dependency behavior that made remove_dead_processes
+        // insufficient: PIDs omitted from Some are never inspected or removed.
+        monitor.system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[]),
+            true,
+            ProcessRefreshKind::nothing().without_tasks(),
+        );
+        assert!(monitor.system.process(root).is_some());
+
+        monitor.refresh_selected_processes(&HashSet::new());
+        assert!(monitor.system.processes().is_empty());
+        assert!(monitor.last_refresh.is_none());
+        assert!(!monitor.system.cpus().is_empty());
+        assert_eq!(monitor.logical_cpu_count, monitor.system.cpus().len());
+
+        // Resuming collection, including a PID seen in an earlier selection,
+        // starts fresh instead of reusing the evicted process's delta state.
+        monitor.refresh_selected_processes(&selected);
+        assert_eq!(monitor.system.processes().len(), 1);
+        assert!(monitor.system.process(root).is_some());
+        assert!(monitor.last_refresh.is_none());
+    }
+
+    #[test]
+    fn stable_process_selection_preserves_the_existing_cpu_baseline() {
+        let root = sysinfo::get_current_pid().unwrap();
+        let selected = HashSet::from([root]);
+        let mut monitor = PerformanceMonitor::new();
+        monitor.refresh_selected_processes(&selected);
+        let baseline = Instant::now();
+        monitor.last_refresh = Some(baseline);
+
+        monitor.refresh_selected_processes(&selected);
+
+        assert_eq!(monitor.system.processes().len(), 1);
+        assert!(monitor.system.process(root).is_some());
+        assert_eq!(monitor.last_refresh, Some(baseline));
     }
 
     #[test]

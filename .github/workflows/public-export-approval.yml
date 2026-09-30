@@ -28,6 +28,14 @@ jobs:
         run: |
           $actual = git rev-parse HEAD
           if ($actual -ne $env:EXPECTED_HEAD) { throw 'Inspected source differs from the requested head' }
+      - name: Review introduced dependencies for vulnerabilities
+        # Personal private source previews cannot use GitHub dependency review.
+        if: github.event_name == 'pull_request' && github.event.repository.private == false
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low
+          fail-on-scopes: runtime,development,unknown
+          license-check: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24'

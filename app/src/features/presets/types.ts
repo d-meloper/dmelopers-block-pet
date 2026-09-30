@@ -1,4 +1,5 @@
 import type { CatStore, Pet3dPreset } from '@/stores/cat'
+import type { VoxelSkinModel, VoxelSkinModelPreference } from '@/utils/three3d/voxelSkin'
 
 import { DESK_SETTING_KEYS } from '@/config/desk'
 import { DEVICE_COLOR_KEYS } from '@/config/deviceColors'
@@ -9,6 +10,24 @@ export const PRESET_APPLY_REQUEST = 'preset-apply-request'
 export const PRESET_APPLY_RESPONSE = 'preset-apply-response'
 export const PRESET_APPLY_CANCEL = 'preset-apply-cancel'
 export const PRESET_EDIT_REQUEST = 'preset-edit-request'
+
+export interface ResolvedSkinModelRequest {
+  resolvedSkinModel: {
+    modelId: string
+    skinDataUrl?: string
+    requested: VoxelSkinModelPreference
+    resolved: VoxelSkinModel
+  }
+}
+
+export function isResolvedSkinModelRequest(value: unknown): value is ResolvedSkinModelRequest {
+  if (!value || typeof value !== 'object' || !('resolvedSkinModel' in value)) return false
+  const correction = value.resolvedSkinModel as ResolvedSkinModelRequest['resolvedSkinModel'] | undefined
+  return !!correction && typeof correction === 'object' && correction.modelId === 'dmeloper'
+    && (correction.skinDataUrl === undefined || typeof correction.skinDataUrl === 'string')
+    && ['auto', 'wide', 'slim'].includes(correction.requested)
+    && ['wide', 'slim'].includes(correction.resolved)
+}
 
 export const PRESET_APPEARANCE_KEYS = [
   'selectedModelId',
@@ -32,6 +51,7 @@ export const PRESET_SETTING_KEYS = [
   'dmeloperEyebrows',
   'dmeloperPalmColor',
   // 3D Scene
+  'lighting',
   'showDisplayArea',
   'autoViewportEnabled',
   'autoViewportPaddingPixels',

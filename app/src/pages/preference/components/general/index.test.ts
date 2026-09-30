@@ -7,6 +7,164 @@ import ts from 'typescript'
 import * as Vue from 'vue'
 import { compileScript, parse } from 'vue/compiler-sfc'
 
+import type { AutostartStatus } from '@/services/autostart'
+
+function resetHarness(native: {
+  read: () => Promise<AutostartStatus>
+  disable: () => Promise<void>
+}, initialize = async () => {}) {
+  const calls: string[] = []
+  const errors: string[] = []
+  let dialog: { onOk: () => Promise<void> } | undefined
+  const { descriptor } = parse(readFileSync(new URL('./index.vue', import.meta.url), 'utf8'))
+  const script = compileScript(descriptor, { id: 'general-reset' })
+  interface Actions {
+    confirmGeneralReset: () => void
+    changeAutostart: (value: boolean) => Promise<void>
+    resetting: Vue.Ref<boolean>
+    autostartBusy: Vue.Ref<boolean>
+  }
+  const module = { exports: {} as { default: { setup: (props: object, context: object) => Actions } } }
+  const mocks: Record<string, unknown> = {
+    'vue': { ...Vue, onMounted: () => {}, onBeforeUnmount: () => {} },
+    'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
+    'ant-design-vue': {
+      Modal: { confirm: (options: typeof dialog) => {
+        dialog = options
+      } },
+      message: { error: (key: string) => errors.push(key) },
+    },
+    '@/services/diagnostics': { reportDiagnostic: () => {} },
+    '@/stores/cat': { useCatStore: () => ({ resetGeneralSettings: () => calls.push('reset-cat') }) },
+    '@/stores/general': { useGeneralStore: () => ({
+      reset: () => calls.push('reset-general'),
+      init: async () => {
+        calls.push('initialize-general')
+        await initialize()
+      },
+    }) },
+    '@/services/autostart': {
+      getAutostartStatus: async () => {
+        calls.push('read')
+        return native.read()
+      },
+      setAutostartEnabled: async (value: boolean) => {
+        assert.equal(value, false)
+        calls.push('disable')
+        await native.disable()
+      },
+    },
+  }
+  runInNewContext(ts.transpileModule(script.content, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, { module, exports: module.exports, require: (id: string) => mocks[id] ?? {} })
+  const actions = module.exports.default.setup({}, { expose: () => {} })
+  actions.confirmGeneralReset()
+  assert.ok(dialog)
+  return { calls, errors, actions, reset: () => dialog!.onOk() }
+}
+
+function startupStatus(enabled: boolean): AutostartStatus {
+  return { enabled, state: enabled ? 'enabled' : 'disabled', canEnable: true, canDisable: true }
+}
+
+it('preserves preferences when Windows policy blocks disabling startup', async () => {
+  const h = resetHarness({
+    read: async () => ({ enabled: true, state: 'enabledByPolicy', canEnable: false, canDisable: false }),
+    disable: async () => {
+      assert.fail('A policy-blocked startup entry must not be changed')
+    },
+  })
+  await assert.rejects(h.reset(), /AUTOSTART_RESET_BLOCKED/)
+  assert.deepEqual(h.calls, ['read', 'read'])
+  assert.deepEqual(h.errors, ['pages.preference.general.errors.resetAutostartBlocked'])
+  assert.equal(h.actions.resetting.value, false)
+  assert.equal(h.actions.autostartBusy.value, false)
+})
+
+for (const failure of ['status', 'disable', 'readback', 'still-enabled'] as const) {
+  it(`keeps settings before a ${failure} failure and allows a confirmed retry`, async () => {
+    let enabled = true
+    let failing = true
+    let reads = 0
+    const h = resetHarness({
+      read: async () => {
+        reads++
+        if (failing && (failure === 'status' || (failure === 'readback' && reads === 2))) throw new Error('NATIVE_STATUS_FAILED')
+        return startupStatus(enabled)
+      },
+      disable: async () => {
+        if (failing && failure === 'disable') throw new Error('NATIVE_DISABLE_FAILED')
+        if (!failing || failure !== 'still-enabled') enabled = false
+      },
+    })
+    await assert.rejects(h.reset())
+    assert.ok(h.calls.every(call => call === 'read' || call === 'disable'))
+    assert.deepEqual(h.errors, ['pages.preference.general.errors.resetPreflight'])
+    assert.equal(h.actions.resetting.value, false)
+    assert.equal(h.actions.autostartBusy.value, false)
+    failing = false
+    h.calls.length = 0
+    await h.reset()
+    assert.deepEqual(h.calls, [
+      'read',
+      ...(failure === 'readback' ? [] : ['disable', 'read']),
+      'reset-cat',
+      'reset-general',
+      'initialize-general',
+      'read',
+    ])
+  })
+}
+
+it('waits for native startup readback and ignores reset or toggle reentry', async () => {
+  let enabled = true
+  let finish!: () => void
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  const h = resetHarness({
+    read: async () => startupStatus(enabled),
+    disable: async () => {
+      await pending
+      enabled = false
+    },
+  })
+  const resetting = h.reset()
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.equal(h.actions.resetting.value, true)
+  assert.equal(h.actions.autostartBusy.value, true)
+  await h.reset()
+  await h.actions.changeAutostart(true)
+  assert.deepEqual(h.calls, ['read', 'disable'])
+  finish()
+  await resetting
+  assert.deepEqual(h.calls, ['read', 'disable', 'read', 'reset-cat', 'reset-general', 'initialize-general', 'read'])
+})
+
+it('resets preferences when startup is already disabled by Windows', async () => {
+  const h = resetHarness({
+    read: async () => ({ enabled: false, state: 'disabledByPolicy', canEnable: false, canDisable: false }),
+    disable: async () => {
+      assert.fail('Disabled startup requires no native mutation')
+    },
+  })
+  await h.reset()
+  assert.deepEqual(h.calls, ['read', 'reset-cat', 'reset-general', 'initialize-general', 'read'])
+  assert.deepEqual(h.errors, [])
+})
+
+it('reports a partial reset if initialization fails after native startup is disabled', async () => {
+  const h = resetHarness({ read: async () => startupStatus(false), disable: async () => {} }, async () => {
+    throw new Error('LOCALE_UNAVAILABLE')
+  })
+  await assert.rejects(h.reset(), /LOCALE_UNAVAILABLE/)
+  assert.deepEqual(h.errors, ['pages.preference.general.errors.resetPartial'])
+  assert.equal(h.actions.resetting.value, false)
+  assert.equal(h.actions.autostartBusy.value, false)
+})
+
 it('reads per-installation Windows state without applying a shared autostart preference', async () => {
   const changes: boolean[] = []
   let enabled = false
@@ -48,4 +206,56 @@ it('reads per-installation Windows state without applying a shared autostart pre
   assert.deepEqual(changes, [true])
   assert.equal(actions.autostart.value.enabled, true)
   assert.equal(general.app.autostart, false)
+})
+
+it('keeps a static startup description and exposes Windows state on focus or hover even when disabled', () => {
+  const source = readFileSync(new URL('./index.vue', import.meta.url), 'utf8')
+    .replace('</script>', '\ndefineExpose({ autostart })\n</script>')
+  const { descriptor } = parse(source)
+  const script = compileScript(descriptor, { id: 'autostart-tooltip', inlineTemplate: true })
+  type Render = (context: { $t: (key: string) => string }, cache: unknown[]) => Vue.VNode
+  const exports = {} as { default: { setup: (props: object, context: object) => Render } }
+  const translate = (key: string) => key
+  const mocks: Record<string, unknown> = {
+    'vue': { ...Vue, onMounted: () => {}, onBeforeUnmount: () => {} },
+    'vue-i18n': { useI18n: () => ({ t: translate }) },
+    'ant-design-vue': { Button: 'button', Divider: 'divider', Flex: 'flex', InputNumber: 'input', Select: { Option: 'option' }, Switch: 'switch', Tooltip: 'tooltip' },
+    '@/stores/general': { useGeneralStore: () => ({ app: {}, appearance: {} }) },
+    '@/stores/cat': { useCatStore: () => ({ window: {} }) },
+    '@/components/pro-list-item/index.vue': { default: 'list-item' },
+  }
+  runInNewContext(ts.transpileModule(script.content, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, { exports, require: (name: string) => mocks[name] ?? { default: 'section' } })
+  let state!: Vue.Ref<AutostartStatus | undefined>
+  const render = exports.default.setup({}, { expose: ({ autostart }: { autostart: typeof state }) => {
+    state = autostart
+  } })
+  const flatten = (node: Vue.VNode): Vue.VNode[] => [node, ...Array.isArray(node.children)
+    ? node.children.flatMap(child => Vue.isVNode(child) ? flatten(child) : [])
+    : []]
+  const nodes = () => flatten(render({ $t: translate }, []))
+  for (const status of [
+    undefined,
+    { state: 'disabled', enabled: false, canEnable: true, canDisable: true },
+    { state: 'disabledByUser', enabled: false, canEnable: false, canDisable: false },
+    { state: 'enabledByPolicy', enabled: true, canEnable: false, canDisable: false },
+  ] as Array<AutostartStatus | undefined>) {
+    state.value = status
+    const disabled = !status || !(status.enabled ? status.canDisable : status.canEnable)
+    const rendered = nodes()
+    const row = rendered.find(node => node.type === 'list-item' && node.props?.title === 'pages.preference.general.labels.launchOnStartup')!
+    const tooltip = rendered.find(node => node.type === 'tooltip')!
+    assert.equal(row.props!.description, 'pages.preference.general.hints.launchOnStartup')
+    assert.equal(tooltip.props!.title, `autostartStatus.${status?.state ?? 'unknown'}`)
+    assert.deepEqual(Array.from(tooltip.props!.trigger), ['hover', 'focus'])
+    const wrapper = rendered.find(node => node.type === 'span' && typeof node.props?.onFocusin === 'function')!
+    const control = rendered.find(node => node.type === 'switch' && node.props?.['aria-label'] === 'pages.preference.general.labels.launchOnStartup')!
+    assert.equal(control.props!.disabled, disabled)
+    assert.equal(wrapper.props!.tabindex, disabled ? 0 : undefined)
+    wrapper.props!.onFocusin()
+    assert.equal(nodes().find(node => node.type === 'tooltip')!.props!.open, true)
+    wrapper.props!.onFocusout()
+    assert.equal(nodes().find(node => node.type === 'tooltip')!.props!.open, false)
+  }
 })

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { Button, Flex, Modal, Select, Switch } from 'ant-design-vue'
-import { computed, inject } from 'vue'
+import { computed, inject, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
+
+import type { ShadowQualitySelection } from '@/config/performance'
 
 import DefaultSnapSlider from '@/components/default-snap-slider/index.vue'
 import PreferenceInfo from '@/components/preference-info/index.vue'
@@ -16,6 +18,30 @@ import { usePerformanceStore } from '@/stores/performance'
 const catStore = useCatStore()
 const performanceStore = usePerformanceStore()
 const { t } = useI18n()
+let disposed = false
+onBeforeUnmount(() => {
+  disposed = true
+})
+
+function resetMeasurements() {
+  if (!disposed) void performanceStore.reset()
+}
+
+function updatePerformanceToggle(
+  key: 'antialiasEnabled' | 'pixelFilterEnabled' | 'idlePowerSavingEnabled',
+  value: boolean,
+) {
+  if (disposed || catStore.model[key] === value) return
+  catStore.model[key] = value
+  resetMeasurements()
+}
+
+function updateShadowQuality(value: ShadowQualitySelection) {
+  if (disposed || catStore.shadowQualitySelection === value) return
+  catStore.shadowQualitySelection = value
+  resetMeasurements()
+}
+
 const broadcastController = inject(BROADCAST_CONTROLLER, undefined)
 const broadcastHint = computed(() => {
   const status = broadcastController?.status.value
@@ -46,6 +72,7 @@ const metrics = computed(() => [
 ])
 
 const samplingHint = computed(() => {
+  if (performanceStore.isWarmingUp) return t('pages.preference.performance.hints.warmup')
   const totalSeconds = performanceStore.elapsedSeconds
   const duration = t(
     totalSeconds < 60
@@ -77,7 +104,9 @@ function confirmPerformanceReset() {
     title: t('pages.preference.performance.confirm.reset'),
     okType: 'danger',
     onOk: () => {
+      if (disposed) return
       catStore.resetPerformanceSettings()
+      resetMeasurements()
     },
   })
 }
@@ -87,11 +116,21 @@ function confirmPerformanceReset() {
   <PreferenceSections>
     <ProList :title="$t('pages.preference.performance.labels.metrics')">
       <template #title-extra>
-        <PreferenceInfo
-          :emphasis-text="broadcastHint"
-          :label="$t('pages.preference.performance.buttons.measurementInfo')"
-          :text="samplingHint"
-        />
+        <Flex
+          align="center"
+          gap="small"
+        >
+          <span
+            v-if="performanceStore.isWarmingUp"
+            class="text-xs text-color-3"
+            role="status"
+          >{{ $t('pages.preference.performance.status.preparing') }}</span>
+          <PreferenceInfo
+            :emphasis-text="broadcastHint"
+            :label="$t('pages.preference.performance.buttons.measurementInfo')"
+            :text="samplingHint"
+          />
+        </Flex>
       </template>
 
       <div class="grid grid-cols-2 gap-3">
@@ -133,9 +172,11 @@ function confirmPerformanceReset() {
           v-model:value="catStore.model.maxFPS"
           class="m-[0]!"
           :default-value="60"
+          display-mode="raw"
           :max="MAX_FPS"
           :min="20"
           :step="1"
+          @after-change="resetMeasurements"
         />
       </ProListItem>
 
@@ -144,7 +185,8 @@ function confirmPerformanceReset() {
         :title="$t('pages.preference.performance.labels.shadowQuality')"
       >
         <Select
-          v-model:value="catStore.shadowQualitySelection"
+          :value="catStore.shadowQualitySelection"
+          @update:value="updateShadowQuality"
         >
           <Select.Option value="high">
             {{ $t('pages.preference.performance.options.shadowQuality.high') }}
@@ -166,7 +208,8 @@ function confirmPerformanceReset() {
         :title="$t('pages.preference.performance.labels.antialias')"
       >
         <Switch
-          v-model:checked="catStore.model.antialiasEnabled"
+          :checked="catStore.model.antialiasEnabled"
+          @update:checked="updatePerformanceToggle('antialiasEnabled', Boolean($event))"
         />
       </ProListItem>
 
@@ -174,7 +217,10 @@ function confirmPerformanceReset() {
         :description="$t('pages.preference.performance.hints.pixelFilter')"
         :title="$t('pages.preference.performance.labels.pixelFilter')"
       >
-        <Switch v-model:checked="catStore.model.pixelFilterEnabled" />
+        <Switch
+          :checked="catStore.model.pixelFilterEnabled"
+          @update:checked="updatePerformanceToggle('pixelFilterEnabled', Boolean($event))"
+        />
       </ProListItem>
 
       <ProListItem
@@ -186,10 +232,12 @@ function confirmPerformanceReset() {
           v-model:value="catStore.model.renderScalePercent"
           class="m-[0]!"
           :default-value="100"
+          display-mode="raw"
           :max="100"
           :min="50"
           :step="5"
           :tip-formatter="(value) => `${value}%`"
+          @after-change="resetMeasurements"
         />
       </ProListItem>
 
@@ -197,7 +245,10 @@ function confirmPerformanceReset() {
         :description="$t('pages.preference.performance.hints.idlePowerSaving')"
         :title="$t('pages.preference.performance.labels.idlePowerSaving')"
       >
-        <Switch v-model:checked="catStore.model.idlePowerSavingEnabled" />
+        <Switch
+          :checked="catStore.model.idlePowerSavingEnabled"
+          @update:checked="updatePerformanceToggle('idlePowerSavingEnabled', Boolean($event))"
+        />
       </ProListItem>
 
       <Button

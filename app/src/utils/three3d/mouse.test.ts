@@ -1,7 +1,7 @@
 /* eslint-disable test/no-import-node-test */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { Color, Mesh, MeshStandardMaterial } from 'three'
+import { Box3, Color, FrontSide, Mesh, MeshStandardMaterial, Raycaster, Vector3 } from 'three'
 
 import { DEFAULT_DEVICE_COLORS } from '@/config/deviceColors'
 import { MODEL_3D_CONFIG } from '@/config/model3d'
@@ -232,5 +232,80 @@ describe('mouse mesh feedback', () => {
     recreated.update(70, 1070)
     assert.equal(getMesh(recreated, 'mouseWheel').material.emissiveIntensity, 0)
     recreated.dispose()
+  })
+})
+
+describe('mouse enclosure compatibility', () => {
+  it('retains the original envelope, local direction and independently owned hand anchor', () => {
+    const mouse = createMouseGroup()
+    try {
+      const box = new Box3().setFromObject(mouse.group)
+      // Recorded from the pre-remodel generator, before scene scale/placement.
+      const expected = [-0.305, -0.395231828, -0.42, 0.305, 0.10645224, 0.38795802]
+      const actual = [...box.min.toArray(), ...box.max.toArray()]
+      actual.forEach((value, index) => assert.ok(Math.abs(value - expected[index]) < 1e-6, `bound ${index}: ${value}`))
+      assert.deepEqual(mouse.group.scale.toArray(), [1, 1, 1])
+      assert.deepEqual(mouse.group.rotation.toArray().slice(0, 3), [0, 0, 0])
+      const anchor = mouse.group.getObjectByName('mouseHandAnchor')!
+      assert.deepEqual(anchor.position.toArray(), [...MODEL_3D_CONFIG.mouse.handAnchorPosition])
+      assert.equal(anchor.parent?.name, 'mouseDevice')
+      assert.ok(new Box3().setFromObject(getMesh(mouse, 'mouseRightButton')).getCenter(new Vector3()).z > 0)
+    } finally {
+      mouse.dispose()
+    }
+  })
+
+  it('has closed, nondegenerate outward-facing surfaces within the old triangle budget', () => {
+    const mouse = createMouseGroup()
+    let triangles = 0
+    try {
+      mouse.group.traverse((object) => {
+        if (!(object instanceof Mesh)) return
+        assert.equal(object.material.side, FrontSide)
+        const geometry = object.geometry
+        const positions = geometry.getAttribute('position')
+        const normals = geometry.getAttribute('normal')
+        const edges = new Map<string, number>()
+        let volume = 0
+        const key = (point: Vector3) => point.toArray().map(value => value.toFixed(6)).join(',').split('-0.000000').join('0.000000')
+        const count = geometry.index?.count ?? positions.count
+        triangles += count / 3
+        for (let index = 0; index < count; index += 3) {
+          const points = [0, 1, 2].map(offset => new Vector3().fromBufferAttribute(positions, geometry.index?.getX(index + offset) ?? index + offset))
+          const [a, b, c] = points
+          const cross = b.clone().sub(a).cross(c.clone().sub(a))
+          assert.ok(cross.length() > 1e-10, `${object.name}: collapsed face`)
+          volume += a.dot(b.clone().cross(c)) / 6
+          for (let edge = 0; edge < 3; edge += 1) {
+            const pair = [key(points[edge]), key(points[(edge + 1) % 3])].sort().join('|')
+            edges.set(pair, (edges.get(pair) ?? 0) + 1)
+          }
+        }
+        assert.ok(volume > 0, `${object.name}: reversed surface`)
+        for (const [edge, uses] of edges) assert.equal(uses, 2, `${object.name}: open/nonmanifold edge ${edge}`)
+        for (let index = 0; index < normals.count; index += 1) {
+          const normal = new Vector3().fromBufferAttribute(normals, index)
+          assert.ok(Number.isFinite(normal.length()) && Math.abs(normal.length() - 1) < 1e-5, `${object.name}: invalid normal`)
+        }
+      })
+      assert.ok(triangles <= 5000, `unexpected geometry cost: ${triangles}`)
+    } finally {
+      mouse.dispose()
+    }
+  })
+
+  it('keeps held button panels above the backing across their full length', (t) => {
+    const mouse = createMouseGroup()
+    t.after(mouse.dispose)
+    for (const [button, panelName, side] of [['Left', 'mouseRightButton', 1], ['Right', 'mouseLeftButton', -1]] as const) {
+      mouse.resetInput()
+      mouse.setMouseButtonPressed(button, true)
+      mouse.update(100, performance.now())
+      mouse.group.updateMatrixWorld(true)
+      for (const z of [0.035, 0.12, 0.23, 0.3]) {
+        const hits = new Raycaster(new Vector3(side * 0.12, 1, z), new Vector3(0, -1, 0)).intersectObject(mouse.group)
+        assert.equal(hits[0]?.object.name, panelName, `pressed panel buried at ${z}`)
+      }
+    }
   })
 })

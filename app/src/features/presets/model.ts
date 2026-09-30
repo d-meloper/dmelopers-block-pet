@@ -6,6 +6,7 @@ import { DEFAULT_MODEL_SETTINGS, DEFAULT_SKIN_APPEARANCE, DEFAULT_WINDOW_SETTING
 import { isDeskSettings, migrateDeskSettings } from '@/config/desk'
 import { DEFAULT_DEVICE_COLORS, DEVICE_COLOR_KEYS } from '@/config/deviceColors'
 import { migrateDmeloperEyebrowDepth } from '@/config/dmeloperEyebrows'
+import { isLightingSettings, migratePresetLighting } from '@/config/lighting'
 import { DEFAULT_PET_MODEL_ID } from '@/config/model3d'
 import { BUILTIN_DMELOPER_SKIN, isSkinSelectionId } from '@/config/skinIdentity'
 import { createDefaultPet3dPreset } from '@/stores/cat'
@@ -55,16 +56,16 @@ export function capturePresetSnapshot(store: CatStore): PresetSnapshot {
 
 export function applyPresetSnapshot(store: CatStore, snapshot: PresetSnapshot, revision?: number, visible = true): void {
   const next = clonePreset(snapshot)
-  next.preset = migrateDeskSettings(next.preset)
+  next.preset = migratePresetLighting(migrateDeskSettings(next.preset))
   const customization = store.customization3d
   for (const key of PRESET_APPEARANCE_KEYS) delete (customization as unknown as Record<string, unknown>)[key]
   Object.assign(customization, Object.fromEntries(PRESET_APPEARANCE_KEYS.map(key => [key, next.appearance[key]])), { skinLibraryMigrationCompleted: true })
-  customization.preset = {
+  customization.preset = store.sanitizePet3dPreset({
     ...createDefaultPet3dPreset(),
     ...Object.fromEntries(PRESET_SETTING_KEYS.map(key => [key, next.preset[key]])) as PresetSnapshot['preset'],
     dmeloperEyebrows: migrateDmeloperEyebrowDepth(next.preset.dmeloperEyebrows),
     viewportModeRevision: revision ?? customization.preset.viewportModeRevision + 1,
-  }
+  })
   store.window.visible = visible
   store.window.opacity = next.opacity
   store.model.mirror = next.mirror
@@ -90,9 +91,10 @@ export function isPresetSnapshot(value: unknown): value is PresetSnapshot {
     && typeof snapshot.eyebrowAnimationEnabled === 'boolean'
     && Number.isFinite(snapshot.opacity) && snapshot.opacity >= 0 && snapshot.opacity <= 100
     && Object.keys(snapshot.preset).every(key => (PRESET_SETTING_KEYS as readonly string[]).includes(key))
+    && isLightingSettings(migratePresetLighting(snapshot.preset).lighting)
     && isDeskSettings(migrateDeskSettings(snapshot.preset))
     && matchesShape({
-      ...migrateDeskSettings(snapshot.preset),
+      ...migratePresetLighting(migrateDeskSettings(snapshot.preset)),
       dmeloperEyebrows: migrateDmeloperEyebrowDepth(snapshot.preset.dmeloperEyebrows),
     }, createDefaultPresetSnapshot().preset)
     && matchesShape(snapshot.appearance, createDefaultPresetSnapshot().appearance)
@@ -131,7 +133,7 @@ export function migratePresetCollection(value: unknown): unknown {
   if (source.schemaVersion === PRESET_COLLECTION_VERSION
     && source.entries.every(entry => entry?.snapshot?.preset && typeof entry.snapshot.preset === 'object' && 'petHeadScalePercent' in entry.snapshot.preset
       && entry.snapshot.preset.dmeloperEyebrows === migrateDmeloperEyebrowDepth(entry.snapshot.preset.dmeloperEyebrows)
-      && entry.snapshot.preset === migrateDeskSettings(entry.snapshot.preset))) {
+      && entry.snapshot.preset === migratePresetLighting(migrateDeskSettings(entry.snapshot.preset)))) {
     return value
   }
   const archive = { ...source.legacyAppearanceArchive }
@@ -153,7 +155,7 @@ export function migratePresetCollection(value: unknown): unknown {
           ...snapshot,
           preset: {
             ...(source.schemaVersion === 1 ? DEFAULT_DEVICE_COLORS : {}),
-            ...migrateDeskSettings(snapshot.preset),
+            ...migratePresetLighting(migrateDeskSettings(snapshot.preset)),
             ...('petHeadScalePercent' in snapshot.preset ? {} : { petHeadScalePercent: 100 }),
             dmeloperEyebrows: migrateDmeloperEyebrowDepth(snapshot.preset.dmeloperEyebrows),
           },
@@ -178,6 +180,27 @@ export function validatePresetCollection(value: unknown): asserts value is Prese
       && entry.builtin === (entry.id === BUILTIN_PRESET_ID) && isPresetSnapshot(entry.snapshot))) {
     throw new Error('pages.preference.presets.errors.load')
   }
+}
+
+/** Recover local saved bounds before inactive cards are previewed or exported. */
+export function sanitizeStoredPresetCollection(value: unknown, sanitize: CatStore['sanitizePet3dPreset']): unknown {
+  const collection = migratePresetCollection(value)
+  try {
+    validatePresetCollection(collection)
+  } catch {
+    // Keep unsupported/corrupt evidence for the existing catalog error path.
+    return collection
+  }
+  const entries = collection.entries.map((entry) => {
+    const normalized = sanitize(entry.snapshot.preset)
+    const preset = Object.fromEntries(PRESET_SETTING_KEYS.map(key => [key, normalized[key]])) as PresetSnapshot['preset']
+    return isEqual(preset, entry.snapshot.preset)
+      ? entry
+      : { ...entry, snapshot: { ...entry.snapshot, preset } }
+  })
+  return entries.every((entry, index) => entry === collection.entries[index])
+    ? collection
+    : { ...collection, entries }
 }
 
 export function orderedPresets(collection: PresetCollection): PresetEntry[] {

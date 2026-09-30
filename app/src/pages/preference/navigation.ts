@@ -8,8 +8,8 @@ export function usePreferenceNavigation() {
   const router = useRouter()
   const current = computed({
     get: () => {
-      const tab = typeof route.query.tab === 'string' ? Number(route.query.tab) : 0
-      return Number.isInteger(tab) && tab >= 0 && tab < 8 ? tab : 0
+      const tab = typeof route.query.tab === 'string' ? Number(route.query.tab) : 6
+      return Number.isInteger(tab) && tab >= 0 && tab < 8 ? tab : 6
     },
     set: (tab: number) => {
       void router.replace({ query: { ...route.query, tab: String(tab) } })

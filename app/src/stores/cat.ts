@@ -1,9 +1,11 @@
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { defineStore } from 'pinia'
 import { computed, reactive, ref } from 'vue'
 
 import type { DeskSettings } from '@/config/desk'
 import type { DeviceColorSettings } from '@/config/deviceColors'
 import type { DmeloperEyebrowPreset } from '@/config/dmeloperEyebrows'
+import type { LightingSettings } from '@/config/lighting'
 import type { PetModelId } from '@/config/model3d'
 import type { ShadowQuality, ShadowQualitySelection } from '@/config/performance'
 import type { PetArmPoseSettings } from '@/config/petArmPose'
@@ -19,17 +21,21 @@ import {
   DMELOPER_EYEBROW_LIMITS,
   migrateDmeloperEyebrowDepth,
 } from '@/config/dmeloperEyebrows'
+import { createDefaultLightingSettings, migratePresetLighting, normalizeLightingSettings } from '@/config/lighting'
 import { DEFAULT_PET_MODEL_ID, getPetModelOption, MODEL_3D_CONFIG } from '@/config/model3d'
 import { DEFAULT_PERFORMANCE_SETTINGS, MAX_FPS, normalizeShadowQuality } from '@/config/performance'
 import { DEFAULT_PET_ARM_POSE_SETTINGS, normalizePetArmPoseSettings } from '@/config/petArmPose'
+import presetRanges from '@/config/presetRanges.json'
 import { BUILTIN_DMELOPER_SKIN, isSkinSelectionId } from '@/config/skinIdentity'
+import { WINDOW_LABEL } from '@/constants'
 import { markPresetUserEdit } from '@/features/presets/editIntent'
-import { createPresetCollection, migratePresetCollection } from '@/features/presets/model'
+import { createPresetCollection, migratePresetCollection, sanitizeStoredPresetCollection } from '@/features/presets/model'
 import { normalizeAutoViewportPadding, normalizeManualViewport } from '@/features/scene/viewportSettings'
 
 import { migrateLegacySkinAppearanceState, migratePetCharacterState } from './petSettingsMigration'
 
 export interface Pet3dPreset extends PetArmPoseSettings, DeviceColorSettings, DeskSettings {
+  lighting: LightingSettings
   windowScalePercent: number
   showDisplayArea: boolean
   autoViewportEnabled: boolean
@@ -130,6 +136,7 @@ export interface CatStore {
     useDefaultDmeloperSkin: boolean
     preset: Pet3dPreset
   }
+  sanitizePet3dPreset: (candidate: Partial<Pet3dPreset> | undefined) => Pet3dPreset
 }
 
 const PRESET_SCHEMA_VERSION = 13
@@ -137,6 +144,7 @@ const MINECRAFT_USERNAME_PATTERN = /^\w{3,16}$/
 const SKIN_LIBRARY_ENTRY_ID_PATTERN = /^[0-9a-f]{64}$/
 
 const PET_3D_PRESET_KEYS = [
+  'lighting',
   ...DESK_SETTING_KEYS,
   ...DEVICE_COLOR_KEYS,
   'windowScalePercent',
@@ -171,6 +179,7 @@ const PET_3D_PRESET_KEYS = [
 export function createDefaultPet3dPreset(): Pet3dPreset {
   return {
     ...DEFAULT_PET_PRESET,
+    lighting: createDefaultLightingSettings(),
     manualViewportRect: { ...DEFAULT_PET_PRESET.manualViewportRect },
     dmeloperEyebrows: createDefaultDmeloperEyebrowPreset(),
   }
@@ -236,6 +245,7 @@ export function preparePetStateForSync(state: Record<string, unknown>): Record<s
     && !Array.isArray(customization.preset)) {
     customization = { ...customization, preset: {
       ...migrateDeskSettings(customization.preset),
+      ...('lighting' in customization.preset ? { lighting: migratePresetLighting(customization.preset).lighting } : {}),
       ...('dmeloperEyebrows' in customization.preset ? { dmeloperEyebrows: migrateDmeloperEyebrowDepth(customization.preset.dmeloperEyebrows) } : {}),
     } }
     next = { ...next, customization3d: customization }
@@ -522,6 +532,7 @@ export const useCatStore = defineStore('cat', () => {
       ...defaults,
       ...normalizeDeviceColors(source),
       ...normalizeDeskSettings(source),
+      lighting: normalizeLightingSettings(source.lighting),
       mouseEnabled: source.mouseEnabled !== false,
       showDisplayArea: source.showDisplayArea === true,
       autoViewportEnabled: source.autoViewportEnabled !== false,
@@ -563,26 +574,26 @@ export const useCatStore = defineStore('cat', () => {
       petRotationDegrees: clampNumber(
         source.petRotationDegrees,
         defaults.petRotationDegrees,
-        -180,
-        180,
+        presetRanges.preset.petRotationDegrees.min,
+        presetRanges.preset.petRotationDegrees.max,
       ),
       petDeskOffset: clampNumber(
         source.petDeskOffset,
         defaults.petDeskOffset,
-        -1.5,
-        1.5,
+        presetRanges.preset.petDeskOffset.min,
+        presetRanges.preset.petDeskOffset.max,
       ),
       mouseBaseXOffset: clampNumber(
         source.mouseBaseXOffset,
         defaults.mouseBaseXOffset,
-        -1.5,
-        1.5,
+        presetRanges.preset.mouseBaseXOffset.min,
+        presetRanges.preset.mouseBaseXOffset.max,
       ),
       mouseBaseZOffset: clampNumber(
         source.mouseBaseZOffset,
         defaults.mouseBaseZOffset,
-        -1.5,
-        1.5,
+        presetRanges.preset.mouseBaseZOffset.min,
+        presetRanges.preset.mouseBaseZOffset.max,
       ),
       mouseScalePercent: clampNumber(
         source.mouseScalePercent,
@@ -593,14 +604,14 @@ export const useCatStore = defineStore('cat', () => {
       keyboardBaseXOffset: clampNumber(
         source.keyboardBaseXOffset,
         defaults.keyboardBaseXOffset,
-        -1.5,
-        1.5,
+        presetRanges.preset.keyboardBaseXOffset.min,
+        presetRanges.preset.keyboardBaseXOffset.max,
       ),
       keyboardBaseZOffset: clampNumber(
         source.keyboardBaseZOffset,
         defaults.keyboardBaseZOffset,
-        -1.5,
-        1.5,
+        presetRanges.preset.keyboardBaseZOffset.min,
+        presetRanges.preset.keyboardBaseZOffset.max,
       ),
       keyboardScalePercent: clampNumber(
         source.keyboardScalePercent,
@@ -830,10 +841,16 @@ export const useCatStore = defineStore('cat', () => {
     resetMouse3d()
   }
 
+  const resetLighting = () => {
+    markPresetUserEdit()
+    customization3d.preset.lighting = createDefaultLightingSettings()
+  }
+
   const resetScene3d = () => {
     markPresetUserEdit()
     const defaults = createDefaultPet3dPreset()
     Object.assign(customization3d.preset, {
+      lighting: createDefaultLightingSettings(),
       windowScalePercent: defaults.windowScalePercent,
       showDisplayArea: defaults.showDisplayArea,
       viewportModeRevision: customization3d.preset.viewportModeRevision + 1,
@@ -979,7 +996,7 @@ export const useCatStore = defineStore('cat', () => {
 
   const init = () => {
     sanitizeCustomization3d()
-    presetCollection.value = migratePresetCollection(presetCollection.value) as PresetCollection | undefined
+    presetCollection.value = sanitizeStoredPresetCollection(presetCollection.value, sanitizePet3dPreset) as PresetCollection | undefined
 
     model.maxFPS = model.maxFPS === 0
       ? MAX_FPS
@@ -1055,10 +1072,12 @@ export const useCatStore = defineStore('cat', () => {
     resetMouse3d,
     resetEnvironment3d,
     resetScene3d,
+    resetLighting,
     resetGeneralSettings,
     resetPerformanceSettings,
     resetAllSettings,
     resetCustomization3d,
+    sanitizePet3dPreset,
     sanitizeCustomization3d,
     init,
   }
@@ -1067,6 +1086,10 @@ export const useCatStore = defineStore('cat', () => {
     // The preference preset owner saves only settled snapshots (300ms debounce).
     saveOnChange: false,
     hooks: {
+      // Preferences owns durable Cat edits. The desktop renderer acknowledges
+      // native corrections through its existing field-specific event paths;
+      // a delayed full desktop snapshot must never replace newer user edits.
+      beforeBackendSync: state => getCurrentWebviewWindow().label === WINDOW_LABEL.MAIN ? undefined : state,
       beforeFrontendSync: preparePetStateForSync,
     },
   },

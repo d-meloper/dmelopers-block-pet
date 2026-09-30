@@ -3,9 +3,12 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { createPinia, setActivePinia } from 'pinia'
 
+import type { Three3DRenderer } from '@/utils/three3d'
+
 import { DEFAULT_DESK_SETTINGS, DESK_SETTING_KEYS } from '@/config/desk'
 import { DEFAULT_DEVICE_COLORS, DEVICE_COLOR_KEYS } from '@/config/deviceColors'
-import { preparePetStateForSync, useCatStore } from '@/stores/cat'
+import presetRanges from '@/config/presetRanges.json'
+import { createDefaultPet3dPreset, preparePetStateForSync, useCatStore } from '@/stores/cat'
 import { LEGACY_SKIN_APPEARANCE_KEYS } from '@/stores/petSettingsMigration'
 
 import {
@@ -19,12 +22,15 @@ import {
   movePreset,
   nextPresetAfterDelete,
   orderedPresets,
+  sanitizeStoredPresetCollection,
   uniquePresetName,
   updateActivePreset,
   validatePresetCollection,
   validatePresetName,
 } from './model'
+import { exportPortablePreset, parsePortablePreset, serializePortablePreset, validatePortablePreset } from './transfer'
 import { BUILTIN_PRESET_ID } from './types'
+import { applyPresetVisualSettings } from './visualSettings'
 
 function store() {
   setActivePinia(createPinia())
@@ -172,6 +178,115 @@ describe('preset ownership and persistence', () => {
     const missing = createPresetCollection()
     missing.activeId = 'missing'
     assert.throws(() => validatePresetCollection(missing))
+  })
+})
+
+describe('saved preset range recovery', () => {
+  it('keeps in-range fractional inactive snapshots byte-for-byte identical on restore', () => {
+    const target = store()
+    const saved = createPresetCollection(createDefaultPresetSnapshot())
+    saved.activeId = BUILTIN_PRESET_ID
+    Object.assign(saved.entries[1].snapshot.preset, {
+      petRotationDegrees: 3.3,
+      petDeskOffset: -0.044,
+      keyboardBaseXOffset: 0.088,
+      keyboardBaseZOffset: -0.0495,
+      mouseBaseXOffset: 0.066,
+      mouseBaseZOffset: -0.0495,
+    })
+    Object.assign(saved.entries[1].snapshot.preset.dmeloperEyebrows, {
+      spacingPixels: 1.665,
+      widthPixels: 2.22,
+      thicknessPixels: 0.599,
+    })
+    const before = JSON.stringify(saved)
+    assert.equal(sanitizeStoredPresetCollection(saved, target.sanitizePet3dPreset), saved)
+    target.presetCollection = saved
+    target.init()
+    assert.equal(JSON.stringify(target.presetCollection), before)
+    assert.equal(target.presetCollection.activeId, BUILTIN_PRESET_ID)
+  })
+
+  it('clamps inactive cards before preview/export while retaining catalog identity and actual fractions', async () => {
+    for (const edge of ['min', 'max'] as const) {
+      const saved = createPresetCollection(createDefaultPresetSnapshot(), 'Saved 😶')
+      saved.activeId = BUILTIN_PRESET_ID
+      saved.entries[1].favorite = true
+      const preset = saved.entries[1].snapshot.preset
+      for (const [key, range] of Object.entries(presetRanges.preset)) {
+        Reflect.set(preset, key, range[edge] + (edge === 'min' ? -10 : 10))
+      }
+      for (const [key, range] of Object.entries(presetRanges.eyebrows)) {
+        Reflect.set(preset.dmeloperEyebrows, key, range[edge] + (edge === 'min' ? -10 : 10))
+      }
+      preset.cameraZoomPercent = 113.75
+      preset.petRightArmBendPercent = 103.25
+      preset.lighting.key.azimuthDegrees = -14.91
+      preset.manualViewportRect.x = 12.5
+      saved.entries[1].snapshot.appearance.minecraftSkinUsername = 'Fixture_User'
+      const before = clonePreset(saved)
+      const target = store()
+      const schemaVersion = target.customization3d.schemaVersion
+      target.presetCollection = saved
+      target.init()
+      const restored = target.presetCollection!
+      assert.equal(restored.schemaVersion, saved.schemaVersion)
+      assert.equal(restored.activeId, BUILTIN_PRESET_ID)
+      assert.equal(target.customization3d.schemaVersion, schemaVersion)
+      assert.deepEqual(restored.entries.map(({ id, name, favorite, builtin }) => ({ id, name, favorite, builtin })), before.entries.map(({ id, name, favorite, builtin }) => ({ id, name, favorite, builtin })))
+      assert.deepEqual(restored.entries[0], before.entries[0])
+      assert.deepEqual(saved, before, 'restoration must leave the source catalog untouched')
+      const entry = restored.entries[1]
+      for (const [key, range] of Object.entries(presetRanges.preset)) {
+        assert.equal(Reflect.get(entry.snapshot.preset, key), range[edge], key)
+      }
+      for (const [key, range] of Object.entries(presetRanges.eyebrows)) {
+        assert.equal(Reflect.get(entry.snapshot.preset.dmeloperEyebrows, key), range[edge], key)
+      }
+      assert.equal(entry.snapshot.preset.cameraZoomPercent, 113.75)
+      assert.equal(entry.snapshot.preset.petRightArmBendPercent, 103.25)
+      assert.equal(entry.snapshot.preset.lighting.key.azimuthDegrees, -14.91)
+      assert.equal(entry.snapshot.preset.manualViewportRect.x, 12.5)
+      assert.equal(target.activePet3dPreset.petRotationDegrees, 0, 'recovery must not activate the inactive card')
+
+      const document = await exportPortablePreset(entry.name, entry.snapshot, 'nickname')
+      const imported = parsePortablePreset(new TextEncoder().encode(serializePortablePreset(document)))
+      assert.deepEqual(imported.settings.preset, entry.snapshot.preset)
+      imported.settings.preset.petRotationDegrees = 90
+      assert.throws(() => validatePortablePreset(imported), { code: 'invalidSettings' }, 'external files remain strictly validated')
+
+      // Thumbnail and desktop rendering share this actual visual-settings path.
+      const preview = new Map<string, unknown[]>()
+      const renderer = new Proxy({} as Three3DRenderer, {
+        get: (_target, key) => (...values: unknown[]) => preview.set(String(key), values),
+      })
+      applyPresetVisualSettings(renderer, { ...createDefaultPet3dPreset(), ...entry.snapshot.preset })
+      assert.deepEqual(preview.get('setPetTransform'), [presetRanges.preset.petRotationDegrees[edge], presetRanges.preset.petDeskOffset[edge]])
+      assert.deepEqual(preview.get('setKeyboardBasePosition'), [presetRanges.preset.keyboardBaseXOffset[edge], presetRanges.preset.keyboardBaseZOffset[edge]])
+      assert.deepEqual(preview.get('setMouseBasePosition'), [presetRanges.preset.mouseBaseXOffset[edge], presetRanges.preset.mouseBaseZOffset[edge]])
+      assert.deepEqual(preview.get('setDmeloperEyebrows'), [entry.snapshot.preset.dmeloperEyebrows])
+      applyPresetSnapshot(target, entry.snapshot)
+      assert.deepEqual(capturePresetSnapshot(target), entry.snapshot)
+      const normalized = clonePreset(restored)
+      target.init()
+      assert.deepEqual(target.presetCollection, normalized)
+    }
+  })
+
+  it('preserves unsupported/corrupt catalog evidence for validation instead of repairing it into acceptance', () => {
+    const target = store()
+    for (const damage of [
+      (value: ReturnType<typeof createPresetCollection>) => value.schemaVersion = 999,
+      (value: ReturnType<typeof createPresetCollection>) => value.entries[1].snapshot.preset.lighting.key.strengthPercent = Number.NaN,
+      (value: ReturnType<typeof createPresetCollection>) => Reflect.set(value.entries[1].snapshot.preset, 'unknownField', 1),
+    ]) {
+      const saved = createPresetCollection(createDefaultPresetSnapshot())
+      saved.entries[1].snapshot.preset.petRotationDegrees = 90
+      damage(saved)
+      assert.equal(sanitizeStoredPresetCollection(saved, target.sanitizePet3dPreset), saved)
+      assert.equal(saved.entries[1].snapshot.preset.petRotationDegrees, 90)
+      assert.throws(() => validatePresetCollection(saved))
+    }
   })
 })
 

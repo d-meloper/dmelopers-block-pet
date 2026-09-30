@@ -12,6 +12,8 @@ import ProList from '@/components/pro-list/index.vue'
 import { AUTO_VIEWPORT_PADDING_LIMITS, normalizeAutoViewportPadding } from '@/features/scene/viewportSettings'
 import { createDefaultPet3dPreset, useCatStore } from '@/stores/cat'
 
+import LightingSettings from './lighting.vue'
+
 const props = defineProps<{
   viewportState?: SceneViewportState
   viewportPending: boolean
@@ -69,7 +71,7 @@ function confirmSceneReset() {
 
 <template>
   <PreferenceSections>
-    <ProList>
+    <ProList :title="$t('pages.preference.scene.title')">
       <ProListItem
         :description="$t('pages.preference.scene.hints.zoom')"
         :title="$t('pages.preference.scene.labels.zoom')"
@@ -81,8 +83,6 @@ function confirmSceneReset() {
           :default-value="defaults.cameraZoomPercent"
           :max="200"
           :min="25"
-          :step="1"
-          :tip-formatter="(value) => `${value}%`"
         />
       </ProListItem>
 
@@ -97,8 +97,6 @@ function confirmSceneReset() {
           :default-value="defaults.sceneRotationOffsetDegrees"
           :max="360"
           :min="-360"
-          :step="1"
-          :tip-formatter="(value) => `${value}°`"
         />
       </ProListItem>
 
@@ -110,10 +108,9 @@ function confirmSceneReset() {
           v-model:value="catStore.window.opacity"
           class="m-[0]!"
           :default-value="100"
+          display-mode="unit"
           :max="100"
           :min="10"
-          :step="1"
-          :tip-formatter="(value) => `${value}%`"
         />
       </ProListItem>
 
@@ -124,6 +121,8 @@ function confirmSceneReset() {
         <Switch v-model:checked="catStore.model.mirror" />
       </ProListItem>
     </ProList>
+
+    <LightingSettings />
 
     <ProList :title="$t('pages.preference.scene.labels.viewport')">
       <ProListItem
@@ -164,6 +163,7 @@ function confirmSceneReset() {
               class="m-[0]!"
               :default-value="defaults.autoViewportPaddingPixels"
               :disabled="automaticPaddingDisabled"
+              display-mode="raw"
               :max="AUTO_VIEWPORT_PADDING_LIMITS.max"
               :min="AUTO_VIEWPORT_PADDING_LIMITS.min"
               :step="1"
@@ -216,6 +216,7 @@ function confirmSceneReset() {
               class="m-[0]!"
               :default-value="Math.min(dimensionMax(dimension), defaults.manualViewportRect[dimension])"
               :disabled="manualDisabled"
+              display-mode="raw"
               :max="dimensionMax(dimension)"
               :min="100"
               :step="1"
@@ -250,8 +251,6 @@ function confirmSceneReset() {
           :disabled="manualDisabled"
           :max="1.5"
           :min="-1.5"
-          :step="0.01"
-          :tip-formatter="(value) => value?.toFixed(2)"
         />
       </ProListItem>
 
@@ -267,8 +266,6 @@ function confirmSceneReset() {
           :disabled="manualDisabled"
           :max="1.5"
           :min="-1.5"
-          :step="0.01"
-          :tip-formatter="(value) => value?.toFixed(2)"
         />
       </ProListItem>
 

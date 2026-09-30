@@ -11,17 +11,22 @@ import { compileScript, parse } from 'vue/compiler-sfc'
 
 import type { NormalizedVoxelSkin } from '@/utils/three3d/voxelSkin'
 
+import presetRanges from '@/config/presetRanges.json'
 import { applyPresetSnapshot, capturePresetSnapshot, clonePreset } from '@/features/presets/model'
+import * as presetOperations from '@/features/presets/operations'
+import * as stateSafety from '@/features/stateSafety/bridge'
 import { useCatStore } from '@/stores/cat'
 
 const require = createRequire(import.meta.url)
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((fulfill) => {
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((fulfill, fail) => {
     resolve = fulfill
+    reject = fail
   })
-  return { promise, resolve }
+  return { promise, resolve, reject }
 }
 
 async function flush() {
@@ -53,7 +58,10 @@ function harness(options: { render?: boolean, migration?: boolean, nickname?: bo
     if (id === 'vue') return { ...Vue, withDirectives: (node: Vue.VNode) => node, onMounted: () => {}, onBeforeUnmount: (callback: () => void) => unmounts.push(callback) }
     if (id === 'vue-i18n') return { useI18n: () => ({ t: (key: string) => key }) }
     if (id === 'ant-design-vue') return { Button: {}, Flex: {}, Input: { Search: {} }, Modal: { confirm: (dialog: { onOk: () => void }) => dialogs.push(dialog) }, Segmented: {}, Select: { Option: {} }, Switch: {} }
+    if (id === '@/features/presets/operations') return presetOperations
+    if (id === '@/features/stateSafety/bridge') return stateSafety
     if (id === '@/stores/cat') return { ...require(fileURLToPath(new URL('../../../../stores/cat.ts', import.meta.url))), useCatStore: () => store }
+    if (id === '@/config/presetRanges.json') return { default: presetRanges }
     if (id === '@/services/dmeloperSkin') return { resolveDmeloperSkinUrl: async (url: string) => url, resolveDefaultDmeloperPalmColor: async () => '#445566' }
     if (id === '@/utils/three3d/voxelSkin') return { ...require(fileURLToPath(new URL('../../../../utils/three3d/voxelSkin.ts', import.meta.url))), decodeVoxelSkin: () => decoding.promise }
     if (options.nickname && id === '@/services/minecraftSkin') return { ...require(fileURLToPath(new URL('../../../../services/minecraftSkin.ts', import.meta.url))), fetchMinecraftSkin: async () => ({ canonicalName: 'Alex', model: 'slim', height: 64, pngBase64: 'iVBORw0KGgo=' }) }
@@ -92,6 +100,7 @@ function harness(options: { render?: boolean, migration?: boolean, nickname?: bo
       return flatten((setupResult as (context: object, cache: unknown[]) => Vue.VNode)({ $t: (key: string) => key }, []))
     },
     complete: () => decoding.resolve({ wideArmLayoutCompatible: false, model: 'slim', suggestedEyebrowColor: '#112233', suggestedPalmColor: '#445566', convertedFromLegacy: false, data: Uint8Array.from({ length: 64 * 64 * 4 }, (_, index) => [68, 85, 102, 255][index % 4]) }),
+    failDecode: () => decoding.reject(new Error('Invalid saved skin')),
     unmount: () => {
       scope.stop()
       unmounts.splice(0).forEach(callback => callback())
@@ -100,6 +109,39 @@ function harness(options: { render?: boolean, migration?: boolean, nickname?: bo
 }
 
 describe('Pet tab asynchronous skin analysis', () => {
+  for (const outcome of ['success', 'failure', 'disposed', 'superseded'] as const) {
+    it(`holds the save barrier through saved-skin analysis and releases after ${outcome}`, async () => {
+      await flush()
+      const pendingBefore = presetOperations.presetNativeEditPending.value
+      const h = harness()
+      try {
+        h.store.setDmeloperSkinModel('wide')
+        await flush()
+        assert.equal(presetOperations.presetNativeEditPending.value, pendingBefore + 1)
+        if (outcome === 'disposed') h.unmount()
+        if (outcome === 'superseded') {
+          h.store.setDmeloperSkinDataUrl('data:image/png;base64,Yg==')
+          await flush()
+          assert.equal(presetOperations.presetNativeEditPending.value, pendingBefore + 2)
+        }
+        stateSafety.editorsLocked.value = true
+        if (outcome === 'failure') h.failDecode()
+        else h.complete()
+        await flush()
+        assert.equal(presetOperations.presetNativeEditPending.value, pendingBefore)
+        assert.equal(h.store.customization3d.dmeloperSkinModel, outcome === 'disposed' || outcome === 'failure' ? 'wide' : 'slim')
+        const snapshot = capturePresetSnapshot(h.store)
+        await h.applyNickname('')
+        assert.deepEqual(capturePresetSnapshot(h.store), snapshot, 'a new callback cannot start an edit while saving')
+      } finally {
+        stateSafety.editorsLocked.value = false
+        h.complete()
+        h.unmount()
+        await flush()
+      }
+    })
+  }
+
   it('still saves and links the migrated PNG while its Pet tab owns the operation', async () => {
     const h = harness({ migration: true })
     h.store.customization3d.skinLibraryMigrationCompleted = false

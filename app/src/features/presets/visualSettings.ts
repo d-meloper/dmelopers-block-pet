@@ -5,6 +5,7 @@ import { MODEL_3D_CONFIG } from '@/config/model3d'
 
 /** Shared by the desktop renderer and isolated, input-free thumbnail renderer. */
 export function applyPresetVisualSettings(renderer: Three3DRenderer, preset: Pet3dPreset, mouseEnabled = preset.mouseEnabled): void {
+  renderer.setLightingSettings(preset.lighting)
   renderer.setAutoViewportPadding(preset.autoViewportPaddingPixels)
   renderer.setDeskSettings(preset)
   renderer.setMouseEnabled(mouseEnabled)

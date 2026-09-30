@@ -205,101 +205,345 @@ mod windows {
             match unsafe { PdhCollectQueryData(self.query as PDH_HQUERY) } {
                 0 => Ok(()),
                 status => {
-                    crate::diagnostics::warn("performance.gpu_collect", &format!("PDH_0x{status:08X}"));
+                    crate::diagnostics::warn(
+                        "performance.gpu_collect",
+                        &format!("PDH_0x{status:08X}"),
+                    );
                     Err(())
-                },
+                }
             }
         }
 
         fn formatted_samples(&self) -> Result<Vec<FormattedSample>, ()> {
-            for _ in 0..3 {
-                let mut buffer_size = 0_u32;
-                let mut item_count = 0_u32;
-                // SAFETY: a null buffer with a zero size asks PDH for the required byte count.
-                let first_status = unsafe {
-                    PdhGetFormattedCounterArrayW(
-                        self.counter as PDH_HCOUNTER,
-                        PDH_FMT_DOUBLE,
-                        &mut buffer_size,
-                        &mut item_count,
-                        ptr::null_mut(),
-                    )
-                };
-                if first_status == 0 && item_count == 0 {
-                    return Ok(Vec::new());
-                }
-                if first_status != PDH_MORE_DATA {
-                    crate::diagnostics::warn("performance.gpu_sample_size", &format!("PDH_0x{first_status:08X}"));
-                    return Err(());
-                }
-
-                let required_bytes = buffer_size as usize;
-                if required_bytes == 0 || required_bytes > MAX_COUNTER_BUFFER_BYTES {
-                    return Err(());
-                }
-                let word_count = required_bytes.div_ceil(mem::size_of::<usize>());
-                let mut storage = vec![0_usize; word_count];
-
-                // SAFETY: storage is pointer-aligned and has at least buffer_size writable bytes.
-                let second_status = unsafe {
-                    PdhGetFormattedCounterArrayW(
-                        self.counter as PDH_HCOUNTER,
-                        PDH_FMT_DOUBLE,
-                        &mut buffer_size,
-                        &mut item_count,
-                        storage.as_mut_ptr().cast::<PDH_FMT_COUNTERVALUE_ITEM_W>(),
-                    )
-                };
-                if second_status == PDH_MORE_DATA {
-                    continue;
-                }
-                if second_status != 0 {
-                    crate::diagnostics::warn("performance.gpu_sample", &format!("PDH_0x{second_status:08X}"));
-                    return Err(());
-                }
-
-                let storage_bytes = storage
-                    .len()
-                    .checked_mul(mem::size_of::<usize>())
-                    .ok_or(())?;
-                let item_bytes = (item_count as usize)
-                    .checked_mul(mem::size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>())
-                    .ok_or(())?;
-                if item_bytes > storage_bytes {
-                    return Err(());
-                }
-
-                // SAFETY: PDH wrote item_count leading structures into the aligned storage.
-                let items = unsafe {
-                    slice::from_raw_parts(
-                        storage.as_ptr().cast::<PDH_FMT_COUNTERVALUE_ITEM_W>(),
-                        item_count as usize,
-                    )
-                };
-                let mut samples = Vec::with_capacity(items.len());
-                for item in items {
-                    if item.FmtValue.CStatus != PDH_CSTATUS_VALID_DATA
-                        && item.FmtValue.CStatus != PDH_CSTATUS_NEW_DATA
-                    {
-                        continue;
+            formatted_samples_with(
+                |buffer_size, item_count, buffer| {
+                    // SAFETY: the counter remains live, and the helper supplies either a null
+                    // sizing buffer or aligned storage of at least the requested size.
+                    unsafe {
+                        PdhGetFormattedCounterArrayW(
+                            self.counter as PDH_HCOUNTER,
+                            PDH_FMT_DOUBLE,
+                            buffer_size,
+                            item_count,
+                            buffer,
+                        )
                     }
-                    // SAFETY: PDH returns a null-terminated instance name inside storage.
-                    let Some(instance_name) = (unsafe {
-                        wide_string(item.szName, storage.as_ptr().cast::<u8>(), storage_bytes)
-                    }) else {
-                        continue;
-                    };
-                    // SAFETY: PDH_FMT_DOUBLE selects the doubleValue union member.
-                    let utilization = unsafe { item.FmtValue.Anonymous.doubleValue };
-                    samples.push(FormattedSample {
-                        instance_name,
-                        utilization,
-                    });
-                }
-                return Ok(samples);
+                },
+                |operation, code| crate::diagnostics::warn(operation, code),
+            )
+        }
+    }
+
+    fn formatted_samples_with(
+        mut query: impl FnMut(&mut u32, &mut u32, *mut PDH_FMT_COUNTERVALUE_ITEM_W) -> u32,
+        mut report: impl FnMut(&'static str, &str),
+    ) -> Result<Vec<FormattedSample>, ()> {
+        for _ in 0..3 {
+            let mut buffer_size = 0_u32;
+            let mut item_count = 0_u32;
+            // SAFETY: a null output buffer with valid size/count pointers is PDH's size query.
+            let first_status = query(&mut buffer_size, &mut item_count, ptr::null_mut());
+            if first_status == 0 && item_count == 0 {
+                return Ok(Vec::new());
+            }
+            if first_status != PDH_MORE_DATA {
+                report(
+                    "performance.gpu_sample_size",
+                    &format!("PDH_0x{first_status:08X}"),
+                );
+                return Err(());
             }
 
-            Err(())
+            let required_bytes = buffer_size as usize;
+            if required_bytes == 0 || required_bytes > MAX_COUNTER_BUFFER_BYTES {
+                report("performance.gpu_sample_size", "PDH_BUFFER_INVALID");
+                return Err(());
+            }
+            let word_count = required_bytes.div_ceil(mem::size_of::<usize>());
+            let mut storage = vec![0_usize; word_count];
+
+            // SAFETY: storage is aligned and at least buffer_size bytes long, as calculated above.
+            let second_status = query(
+                &mut buffer_size,
+                &mut item_count,
+                storage.as_mut_ptr().cast::<PDH_FMT_COUNTERVALUE_ITEM_W>(),
+            );
+            if second_status == PDH_MORE_DATA {
+                continue;
+            }
+            if second_status != 0 {
+                report(
+                    "performance.gpu_sample",
+                    &format!("PDH_0x{second_status:08X}"),
+                );
+                return Err(());
+            }
+
+            let Some(storage_bytes) = storage.len().checked_mul(mem::size_of::<usize>()) else {
+                report("performance.gpu_sample", "PDH_BUFFER_INVALID");
+                return Err(());
+            };
+            let Some(item_bytes) =
+                (item_count as usize).checked_mul(mem::size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>())
+            else {
+                report("performance.gpu_sample", "PDH_BUFFER_INVALID");
+                return Err(());
+            };
+            if item_bytes > storage_bytes {
+                report("performance.gpu_sample", "PDH_BUFFER_INVALID");
+                return Err(());
+            }
+
+            // PDH wrote item_count leading structures into the aligned storage.
+            // SAFETY: storage is initialized by PDH and item_bytes was checked against its size.
+            let items = unsafe {
+                slice::from_raw_parts(
+                    storage.as_ptr().cast::<PDH_FMT_COUNTERVALUE_ITEM_W>(),
+                    item_count as usize,
+                )
+            };
+            let mut samples = Vec::with_capacity(items.len());
+            for item in items {
+                if item.FmtValue.CStatus != PDH_CSTATUS_VALID_DATA
+                    && item.FmtValue.CStatus != PDH_CSTATUS_NEW_DATA
+                {
+                    continue;
+                }
+                // PDH returns a null-terminated instance name inside storage.
+                let Some(instance_name) = (unsafe {
+                    wide_string(item.szName, storage.as_ptr().cast::<u8>(), storage_bytes)
+                }) else {
+                    continue;
+                };
+                // SAFETY: PDH_FMT_DOUBLE selects the doubleValue union member.
+                let utilization = unsafe { item.FmtValue.Anonymous.doubleValue };
+                samples.push(FormattedSample {
+                    instance_name,
+                    utilization,
+                });
+            }
+            return Ok(samples);
+        }
+
+        report(
+            "performance.gpu_sample_size",
+            "PDH_SAMPLE_RESIZE_RETRIES_EXHAUSTED",
+        );
+        Err(())
+    }
+
+    #[cfg(test)]
+    mod formatted_samples_tests {
+        use super::*;
+        use windows_sys::Win32::System::Performance::PDH_CSTATUS_INVALID_DATA;
+
+        fn requested_bytes(name: &[u16]) -> u32 {
+            (mem::size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>() + name.len() * mem::size_of::<u16>())
+                as u32
+        }
+
+        unsafe fn write_sample(
+            buffer: *mut PDH_FMT_COUNTERVALUE_ITEM_W,
+            name: &[u16],
+            status: u32,
+        ) {
+            // SAFETY: callers provide writable aligned storage sized for one item and name.
+            let item = unsafe { &mut *buffer };
+            let name_pointer = unsafe {
+                buffer
+                    .cast::<u8>()
+                    .add(mem::size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>())
+                    .cast::<u16>()
+            };
+            item.szName = name_pointer;
+            item.FmtValue.CStatus = status;
+            item.FmtValue.Anonymous.doubleValue = 37.5;
+            // SAFETY: the same writable allocation has room for the name including its terminator.
+            unsafe { ptr::copy_nonoverlapping(name.as_ptr(), name_pointer, name.len()) };
+        }
+
+        #[test]
+        fn valid_samples_are_reported_silently() {
+            for status in [PDH_CSTATUS_VALID_DATA, PDH_CSTATUS_NEW_DATA] {
+                let name: Vec<u16> = "pid_123_luid_gpu0".encode_utf16().chain([0]).collect();
+                let required = requested_bytes(&name);
+                let mut reports = Vec::new();
+                let mut calls = 0;
+                let samples = formatted_samples_with(
+                    |buffer_size, item_count, buffer| {
+                        calls += 1;
+                        if buffer.is_null() {
+                            *buffer_size = required;
+                            *item_count = 1;
+                            PDH_MORE_DATA
+                        } else {
+                            *item_count = 1;
+                            // SAFETY: the helper allocated the requested bytes for this item/name.
+                            unsafe { write_sample(buffer, &name, status) };
+                            0
+                        }
+                    },
+                    |operation, code| reports.push((operation.to_owned(), code.to_owned())),
+                )
+                .unwrap();
+
+                assert_eq!(calls, 2);
+                assert_eq!(samples.len(), 1);
+                assert_eq!(samples[0].instance_name, "pid_123_luid_gpu0");
+                assert_eq!(samples[0].utilization, 37.5);
+                assert!(reports.is_empty());
+            }
+        }
+
+        #[test]
+        fn no_instances_and_invalid_item_status_are_silent() {
+            let mut reports = Vec::new();
+            let no_instances = formatted_samples_with(
+                |_buffer_size, item_count, buffer| {
+                    assert!(buffer.is_null());
+                    *item_count = 0;
+                    0
+                },
+                |operation, code| reports.push((operation.to_owned(), code.to_owned())),
+            )
+            .unwrap();
+            assert!(no_instances.is_empty());
+
+            let name: Vec<u16> = "pid_987_luid_gpu1".encode_utf16().chain([0]).collect();
+            let required = requested_bytes(&name);
+            let invalid = formatted_samples_with(
+                |buffer_size, item_count, buffer| {
+                    if buffer.is_null() {
+                        *buffer_size = required;
+                        *item_count = 1;
+                        PDH_MORE_DATA
+                    } else {
+                        *item_count = 1;
+                        // SAFETY: the helper allocated the requested bytes for this item/name.
+                        unsafe { write_sample(buffer, &name, PDH_CSTATUS_INVALID_DATA) };
+                        0
+                    }
+                },
+                |operation, code| reports.push((operation.to_owned(), code.to_owned())),
+            )
+            .unwrap();
+
+            assert!(invalid.is_empty());
+            assert!(reports.is_empty());
+        }
+
+        #[test]
+        fn pdh_more_data_recovery_is_silent() {
+            let name: Vec<u16> = "pid_234_luid_gpu2".encode_utf16().chain([0]).collect();
+            let required = requested_bytes(&name);
+            let mut reports = Vec::new();
+            let mut calls = 0;
+            let samples = formatted_samples_with(
+                |buffer_size, item_count, buffer| {
+                    calls += 1;
+                    if buffer.is_null() {
+                        *buffer_size = required;
+                        *item_count = 1;
+                        PDH_MORE_DATA
+                    } else if calls == 2 {
+                        PDH_MORE_DATA
+                    } else {
+                        *item_count = 1;
+                        // SAFETY: the helper allocated the requested bytes for this item/name.
+                        unsafe { write_sample(buffer, &name, PDH_CSTATUS_VALID_DATA) };
+                        0
+                    }
+                },
+                |operation, code| reports.push((operation.to_owned(), code.to_owned())),
+            )
+            .unwrap();
+
+            assert_eq!(calls, 4);
+            assert_eq!(samples.len(), 1);
+            assert!(reports.is_empty());
+        }
+
+        #[test]
+        fn invalid_buffer_bounds_warn_once_with_fixed_codes() {
+            for required in [0, (MAX_COUNTER_BUFFER_BYTES + 1) as u32] {
+                let mut reports = Vec::new();
+                let mut calls = 0;
+                let result = formatted_samples_with(
+                    |buffer_size, _item_count, buffer| {
+                        calls += 1;
+                        assert!(buffer.is_null());
+                        *buffer_size = required;
+                        PDH_MORE_DATA
+                    },
+                    |operation, code| reports.push((operation.to_owned(), code.to_owned())),
+                );
+
+                assert!(result.is_err());
+                assert_eq!(calls, 1);
+                assert_eq!(
+                    reports,
+                    [(
+                        "performance.gpu_sample_size".to_owned(),
+                        "PDH_BUFFER_INVALID".to_owned()
+                    )],
+                );
+            }
+
+            let required = mem::size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>() as u32;
+            let mut reports = Vec::new();
+            let result = formatted_samples_with(
+                |buffer_size, item_count, buffer| {
+                    if buffer.is_null() {
+                        *buffer_size = required;
+                        *item_count = 1;
+                        PDH_MORE_DATA
+                    } else {
+                        *item_count = 2;
+                        0
+                    }
+                },
+                |operation, code| reports.push((operation.to_owned(), code.to_owned())),
+            );
+
+            assert!(result.is_err());
+            assert_eq!(
+                reports,
+                [(
+                    "performance.gpu_sample".to_owned(),
+                    "PDH_BUFFER_INVALID".to_owned()
+                )],
+            );
+        }
+
+        #[test]
+        fn exhausted_resize_retries_warn_once_with_fixed_code() {
+            let name: Vec<u16> = "pid_456_luid_gpu3".encode_utf16().chain([0]).collect();
+            let required = requested_bytes(&name);
+            let mut reports = Vec::new();
+            let mut calls = 0;
+            let result = formatted_samples_with(
+                |buffer_size, item_count, buffer| {
+                    calls += 1;
+                    if buffer.is_null() {
+                        *buffer_size = required;
+                        *item_count = 1;
+                        PDH_MORE_DATA
+                    } else {
+                        PDH_MORE_DATA
+                    }
+                },
+                |operation, code| reports.push((operation.to_owned(), code.to_owned())),
+            );
+
+            assert!(result.is_err());
+            assert_eq!(calls, 6);
+            assert_eq!(
+                reports,
+                [(
+                    "performance.gpu_sample_size".to_owned(),
+                    "PDH_SAMPLE_RESIZE_RETRIES_EXHAUSTED".to_owned(),
+                )],
+            );
         }
     }
 

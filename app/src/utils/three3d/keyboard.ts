@@ -1,18 +1,18 @@
-import type { BufferGeometry, Material } from 'three'
+import type { Material } from 'three'
 
 import {
+  BufferGeometry,
   CanvasTexture,
   Color,
+  Float32BufferAttribute,
   Group,
   LinearFilter,
   LinearMipmapLinearFilter,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
-  PlaneGeometry,
   SRGBColorSpace,
 } from 'three'
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 
 import type { DeviceColorSettings } from '@/config/deviceColors'
 
@@ -71,6 +71,117 @@ const LEGEND_WIDTH_RATIO = 0.82
 const LEGEND_DEPTH_RATIO = 0.8
 const LEGEND_TEXTURE_HEIGHT = 512
 const LEGEND_MAX_ANISOTROPY = 8
+const KEY_DISH_DEPTH = 0.0055
+const LEGEND_SURFACE_OFFSET = 0.0006
+
+type RoundedProfile = readonly [height: number, width: number, depth: number, radius: number]
+
+function roundedOutline(width: number, depth: number, radius: number): Array<[number, number]> {
+  const points: Array<[number, number]> = []
+  const corners = [
+    [width / 2 - radius, depth / 2 - radius],
+    [-width / 2 + radius, depth / 2 - radius],
+    [-width / 2 + radius, -depth / 2 + radius],
+    [width / 2 - radius, -depth / 2 + radius],
+  ]
+  corners.forEach(([x, z], corner) => {
+    for (let step = 0; step <= 6; step += 1) {
+      const angle = (corner + step / 6) * Math.PI / 2
+      // Positive winding around the existing +Y up axis.
+      points.push([x + radius * Math.cos(angle), -(z + radius * Math.sin(angle))])
+    }
+  })
+  return points
+}
+
+function geometryFromSurface(positions: number[], indices: number[]): BufferGeometry {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new Float32BufferAttribute(positions, 3))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  geometry.computeBoundingBox()
+  geometry.computeBoundingSphere()
+  return geometry
+}
+
+// Ring profiles are the selected rounded-sculpt preview's authored dimensions.
+// Keep the original centered mesh origins so press animation and hand targets
+// remain independent of the new shell and its shallow dish.
+function createRoundedShell(profiles: readonly RoundedProfile[], dishDepth = 0) {
+  const positions: number[] = []
+  const indices: number[] = []
+  for (const [y, width, depth, radius] of profiles) {
+    for (const [x, z] of roundedOutline(width, depth, radius)) positions.push(x, y, z)
+  }
+  const ringSize = positions.length / 3 / profiles.length
+  const connectRings = (first: number, second: number) => {
+    for (let index = 0; index < ringSize; index += 1) {
+      const next = (index + 1) % ringSize
+      indices.push(first + index, first + next, second + next, first + index, second + next, second + index)
+    }
+  }
+  for (let ring = 0; ring < profiles.length - 1; ring += 1) connectRings(ring * ringSize, (ring + 1) * ringSize)
+
+  const topStart = (profiles.length - 1) * ringSize
+  const topIndexStart = indices.length
+  const [topY, topWidth, topDepth, topRadius] = profiles[profiles.length - 1]
+  let lastRing = topStart
+  if (dishDepth > 0) {
+    const outline = roundedOutline(topWidth, topDepth, topRadius)
+    for (const [fraction, drop] of [[0.8, 0.35], [0.47, 0.84], [0.13, 1]]) {
+      const nextRing = positions.length / 3
+      for (const [x, z] of outline) positions.push(x * fraction, topY - dishDepth * drop, z * fraction)
+      connectRings(lastRing, nextRing)
+      lastRing = nextRing
+    }
+  }
+  const center = positions.length / 3
+  positions.push(0, topY - dishDepth, 0)
+  for (let index = 0; index < ringSize; index += 1) indices.push(center, lastRing + index, lastRing + (index + 1) % ringSize)
+  // Reuse this exact triangulation for lettering; a flat decal would float over
+  // the center or disappear into the rim when viewed from a low angle.
+  const topPositions = positions.slice(topStart * 3)
+  const topIndices = indices.slice(topIndexStart).map(index => index - topStart)
+
+  // Split underside normals from the rounded walls without opening the shell.
+  const bottomStart = positions.length / 3
+  positions.push(...positions.slice(0, ringSize * 3))
+  const bottomCenter = positions.length / 3
+  positions.push(0, profiles[0][0], 0)
+  for (let index = 0; index < ringSize; index += 1) indices.push(bottomCenter, bottomStart + (index + 1) % ringSize, bottomStart + index)
+  return { geometry: geometryFromSurface(positions, indices), topPositions, topIndices }
+}
+
+function createKeyboardHousingGeometry(): BufferGeometry {
+  return createRoundedShell([
+    [-BOARD_HEIGHT / 2, BOARD_WIDTH - 0.038, BOARD_DEPTH - 0.038, 0.055],
+    [0.018 - BOARD_HEIGHT / 2, BOARD_WIDTH, BOARD_DEPTH, 0.065],
+    [0.073 - BOARD_HEIGHT / 2, BOARD_WIDTH, BOARD_DEPTH, 0.065],
+    [0.092 - BOARD_HEIGHT / 2, BOARD_WIDTH - 0.008, BOARD_DEPTH - 0.008, 0.067],
+    [BOARD_HEIGHT / 2, BOARD_WIDTH - 0.028, BOARD_DEPTH - 0.028, 0.062],
+  ]).geometry
+}
+
+function createSculptedKeyGeometry(width: number) {
+  const { geometry, topPositions, topIndices } = createRoundedShell([
+    [-KEY_HEIGHT / 2, width, KEY_DEPTH, 0.026],
+    [0.016 - KEY_HEIGHT / 2, width, KEY_DEPTH, 0.027],
+    [0.066 - KEY_HEIGHT / 2, width - 0.016, KEY_DEPTH - 0.018, 0.032],
+    [0.091 - KEY_HEIGHT / 2, width - 0.020, KEY_DEPTH - 0.025, 0.032],
+    [KEY_HEIGHT / 2, width - 0.029, KEY_DEPTH - 0.032, 0.029],
+  ], KEY_DISH_DEPTH)
+  const uv: number[] = []
+  for (let index = 0; index < topPositions.length; index += 3) {
+    uv.push(
+      topPositions[index] / (width * LEGEND_WIDTH_RATIO) + 0.5,
+      0.5 - topPositions[index + 2] / (KEY_DEPTH * LEGEND_DEPTH_RATIO),
+    )
+    topPositions[index + 1] += LEGEND_SURFACE_OFFSET
+  }
+  const legend = geometryFromSurface(topPositions, topIndices)
+  legend.setAttribute('uv', new Float32BufferAttribute(uv, 2))
+  return { keycap: geometry, legend }
+}
 
 const ENGLISH_LEGENDS_BY_INPUT: Readonly<Record<string, string>> = {
   KeyQ: 'Q',
@@ -239,7 +350,7 @@ export function createKeyboardGroup(): KeyboardGroupResult {
 
   const geometries = new Set<BufferGeometry>()
   const materials = new Set<Material>()
-  const keyGeometries = new Map<number, RoundedBoxGeometry>()
+  const keyGeometries = new Map<number, ReturnType<typeof createSculptedKeyGeometry>>()
   const legendTextures = new Map<string, CanvasTexture>()
   const legendMaterials = new Map<string, MeshBasicMaterial>()
   const switchableLegends: Array<{
@@ -257,16 +368,14 @@ export function createKeyboardGroup(): KeyboardGroupResult {
   const pressedKeycapColor = new Color(interaction.pressedColor)
   const legendColor = new Color(palette.legend)
 
-  const housingGeometry = new RoundedBoxGeometry(BOARD_WIDTH, BOARD_HEIGHT, BOARD_DEPTH, 5, 0.07)
-  const legendGeometry = new PlaneGeometry(1, 1)
+  const housingGeometry = createKeyboardHousingGeometry()
   const housingMaterial = new MeshStandardMaterial({
     color: palette.housing,
-    metalness: 0.02,
-    roughness: 0.78,
+    metalness: 0,
+    roughness: 0.9,
   })
 
   geometries.add(housingGeometry)
-  geometries.add(legendGeometry)
   materials.add(housingMaterial)
 
   const housing = new Mesh(housingGeometry, housingMaterial)
@@ -281,10 +390,10 @@ export function createKeyboardGroup(): KeyboardGroupResult {
     if (cached) return cached
 
     const width = units * UNIT_PITCH - KEY_GAP
-    const radius = Math.min(0.026, width * 0.14, KEY_DEPTH * 0.14)
-    const geometry = new RoundedBoxGeometry(width, KEY_HEIGHT, KEY_DEPTH, 3, radius)
+    const geometry = createSculptedKeyGeometry(width)
     keyGeometries.set(units, geometry)
-    geometries.add(geometry)
+    geometries.add(geometry.keycap)
+    geometries.add(geometry.legend)
     return geometry
   }
 
@@ -322,10 +431,11 @@ export function createKeyboardGroup(): KeyboardGroupResult {
       const keyGroup = new Group()
       const keycapMaterial = new MeshStandardMaterial({
         color: palette.keycap,
-        metalness: 0.01,
-        roughness: 0.72,
+        metalness: 0,
+        roughness: 0.9,
       })
-      const keycap = new Mesh(getKeyGeometry(units), keycapMaterial)
+      const keyGeometry = getKeyGeometry(units)
+      const keycap = new Mesh(keyGeometry.keycap, keycapMaterial)
 
       materials.add(keycapMaterial)
       keyGroup.name = `${keyName}-group`
@@ -343,15 +453,8 @@ export function createKeyboardGroup(): KeyboardGroupResult {
       keycap.userData.units = units
       keyGroup.add(keycap)
 
-      const legend = new Mesh(legendGeometry, getLegendMaterial(key.legend, keyWidth))
+      const legend = new Mesh(keyGeometry.legend, getLegendMaterial(key.legend, keyWidth))
       legend.name = `${keyName}-legend`
-      legend.position.y = KEY_HEIGHT / 2 + 0.0025
-      legend.rotation.x = -Math.PI / 2
-      legend.scale.set(
-        keyWidth * LEGEND_WIDTH_RATIO,
-        KEY_DEPTH * LEGEND_DEPTH_RATIO,
-        1,
-      )
       legend.renderOrder = 1
       keyGroup.add(legend)
       group.add(keyGroup)

@@ -3,8 +3,13 @@ use crate::{
     data_paths::DataRoots,
     windows_process::{Handle, wide},
 };
+#[cfg(any(feature = "channel-github", feature = "test-repository"))]
+use windows_sys::Win32::System::Threading::GetCurrentProcess;
 use windows_sys::Win32::{
-    Foundation::{ERROR_ALREADY_EXISTS, GetLastError, WAIT_ABANDONED, WAIT_OBJECT_0, WAIT_TIMEOUT},
+    Foundation::{
+        ERROR_ALREADY_EXISTS, GetLastError, WAIT_ABANDONED, WAIT_FAILED, WAIT_OBJECT_0,
+        WAIT_TIMEOUT,
+    },
     Globalization::GetUserDefaultUILanguage,
     System::Threading::{CreateEventW, CreateMutexW, ReleaseMutex, SetEvent, WaitForSingleObject},
     UI::{
@@ -31,7 +36,7 @@ impl Drop for LifetimeLock {
 }
 
 impl LifetimeLock {
-    fn acquire(identity: &str) -> Result<Option<Self>, String> {
+    fn acquire(identity: &str, signal_existing: bool) -> Result<Option<Self>, String> {
         let sid = crate::windows_process::current_sid()?;
         let name = format!("Global\\DMeloper.BlockPet.{identity}.{sid}");
         let event_name = wide(&format!("{name}.activate"));
@@ -50,7 +55,7 @@ impl LifetimeLock {
             match unsafe { WaitForSingleObject(mutex.0, 0) } {
                 WAIT_OBJECT_0 | WAIT_ABANDONED => {}
                 WAIT_TIMEOUT => {
-                    if unsafe { SetEvent(event.0) } == 0 {
+                    if signal_existing && unsafe { SetEvent(event.0) } == 0 {
                         return Err("INSTANCE_SIGNAL_FAILED".into());
                     }
                     return Ok(None);
@@ -91,13 +96,95 @@ impl LifetimeLock {
         let event = self.event.clone();
         std::thread::spawn(move || {
             loop {
-                match unsafe { WaitForSingleObject(event.0, 1000) } {
-                    WAIT_OBJECT_0 => tauri_plugin_custom_window::show_preference_window(&app),
-                    WAIT_TIMEOUT => {}
-                    _ => break,
+                let result = unsafe { WaitForSingleObject(event.0, 1000) };
+                if !handle_activation_wait(
+                    result,
+                    || unsafe { GetLastError() },
+                    || tauri_plugin_custom_window::show_preference_window(&app),
+                    |code| crate::diagnostics::warn("instance.activation_listener", code),
+                ) {
+                    break;
                 }
             }
         });
+    }
+}
+
+/// Called only by the registered channel uninstaller after explicit data consent.
+#[cfg(any(feature = "channel-github", feature = "test-repository"))]
+pub fn remove_user_data_for_uninstall() -> Result<(), &'static str> {
+    let channel = crate::distribution::channel();
+    if !matches!(channel, crate::distribution::Channel::Github | crate::distribution::Channel::Test) {
+        return Err("UNINSTALL_CLEANUP_CALLER_INVALID");
+    }
+    if !channel_uninstaller_is_caller()? {
+        return Err("UNINSTALL_CLEANUP_CALLER_INVALID");
+    }
+    let Some(_lifetime) = LifetimeLock::acquire(channel.lock_identity(), false)
+        .map_err(|_| "UNINSTALL_CLEANUP_LOCK_UNAVAILABLE")?
+    else {
+        return Err("UNINSTALL_OFFICIAL_APP_RUNNING");
+    };
+    let roots = DataRoots::resolve().map_err(|_| "UNINSTALL_DATA_UNAVAILABLE")?;
+    match channel {
+        crate::distribution::Channel::Github => crate::data_paths::remove_github_user_data(&roots),
+        crate::distribution::Channel::Test => crate::data_paths::remove_test_user_data(&roots),
+        _ => Err("UNINSTALL_CLEANUP_CALLER_INVALID"),
+    }
+}
+
+#[cfg(any(feature = "channel-github", feature = "test-repository"))]
+fn channel_uninstaller_is_caller() -> Result<bool, &'static str> {
+    let parent =
+        crate::windows_process::parent_process().map_err(|_| "UNINSTALL_CLEANUP_CALLER_INVALID")?;
+    let parent_sid = crate::windows_process::user_sid(parent.0)
+        .map_err(|_| "UNINSTALL_CLEANUP_CALLER_INVALID")?;
+    let current_sid =
+        crate::windows_process::current_sid().map_err(|_| "UNINSTALL_CLEANUP_CALLER_INVALID")?;
+    if parent_sid != current_sid {
+        return Ok(false);
+    }
+
+    let parent_created = crate::windows_process::creation_time(parent.0)
+        .map_err(|_| "UNINSTALL_CLEANUP_CALLER_INVALID")?;
+    let current_created = crate::windows_process::creation_time(unsafe { GetCurrentProcess() })
+        .map_err(|_| "UNINSTALL_CLEANUP_CALLER_INVALID")?;
+    if parent_created >= current_created {
+        return Ok(false);
+    }
+
+    let parent_image = crate::windows_process::executable(parent.0)
+        .map_err(|_| "UNINSTALL_CLEANUP_CALLER_INVALID")?;
+    let current_image = std::env::current_exe().map_err(|_| "UNINSTALL_CLEANUP_CALLER_INVALID")?;
+    let registered_install_root = crate::windows_process::registered_install_root()
+        .map_err(|_| "UNINSTALL_CLEANUP_CALLER_INVALID")?;
+    Ok(crate::uninstall_cleanup::is_channel_uninstaller_parent(
+        &current_image,
+        &registered_install_root,
+        &parent_image,
+    ))
+}
+
+fn handle_activation_wait(
+    result: u32,
+    last_error: impl FnOnce() -> u32,
+    activate: impl FnOnce(),
+    mut report: impl FnMut(&str),
+) -> bool {
+    match result {
+        WAIT_OBJECT_0 => {
+            activate();
+            true
+        }
+        WAIT_TIMEOUT => true,
+        WAIT_FAILED => {
+            report(&format!("WIN32_{}", last_error()));
+            false
+        }
+        _ => {
+            report("UNEXPECTED_WAIT_RESULT");
+            false
+        }
     }
 }
 
@@ -254,7 +341,8 @@ pub fn prepare() -> Result<Option<(LifetimeLock, DataRoots)>, String> {
     crate::core::restart::wait_for_parent()?;
     platform_preflight()?;
     store_identity_preflight()?;
-    let Some(mut lock) = LifetimeLock::acquire(crate::distribution::channel().lock_identity())?
+    let Some(mut lock) =
+        LifetimeLock::acquire(crate::distribution::channel().lock_identity(), true)?
     else {
         return Ok(None);
     };
@@ -346,6 +434,46 @@ fn store_identity_preflight() -> Result<(), String> {
 mod tests {
     use super::*;
     #[test]
+    fn activation_listener_reports_only_wait_failures() {
+        let mut activations = 0;
+        let mut reports = Vec::new();
+        assert!(handle_activation_wait(
+            WAIT_OBJECT_0,
+            || panic!("a signaled event has no last error"),
+            || activations += 1,
+            |code| reports.push(code.to_owned()),
+        ));
+        assert_eq!(activations, 1);
+        assert!(reports.is_empty());
+
+        assert!(handle_activation_wait(
+            WAIT_TIMEOUT,
+            || panic!("a timeout has no last error"),
+            || activations += 1,
+            |code| reports.push(code.to_owned()),
+        ));
+        assert_eq!(activations, 1);
+        assert!(reports.is_empty());
+
+        assert!(!handle_activation_wait(
+            WAIT_FAILED,
+            || 6,
+            || activations += 1,
+            |code| reports.push(code.to_owned()),
+        ));
+        assert_eq!(reports, ["WIN32_6"]);
+
+        assert!(!handle_activation_wait(
+            WAIT_ABANDONED,
+            || panic!("unexpected wait results do not use last error"),
+            || activations += 1,
+            |code| reports.push(code.to_owned()),
+        ));
+        assert_eq!(reports, ["WIN32_6", "UNEXPECTED_WAIT_RESULT"]);
+        assert_eq!(activations, 1);
+    }
+
+    #[test]
     fn webview_version_gate_rejects_old_and_invalid_versions() {
         assert!(webview_supported("120.0.0.0"));
         assert!(webview_supported("140.0.100.4"));
@@ -355,11 +483,11 @@ mod tests {
     #[test]
     fn kernel_mutex_releases_when_owner_exits_and_second_process_only_signals() {
         // A separate thread is essential: Windows mutex recursion is per thread.
-        let name = format!("Test.{}", std::process::id());
-        let lock = LifetimeLock::acquire(&name).unwrap().unwrap();
+        let name = format!("Test.signal.{}", std::process::id());
+        let lock = LifetimeLock::acquire(&name, true).unwrap().unwrap();
         let other = name.clone();
         assert!(
-            std::thread::spawn(move || LifetimeLock::acquire(&other).unwrap().is_none())
+            std::thread::spawn(move || LifetimeLock::acquire(&other, true).unwrap().is_none())
                 .join()
                 .unwrap()
         );
@@ -368,6 +496,22 @@ mod tests {
             WAIT_OBJECT_0
         );
         drop(lock);
-        assert!(LifetimeLock::acquire(&name).unwrap().is_some());
+        assert!(LifetimeLock::acquire(&name, true).unwrap().is_some());
+    }
+
+    #[test]
+    fn cleanup_lock_refuses_running_app_without_signaling_it() {
+        let name = format!("Test.no-activate.{}", std::process::id());
+        let lock = LifetimeLock::acquire(&name, true).unwrap().unwrap();
+        let other = name.clone();
+        assert!(
+            std::thread::spawn(move || LifetimeLock::acquire(&other, false).unwrap().is_none())
+                .join()
+                .unwrap()
+        );
+        assert_eq!(
+            unsafe { WaitForSingleObject(lock.event.0, 0) },
+            WAIT_TIMEOUT
+        );
     }
 }

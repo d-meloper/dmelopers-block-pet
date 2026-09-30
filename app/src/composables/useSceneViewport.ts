@@ -9,6 +9,8 @@ import { WINDOW_LABEL } from '@/constants'
 import { confirmPresetUserEdit, markPresetUserEdit, onPresetSelectionChange } from '@/features/presets/editIntent'
 import { beginPresetNativeEdit, presetOperationInProgress, presetResetInProgress } from '@/features/presets/operations'
 import { isSceneViewportState, SCENE_VIEWPORT_REQUEST, SCENE_VIEWPORT_RESPONSE, SCENE_VIEWPORT_STATE } from '@/features/scene/types'
+import { equalViewportRect } from '@/features/scene/viewportSettings'
+import { editorsLocked } from '@/features/stateSafety/bridge'
 import { useCatStore } from '@/stores/cat'
 
 export function useSceneViewport(
@@ -23,13 +25,22 @@ export function useSceneViewport(
   let disposed = false
   let selectionGeneration = 0
   let refreshFailed = false
-  let pending: { id: string, automatic?: boolean, resolve: (success: boolean) => void, releaseNative: () => void, timer: ReturnType<typeof setTimeout> } | undefined
-  let ready: Promise<void> = Promise.resolve()
+  let pending: { id: string, automatic?: boolean, manualRect: SceneViewportState['rect'], resolve: (success: boolean) => void, releaseNative: () => void, timer: ReturnType<typeof setTimeout> } | undefined
+  let subscriptionsReady = false
+  let subscribing: Promise<boolean> | undefined
   const isCurrentState = (value: unknown): value is SceneViewportState => isSceneViewportState(value)
     && value.revision >= Math.max(viewportState.value?.revision ?? 0, store.activePet3dPreset.viewportModeRevision)
   const acceptState = (value: unknown) => {
     if (disposed || !isCurrentState(value)) return
     viewportState.value = value
+    const preset = store.activePet3dPreset
+    // A pushed crop is presentation state, not permission to overwrite a newer
+    // manual edit. Only adopt the exact request that native bounds corrected.
+    if (!editorsLocked.value && !presetOperationInProgress.value && !presetResetInProgress.value
+      && !value.automatic && !preset.autoViewportEnabled && value.revision === preset.viewportModeRevision
+      && value.manualCorrection && equalViewportRect(preset.manualViewportRect, value.manualCorrection.requested)) {
+      preset.manualViewportRect = { ...value.manualCorrection.applied }
+    }
   }
   const finish = (success: boolean) => {
     if (!pending) return
@@ -48,8 +59,11 @@ export function useSceneViewport(
   }))
   const requestViewportMode = async (automatic?: boolean): Promise<boolean> => {
     const generation = selectionGeneration
-    await ready
-    if (disposed || pending || generation !== selectionGeneration
+    if (!await ensureSubscriptions()) {
+      if (!disposed) viewportError.value = t('pages.preference.scene.errors.unavailable')
+      return false
+    }
+    if (disposed || pending || editorsLocked.value || generation !== selectionGeneration
       || presetOperationInProgress.value || presetResetInProgress.value) {
       return false
     }
@@ -61,6 +75,7 @@ export function useSceneViewport(
       pending = {
         id: requestId,
         automatic,
+        manualRect: { ...store.activePet3dPreset.manualViewportRect },
         resolve,
         releaseNative: beginPresetNativeEdit(),
         timer: setTimeout(() => {
@@ -84,52 +99,64 @@ export function useSceneViewport(
   stops.push(watch([presetOperationInProgress, presetResetInProgress], ([operating, resetting], [wasOperating, wasResetting]) => {
     if (!operating && !resetting && (wasOperating || wasResetting) && !disposed) refreshViewport()
   }))
-  onMounted(() => {
-    ready = (async () => {
-      const registered = await Promise.all([
-        listen<unknown>(SCENE_VIEWPORT_STATE, ({ payload }) => {
-          if (disposed || !isCurrentState(payload)) return
-          acceptState(payload)
-          // A native update can arrive after a failed/timed-out initial query.
-          // Recheck through the acknowledgement path; a snapshot alone cannot
-          // prove that initialization or a requested mode change succeeded.
-          if (refreshFailed && !pending) refreshViewport()
-        }),
-        listen<SceneViewportResponse>(SCENE_VIEWPORT_RESPONSE, ({ payload }) => {
-          if (!payload || !pending || pending.id !== payload.requestId) return
-          const success = payload.success === true && isCurrentState(payload.state)
-            && (pending.automatic === undefined || pending.automatic === payload.state.automatic)
-          if (success && isSceneViewportState(payload.state)) {
-            acceptState(payload.state)
-            // Adopt the main window's atomic mode + rectangle selection before
-            // the preference watcher publishes its next full preset snapshot.
-            if (pending.automatic !== undefined) markPresetUserEdit()
-            Object.assign(store.activePet3dPreset, {
-              autoViewportEnabled: payload.state.automatic,
-              viewportModeRevision: payload.state.revision,
-              ...(pending.automatic !== undefined ? { cameraHorizontalOffset: 0, cameraVerticalOffset: 0 } : {}),
-              ...(!payload.state.automatic ? { manualViewportRect: { ...payload.state.rect } } : {}),
-            })
-            if (pending.automatic !== undefined) confirmPresetUserEdit()
-          } else {
-            console.warn('The scene viewport acknowledgement was rejected.')
-            viewportError.value = t('pages.preference.scene.errors.unavailable')
-          }
-          finish(success)
-        }),
-        getCurrentWebviewWindow().onFocusChanged(({ payload }) => {
-          if (payload) refreshViewport()
-        }),
-      ])
-      if (disposed) registered.forEach(stop => stop())
-      else stops.push(...registered)
-    })()
-    void ready.then(refreshViewport).catch(() => {
-      if (disposed) return
-      console.warn('Failed to subscribe to scene viewport state.')
-      viewportError.value = t('pages.preference.scene.errors.unavailable')
+  async function registerSubscriptions(): Promise<boolean> {
+    const results = await Promise.allSettled([
+      listen<unknown>(SCENE_VIEWPORT_STATE, ({ payload }) => {
+        if (disposed || !isCurrentState(payload)) return
+        acceptState(payload)
+        // A native update can arrive after a failed/timed-out initial query.
+        // Recheck through the acknowledgement path; a snapshot alone cannot
+        // prove that initialization or a requested mode change succeeded.
+        if (refreshFailed && !pending) refreshViewport()
+      }),
+      listen<SceneViewportResponse>(SCENE_VIEWPORT_RESPONSE, ({ payload }) => {
+        if (!payload || !pending || pending.id !== payload.requestId) return
+        const success = payload.success === true && isCurrentState(payload.state)
+          && (pending.automatic === undefined || pending.automatic === payload.state.automatic)
+        if (success && isSceneViewportState(payload.state)) {
+          acceptState(payload.state)
+          // Adopt the main window's atomic mode + rectangle selection before
+          // the preference watcher publishes its next full preset snapshot.
+          if (pending.automatic !== undefined) markPresetUserEdit()
+          Object.assign(store.activePet3dPreset, {
+            autoViewportEnabled: payload.state.automatic,
+            viewportModeRevision: payload.state.revision,
+            ...(pending.automatic !== undefined ? { cameraHorizontalOffset: 0, cameraVerticalOffset: 0 } : {}),
+            ...(!payload.state.automatic && (pending.automatic !== undefined
+              || equalViewportRect(store.activePet3dPreset.manualViewportRect, pending.manualRect))
+              ? { manualViewportRect: { ...payload.state.rect } }
+              : {}),
+          })
+          if (pending.automatic !== undefined) confirmPresetUserEdit()
+        } else {
+          console.warn('The scene viewport acknowledgement was rejected.')
+          viewportError.value = t('pages.preference.scene.errors.unavailable')
+        }
+        finish(success)
+      }),
+      getCurrentWebviewWindow().onFocusChanged(({ payload }) => {
+        if (payload) refreshViewport()
+      }),
+    ])
+    const registered = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : [])
+    if (disposed || results.some(result => result.status === 'rejected')) {
+      registered.forEach(stop => stop())
+      if (!disposed) console.warn('Failed to subscribe to scene viewport state.')
+      return false
+    }
+    stops.push(...registered)
+    subscriptionsReady = true
+    return true
+  }
+  function ensureSubscriptions(): Promise<boolean> {
+    if (disposed) return Promise.resolve(false)
+    if (subscriptionsReady) return Promise.resolve(true)
+    subscribing ??= registerSubscriptions().finally(() => {
+      subscribing = undefined
     })
-  })
+    return subscribing
+  }
+  onMounted(refreshViewport)
   onBeforeUnmount(() => {
     disposed = true
     stops.splice(0).forEach(stop => stop())

@@ -415,6 +415,7 @@ function cancelPointerDrag(event: PointerEvent) {
           {{ $t('pages.preference.presets.transfer.buttons.import') }}
         </Button>
         <Button
+          class="preset-new-button"
           :disabled="disabled"
           type="primary"
           @click="openNewDialog"
@@ -422,7 +423,7 @@ function cancelPointerDrag(event: PointerEvent) {
           <template #icon>
             <span
               aria-hidden="true"
-              class="i-lucide:plus mr-1.5 inline-block size-4 align-middle"
+              class="i-lucide:plus mr-1.5 size-4"
             />
           </template>
           {{ $t('pages.preference.presets.buttons.new') }}
@@ -722,7 +723,8 @@ function cancelPointerDrag(event: PointerEvent) {
 </template>
 
 <style scoped>
-.preset-import-button {
+.preset-import-button,
+.preset-new-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;

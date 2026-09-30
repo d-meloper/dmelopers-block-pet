@@ -81,18 +81,18 @@ fn validate_settings(s: &Value) -> bool {
         ("petRightArmSpreadDegrees", -45.0, 45.0),
         ("petLeftArmSpreadDegrees", -45.0, 45.0),
         ("petHeadScalePercent", 25.0, 200.0),
-        ("petRotationDegrees", -180.0, 180.0),
-        ("petDeskOffset", -1.5, 1.5),
+        crate::settings_defaults::numeric_range("preset", "petRotationDegrees"),
+        crate::settings_defaults::numeric_range("preset", "petDeskOffset"),
         ("deskHeightOffset", -1.0, 1.0),
         ("sceneRotationOffsetDegrees", -360.0, 360.0),
         ("cameraHorizontalOffset", -1.5, 1.5),
         ("cameraVerticalOffset", -1.5, 1.5),
         ("cameraZoomPercent", 25.0, 200.0),
-        ("mouseBaseXOffset", -1.5, 1.5),
-        ("mouseBaseZOffset", -1.5, 1.5),
+        crate::settings_defaults::numeric_range("preset", "mouseBaseXOffset"),
+        crate::settings_defaults::numeric_range("preset", "mouseBaseZOffset"),
         ("mouseScalePercent", 50.0, 200.0),
-        ("keyboardBaseXOffset", -1.5, 1.5),
-        ("keyboardBaseZOffset", -1.5, 1.5),
+        crate::settings_defaults::numeric_range("preset", "keyboardBaseXOffset"),
+        crate::settings_defaults::numeric_range("preset", "keyboardBaseZOffset"),
         ("keyboardScalePercent", 50.0, 200.0),
         ("autoViewportPaddingPixels", 0.0, 16.0),
     ];
@@ -113,12 +113,14 @@ fn validate_settings(s: &Value) -> bool {
         .chain(colors)
         .chain(booleans)
         .chain([
+            "lighting",
             "manualViewportRect",
             "dmeloperEyebrows",
             "keyboardLegendLanguage",
         ])
         .collect();
-    if !keys(p, &expected)
+    if !crate::lighting_settings::is_valid(&p["lighting"])
+        || !keys(p, &expected)
         || !ranges
             .iter()
             .all(|(key, min, max)| number(&p[key], *min, *max))
@@ -158,9 +160,9 @@ fn validate_settings(s: &Value) -> bool {
         && [
             ("centerOffsetPixels", -1.5, 1.5),
             ("heightOffsetPixels", -3.0, 3.0),
-            ("spacingPixels", 0.2, 4.0),
-            ("widthPixels", 0.75, 6.0),
-            ("thicknessPixels", 0.2, 2.0),
+            crate::settings_defaults::numeric_range("eyebrows", "spacingPixels"),
+            crate::settings_defaults::numeric_range("eyebrows", "widthPixels"),
+            crate::settings_defaults::numeric_range("eyebrows", "thicknessPixels"),
             ("depthPercent", 0.0, 200.0),
         ]
         .iter()
@@ -190,6 +192,9 @@ fn validate_document(bytes: &[u8]) -> TransferResult<PortablePreset> {
             let value = defaults.get(key).ok_or("invalidSettings")?;
             settings.entry(key).or_insert_with(|| value.clone());
         }
+    }
+    if let Some(settings) = preset.settings.get_mut("preset") {
+        crate::lighting_settings::migrate_preset(settings);
     }
     if !validate_settings(&preset.settings) {
         return Err("invalidSettings".into());

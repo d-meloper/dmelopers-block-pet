@@ -1,67 +1,4 @@
 {
-  "updates": {
-    "title": "Updates",
-    "automatic": "Automatically check for updates",
-    "automaticHint": "Check on startup and every 24 hours while the app is running.",
-    "stable": "Stable releases",
-    "check": "Check for updates",
-    "install": "Update to v{version}",
-    "notes": "Release notes",
-    "cancel": "Cancel download",
-    "continues": "The download continues when settings closes. Quitting the app cancels it before installation starts.",
-    "installHint": "Download, verify, install and restart. Installation cannot be cancelled after it starts.",
-    "phases": {
-      "idle": "Ready to check for updates.",
-      "checking": "Checking for updates…",
-      "available": "Version {version} is available.",
-      "upToDate": "You have the latest stable version.",
-      "downloading": "Downloading… {progress}%",
-      "verifying": "Verifying the download…",
-      "preparing": "Preparing the update…",
-      "installing": "Installing. The app will restart automatically.",
-      "cancelled": "Download cancelled.",
-      "failed": "The update could not be completed."
-    },
-    "errors": {
-      "sourceInvalid": "The update repository setting is invalid. Check the official or test repository path in update-source.json.",
-      "unavailable": "No verified update is currently available. Try again later.",
-      "network": "Unable to check online. Check your connection and try again.",
-      "running": "Close Block Pet in every other Windows account, then try again.",
-      "installedApp": "Install the official application to use automatic updates.",
-      "busy": "Another update or recovery must finish first.",
-      "verification": "Update verification failed. No installer was started.",
-      "failed": "The update could not be completed."
-    },
-    "failure": {
-      "title": "Update failed",
-      "loading": "Checking recovery status…",
-      "close": "OK",
-      "code": "Error code: {code}",
-      "unavailable": "The failure details could not be read. Close and restart the app.",
-      "outcomes": {
-        "unchanged": "Installation stopped before applying changes. Your existing version and settings are retained.",
-        "recovering": "The app is automatically restoring the temporary backup from before the update.",
-        "rolledBack": "The previous version and settings have been restored.",
-        "failed": "Automatic recovery could not finish. The temporary backup needed for recovery has been preserved.",
-        "unknown": "The running state could not be confirmed. The temporary backup is preserved and files will not be overwritten until the state is known."
-      },
-      "reasons": {
-        "sourceInvalid": "The update repository setting is invalid. Check the official or test repository path in update-source.json.",
-        "network": "A network connection problem prevented the update download.",
-        "unavailable": "No verified update is currently available to install.",
-        "verification": "The update signature or file contents could not be verified.",
-        "running": "The app is running in another Windows account, or its running state could not be confirmed.",
-        "installation": "The current installation location or program files could not be verified.",
-        "preparation": "Saving the current settings or preparing the temporary update backup failed.",
-        "installer": "An error occurred while installing the new version.",
-        "startup": "The updated app could not start or verify its saved data.",
-        "storage": "Required files could not be read or written. Check free space and file access.",
-        "recovery": "An error occurred while restoring the previous state.",
-        "busy": "Another update or recovery is still in progress.",
-        "unknown": "The update could not be completed."
-      }
-    }
-  },
   "pages": {
     "main": {
       "loading": "Loading…",
@@ -70,12 +7,18 @@
         "switching": "Switching..."
       },
       "errors": {
-        "modelLoad": "The selected 3D model could not be loaded. The desk devices remain available.",
+        "modelLoad": "The selected model could not be loaded. The desk devices remain available.",
         "rendererStart": "The Block Pet runtime could not be started."
       }
     },
     "preference": {
       "title": "Preferences",
+      "broadcastRestore": {
+        "title": "Show pet",
+        "body": "Broadcast output is enabled, and your pet is currently hidden from your desktop. Would you like to show your pet on your desktop now?",
+        "enable": "Turn on now",
+        "cancel": "Cancel"
+      },
       "petRuntimeRecovery": {
         "title": "Unable to display your pet",
         "body": "Automatic recovery failed. Please restart the app. Your settings will be saved before restarting.",
@@ -120,7 +63,7 @@
           "retry": "Try Again"
         },
         "hints": {
-          "scope": "Save 3D pet settings as presets.\n(Drag and drop a .petpreset file to import it.)",
+          "scope": "Save your settings (pet, scene, and objects) as a single preset.\n(Drag a .petpreset file here to import it.)",
           "reorder": "Drag a handle, or focus it and press Alt + ← / → (↑ / ↓) to reorder within the same group.",
           "moveToEnd": "Move to the end of this group"
         },
@@ -154,7 +97,7 @@
             "imageHint": "Includes the PNG skin image in the exported preset.\nShare it externally only if you have the skin image creator's permission or the right to share it. Unauthorized sharing may infringe copyright.",
             "nicknameHint": "Exports the skin's username in the preset.\nImporting this preset fetches and applies the latest skin associated with that username.",
             "username": "Linked username",
-            "noNickname": "This preset has no linked Java username. Apply a skin by username in the 3D Pet tab to use this option."
+            "noNickname": "This preset has no linked Java username. Apply a skin by username in the Pet tab to use this option."
           },
           "hints": {
             "drop": "Drop one .petpreset file here to import and apply it."
@@ -199,11 +142,11 @@
         }
       },
       "cat": {
-        "title": "3D Pet",
+        "title": "Pet",
         "labels": {
-          "modelSettings": "3D Scene Settings",
+          "modelSettings": "Scene Settings",
           "mirrorMode": "Mirror Mode",
-          "sceneRotation": "3D Scene Rotation",
+          "sceneRotation": "Scene Rotation",
           "cameraElevation": "Camera Vertical Angle",
           "cameraDistance": "Camera Distance",
           "mouseMirror": "Mouse Mirror",
@@ -221,7 +164,7 @@
           "autoReleaseDelay": "Auto Release Delay",
           "hideOnHover": "Hide on Hover",
           "maxFPS": "Max Frame Rate",
-          "petModel": "3D Pet Model",
+          "petModel": "Pet Model",
           "minecraftSkinUsername": "Skin Username",
           "applyMinecraftSkin": "Apply",
           "dmeloperSkinModel": "Skin Type",
@@ -240,7 +183,7 @@
           "keyboardZ": "Keyboard Depth Position",
           "mouseX": "Mouse Horizontal Position",
           "mouseZ": "Mouse Depth Position",
-          "dmeloperEyebrows": "dmeloper 3D Eyebrows",
+          "dmeloperEyebrows": "dmeloper Eyebrows",
           "dmeloperEyebrowSettings": "Pet Eyebrow Settings",
           "dmeloperEyebrowsEnabled": "Show Pet Eyebrows",
           "dmeloperEyebrowColor": "Pet Eyebrow Color",
@@ -255,15 +198,15 @@
           "dmeloperPalmSettings": "Pet Palm Settings",
           "dmeloperPalmColor": "Pet Palm Color",
           "resetDmeloperPalmColor": "Set Palm Color Automatically",
-          "reset3d": "Reset 3D Settings",
+          "reset3d": "Reset Settings",
           "eyebrowAnimation": "Use Eyebrow Animation"
         },
         "hints": {
-          "mirrorMode": "When enabled, the complete 3D scene is mirrored horizontally.",
+          "mirrorMode": "When enabled, the complete scene is mirrored horizontally.",
           "sceneRotation": "Rotate the complete scene around the world Y axis. The current reference composition is 0°.",
           "cameraElevation": "Move the camera above or below the scene center while keeping the full scene framed.",
           "cameraDistance": "Move the camera forward or backward along its current viewing axis.",
-          "visible": "Show or hide the 3D pet window. Loading a preset always turns this on.",
+          "visible": "Show or hide the pet.",
           "mouseMirror": "When enabled, the mouse will mirror the hand movement.",
           "ignoreMouse": "When enabled, the model will not respond to mouse events. Useful for keyboard mode.",
           "motionSound": "When enabled, the model will play corresponding sound effects when performing actions (if they exist).",
@@ -275,7 +218,7 @@
           "autoReleaseDelay": "On Windows, some system keys cannot capture release events and will auto-release after timeout.",
           "hideOnHover": "When enabled, the window hides automatically on mouse hover. You can set a delay; 0 means hide immediately.",
           "maxFPS": "Limit the maximum frame rate for model rendering. Lowering the frame rate can reduce CPU/GPU usage.",
-          "petModel": "Select the 3D pet model.",
+          "petModel": "Select the pet model.",
           "minecraftSkinUsername": "Apply the public skin associated with a Java Edition username.",
           "dmeloperSkinModel": "Wide is available only when it is supported by the loaded skin.",
           "petHeadScale": "Adjust the pet's head size.",
@@ -290,7 +233,7 @@
           "keyboardZ": "Move the keyboard reference position forward or backward without changing its size or rotation.",
           "mouseX": "Move the mouse reference position left or right without changing its motion range.",
           "mouseZ": "Move the mouse reference position forward or backward without changing its motion range.",
-          "dmeloperEyebrowsEnabled": "Enable the 3D pet's eyebrows.",
+          "dmeloperEyebrowsEnabled": "Show the pet’s eyebrows",
           "dmeloperEyebrowColor": "Set the pet's eyebrow color.",
           "dmeloperPalmColor": "Set the pet's palm color.",
           "eyebrowAnimation": "Animate the pet’s eyebrows."
@@ -405,7 +348,24 @@
         "builtinName": "dmeloper (Default)"
       },
       "scene": {
-        "title": "3D Scene",
+        "lighting": {
+          "title": "Lighting Settings",
+          "reset": "Reset Lighting Settings",
+          "confirmReset": "Reset lighting settings to their defaults?",
+          "labels": {
+            "color": "Light Color",
+            "strengthPercent": "Light Intensity",
+            "azimuthDegrees": "Light Horizontal Angle",
+            "elevationDegrees": "Light Vertical Angle"
+          },
+          "hints": {
+            "color": "Set the light color.",
+            "strengthPercent": "Adjust the light intensity",
+            "azimuthDegrees": "Adjust the horizontal light angle.",
+            "elevationDegrees": "Adjust the vertical light angle."
+          }
+        },
+        "title": "Scene",
         "labels": {
           "zoom": "Zoom",
           "rotation": "Rotation",
@@ -420,30 +380,30 @@
           "cameraHorizontal": "Camera Horizontal Position",
           "cameraVertical": "Camera Vertical Position",
           "refreshViewport": "Check Again",
-          "reset": "Reset 3D Scene Settings"
+          "reset": "Reset Scene Settings"
         },
         "hints": {
-          "zoom": "Adjust the magnification of the 3D scene.",
+          "zoom": "Adjust the magnification of the scene.",
           "rotation": "Rotate the camera around the scene through 360 degrees.",
-          "mirror": "Mirror the entire 3D scene horizontally.",
+          "mirror": "Mirror the entire scene horizontally.",
           "showDisplayArea": "Always show the hologram background within the display area.",
-          "automatic": "Automatically adjust the display area to include the pet, keyboard, and mouse.",
+          "automatic": "Automatically adjust the display area width and height to keep the pet and objects visible.",
           "automaticPadding": "Set the padding added to all four sides when automatically sizing the skin display area. If this value is too small, parts of the pet or objects may be clipped.",
           "width": "Set the width of the area where the skin is displayed.",
           "height": "Set the height of the area where the skin is displayed.",
-          "cameraHorizontal": "Move the 3D scene left or right on screen.",
-          "cameraVertical": "Move the 3D scene up or down on screen."
+          "cameraHorizontal": "Move the scene left or right on screen.",
+          "cameraVertical": "Move the scene up or down on screen."
         },
         "errors": {
           "unavailable": "The skin display area could not be applied. Please check again.",
           "timeout": "The skin display area has not responded yet. Please check again."
         },
         "confirm": {
-          "reset": "Reset the 3D scene settings to their defaults?"
+          "reset": "Reset the scene settings to their defaults?"
         }
       },
       "environment": {
-        "title": "3D Objects",
+        "title": "Objects",
         "labels": {
           "deskSettings": "Desk Settings",
           "deskTransparent": "Transparent Desk",
@@ -459,10 +419,10 @@
           "opacity": "Opacity",
           "mirrorMode": "Mirror",
           "keyboardLanguage": "Keycap Language",
-          "cameraSettings": "3D Camera Settings",
-          "sceneRotation": "3D Camera Rotation",
-          "cameraHorizontal": "3D Camera Horizontal Position",
-          "cameraVertical": "3D Camera Vertical Position",
+          "cameraSettings": "Camera Settings",
+          "sceneRotation": "Camera Rotation",
+          "cameraHorizontal": "Camera Horizontal Position",
+          "cameraVertical": "Camera Vertical Position",
           "cameraZoom": "Zoom",
           "petRotation": "Body Direction",
           "deskDistance": "Distance from Desk",
@@ -484,13 +444,13 @@
           "deskTransparent": "Display the desk transparently.",
           "deskHeightOffset": "Adjust the desk height.",
           "deskColor": "Set the desk color.",
-          "windowSize": "Adjust the size of the 3D scene.",
-          "mirrorMode": "Mirror the entire 3D scene horizontally.",
+          "windowSize": "Adjust the size of the scene.",
+          "mirrorMode": "Mirror the entire scene horizontally.",
           "keyboardLanguage": "Change character keycaps between Korean and English.",
           "sceneRotation": "Rotate the camera up to 360 degrees in either direction.",
-          "cameraHorizontal": "Move the 3D scene left or right in the viewport.",
-          "cameraVertical": "Move the 3D scene up or down in the viewport.",
-          "cameraZoom": "Adjust the magnification of the 3D scene.",
+          "cameraHorizontal": "Move the scene left or right in the viewport.",
+          "cameraVertical": "Move the scene up or down in the viewport.",
+          "cameraZoom": "Adjust the magnification of the scene.",
           "petRotation": "Rotate the pet's body left or right.",
           "deskDistance": "Move the pet forward or backward relative to the desk.",
           "keyboardX": "Move the keyboard left or right.",
@@ -522,7 +482,7 @@
         "title": "Preferences",
         "labels": {
           "appSettings": "Program Preferences",
-          "visible": "Show 3D Pet",
+          "visible": "Show Pet",
           "launchOnStartup": "Launch Automatically with Windows",
           "passThrough": "Pass Through",
           "alwaysOnTop": "Always on Top",
@@ -542,16 +502,22 @@
           "darkMode": "Dark"
         },
         "hints": {
-          "visible": "Show or hide the 3D pet window. Loading a preset always turns this on.",
-          "passThrough": "Allow clicks to pass through the 3D pet window.",
-          "alwaysOnTop": "Keep the 3D pet window above other windows.",
-          "hideOnHover": "Hide the 3D pet window after the selected delay when the pointer moves over it.",
-          "keepInScreen": "Keep the 3D pet window within the visible screen area.",
-          "showTaskbarIcon": "Show the 3D pet as a taskbar icon.",
-          "showTrayIcon": "When enabled, the app icon is displayed in the system tray."
+          "visible": "Show or hide the pet.",
+          "passThrough": "Allow clicks to pass through the pet window.",
+          "alwaysOnTop": "Keep the pet window above other windows.",
+          "hideOnHover": "Hide the pet window after the selected delay when the pointer moves over it.",
+          "keepInScreen": "Keep the pet window within the visible screen area.",
+          "showTaskbarIcon": "Show the pet as a taskbar icon.",
+          "showTrayIcon": "When enabled, the app icon is displayed in the system tray.",
+          "launchOnStartup": "Automatically run the program when Windows starts."
         },
         "confirm": {
           "reset": "Reset the settings in the Preferences tab to their defaults?"
+        },
+        "errors": {
+          "resetAutostartBlocked": "Windows policy prevents turning off start-at-login. Your preferences have not been reset.",
+          "resetPreflight": "Could not check or turn off start-at-login. Your preferences have not been reset. Please try again.",
+          "resetPartial": "Could not finish resetting preferences. Some settings may already have been reset. Please try again."
         }
       },
       "performance": {
@@ -560,7 +526,7 @@
           "metrics": "Real-time Performance Metrics",
           "settings": "Rendering Settings",
           "maxFPS": "Max Frame Rate",
-          "idlePowerSaving": "Save FPS When Idle",
+          "idlePowerSaving": "Smart Power Saving",
           "shadowQuality": "Shadow Quality",
           "renderScale": "Render Scale",
           "antialias": "Antialiasing (MSAA)",
@@ -587,14 +553,16 @@
           "durationSeconds": "{seconds}s",
           "durationMinutesSeconds": "{minutes}m {seconds}s",
           "maxFPS": "Limit rendering frames to reduce CPU and GPU usage.",
-          "idlePowerSaving": "After 5 seconds without input, lower FPS to 15 to reduce CPU and GPU usage. Restore the configured maximum frame rate when input resumes.",
-          "shadowQuality": "High softens shadow edges and may increase GPU usage.",
-          "renderScale": "Adjust the internal rendering resolution of the 3D scene. Lower values can improve performance.",
-          "antialias": "Smooth geometric outlines throughout the scene.",
-          "pixelFilter": "Soften pixel color boundaries across the character’s skin."
+          "idlePowerSaving": "After 5 seconds without input, lower the maximum frame rate to 15 to save resources. Restore the configured maximum frame rate when input resumes.",
+          "shadowQuality": "Set the shadow quality. Lower settings improve performance.",
+          "renderScale": "Adjust the rendering resolution. Lower settings improve performance.",
+          "antialias": "Smooth jagged edges on rendered models. Turning this off improves performance.",
+          "pixelFilter": "Soften the pet’s pixel color boundaries. Turning this off improves performance.",
+          "warmup": "Preparing measurements."
         },
         "status": {
-          "unavailable": "Unavailable"
+          "unavailable": "Unavailable",
+          "preparing": "Preparing measurements"
         },
         "buttons": {
           "measurementInfo": "Measurement information"
@@ -603,7 +571,8 @@
           "reset": "Reset the performance settings to their defaults?"
         },
         "errors": {
-          "antialiasFailed": "Antialiasing could not be changed. The previous setting was kept."
+          "antialiasFailed": "Antialiasing could not be changed. The previous setting was kept.",
+          "antialiasUnconfirmed": "The antialiasing result could not be confirmed. Please try again."
         }
       },
       "model": {
@@ -665,20 +634,23 @@
           "appLog": "App Logs",
           "appInfo": "App Info",
           "iconCredits": "Icon Credits",
-          "legalNotices": "Licenses and Privacy",
+          "legalNotices": "Third-party Licenses",
           "resetAll": "Reset All Program Settings",
           "introduction": "Introduction",
           "developerInfo": "Developer Information",
           "developer": "Developer",
           "developerName": "DMeloper",
-          "developerEmail": "DMeloper Email Address"
+          "developerEmail": "Developer Email Address",
+          "releaseNotes": "Release Notes Page",
+          "dataNotice": "Data and Permissions"
         },
         "hints": {
           "appInfo": "Copy app information and provide it to bug issue.",
           "copySuccess": "Copied Successfully",
           "solarIcons": "Solar Icons by 480 Design are used under CC BY 4.0.",
           "lucideIcons": "Lucide ISC notices and the MIT notices for Feather-derived icons by Cole Bemis are provided together.",
-          "legalNotices": "Read project and third-party licenses and privacy information offline."
+          "legalNotices": "Read third-party licenses and credits.",
+          "dataNotice": "Read about the data, permissions and network connections the app uses."
         },
         "buttons": {
           "copy": "Copy",
@@ -700,6 +672,9 @@
           "resetPartial": "The reset could not finish. Some settings or skin files may already have been reset or deleted. They have not been restored automatically. Retry to finish the reset.",
           "legalNotices": "The notices could not be opened. Please try again.",
           "openDeveloperLink": "Could not open the developer link. Please try again.",
+          "openLink": "Could not open the page. Please try again.",
+          "copyInfo": "Could not copy the app information. Please try again.",
+          "openLog": "Could not open the log folder. Please try again.",
           "copyEmail": "Could not copy the email address. Please try again."
         }
       },
@@ -711,11 +686,11 @@
         "endpointBackupHint": "Your existing broadcast address is retained, but its recovery information could not be saved. Check available storage and access permissions, then retry.",
         "title": "Broadcast Settings",
         "enabled": "Broadcast Output",
-        "enabledHint": "Show the current 3D scene in an OBS Browser Source on this PC. Keep the pet app running.",
+        "enabledHint": "Display the pet in an OBS Browser Source.",
         "desktopVisible": "Show Pet on My Desktop",
-        "desktopVisibleHint": "Applies only while broadcast output is on. Turning this off hides the pet on your screen even when switching presets, while the broadcast continues. Turning it on also enables Show 3D Pet.",
+        "desktopVisibleHint": "Show the pet on your desktop separately from the pet shown in the broadcast.",
         "connection": "OBS Connection URL",
-        "setupHint": "In OBS, add a Browser source and paste this URL. The transparent scene fits the source dimensions without stretching.",
+        "setupHint": "The browser URL used to display the pet.",
         "setupInfoLabel": "OBS setup instructions",
         "setupInfo": "OBS setup instructions\n1. Click the + button in the OBS Sources list.\n2. Click [Browser] to add a source.\n3. Copy the 'OBS Connection URL' and paste it into [URL] in the browser source properties.\n4. Click OK to apply.",
         "addressPlaceholder": "Enable broadcast output to see the URL.",
@@ -723,7 +698,7 @@
         "copied": "Copied",
         "copyError": "Could not copy. Select the URL and copy it manually.",
         "statusTitle": "Connection Status",
-        "statusHint": "This shows browser-source connections, not whether you are live. If the source first opened while the app or broadcast output was off, turn it on and refresh the OBS source.",
+        "statusHint": "Show the pet’s OBS connection status. If it is not working correctly, refresh the OBS source.",
         "status": {
           "off": "Off",
           "updating": "Applying",
@@ -738,6 +713,9 @@
     }
   },
   "components": {
+    "defaultSnapSlider": {
+      "defaultSuffix": "(Default)"
+    },
     "shortcut": {
       "errors": {
         "duplicate": "This shortcut is already assigned to another action."
@@ -811,29 +789,26 @@
   },
   "inAppUpdates": {
     "title": "Application update",
-    "latest": "New version",
-    "hint": "The update is verified, your settings are saved, and the installer restarts the app. Cancel the update before requesting a restart during download. Cancellation ends when saving begins.",
+    "latest": "Check for the Latest Version",
+    "hint": "Check for the latest version of this program.",
     "check": "Check for updates",
     "install": "Install update",
-    "releases": "Release history",
     "checking": "Checking for updates…",
     "unknown": "Could not check for updates. Please try again.",
-    "available": "Update v{version} is available.",
+    "available": "An update to the latest version (v{version}) is available.",
     "upToDate": "You are up to date.",
     "downloading": "Downloading and verifying the update…",
     "saving": "Saving settings, presets and skins…",
     "installing": "Handing off to the installer. The app will reopen after installation completes.",
-    "failed": "The update could not be completed. If the app is open, check again. If installation was interrupted, use the installer from Release history to repair it.",
+    "failed": "The update could not be completed. If the app is open, check again. If installation was interrupted, use the installer from the GitHub releases page to repair it.",
     "verifying": "Verifying the downloaded file and its signature.",
     "cancel": "Cancel update"
   },
   "storeUpdates": {
     "title": "Microsoft Store updates",
-    "hint": "Current version: v{version}. Microsoft Store manages updates. Quit the app completely from its tray menu to allow an update. Restarting the app alone may not apply it.",
+    "hint": "Microsoft Store manages updates. Quit the app completely from its tray menu to allow an update. Restarting the app alone may not apply it.",
     "open": "Open Microsoft Store",
-    "openFailed": "Could not open the Store page. Check for updates in Microsoft Store.",
-    "development": "Development session",
-    "developmentHint": "Installer updates are disabled in development sessions."
+    "openFailed": "Could not open the Store page. Check for updates in Microsoft Store."
   },
   "autostartStatus": {
     "enabled": "Start this installation when you sign in to Windows.",
@@ -843,8 +818,5 @@
     "enabledByPolicy": "Enabled by Windows policy.",
     "unknown": "Could not read the Windows startup state.",
     "failed": "Could not change automatic startup. Check Windows Startup apps settings."
-  },
-  "dataLocation": {
-    "title": "Shared user data location"
   }
 }

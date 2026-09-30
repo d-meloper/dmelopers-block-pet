@@ -9,6 +9,7 @@ import { useI18n } from 'vue-i18n'
 
 import type { MainViewportSnapshot } from '@/composables/useWindowState'
 import type { PetModelId } from '@/config/model3d'
+import type { AntialiasSettingRequest, AntialiasSettingResponse } from '@/config/performance'
 import type { MouseSettingResponse } from '@/features/input/types'
 import type { PresetApplyRequest, PresetSnapshot } from '@/features/presets/types'
 import type { SceneViewportState } from '@/features/scene/types'
@@ -21,7 +22,7 @@ import type {
   MainViewportResetRequest,
 } from '@/utils/mainViewportReset'
 import type { VisibleContentRect } from '@/utils/three3d'
-import type { VoxelSkinModel, VoxelSkinModelPreference } from '@/utils/three3d/voxelSkin'
+import type { VoxelSkinModel } from '@/utils/three3d/voxelSkin'
 
 import { useAppMenu } from '@/composables/useAppMenu'
 import { useDevice } from '@/composables/useDevice'
@@ -35,16 +36,16 @@ import {
   subscribeMainViewportSnapshot,
 } from '@/composables/useWindowState'
 import { getPetModelOption, MODEL_3D_CONFIG } from '@/config/model3d'
-import { ANTIALIAS_CHANGE_FAILED } from '@/config/performance'
+import { ANTIALIAS_SETTING_CANCEL, ANTIALIAS_SETTING_REQUEST, ANTIALIAS_SETTING_RESPONSE, isAntialiasSettingRequest } from '@/config/performance'
 import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
 import { isDesktopPetVisible } from '@/features/broadcast/visibility'
 import { isMouseSettingRequest, isSemanticInputEvent } from '@/features/input/types'
 import { PET_RUNTIME_RECOVERED, PET_RUNTIME_RECOVERY_QUERY, PET_RUNTIME_RESTART_REQUIRED, PET_RUNTIME_SHOW } from '@/features/petRuntime/types'
 import { applyPresetSnapshot, capturePresetSnapshot, isPresetSnapshot } from '@/features/presets/model'
-import { PRESET_APPLY_CANCEL, PRESET_APPLY_REQUEST, PRESET_APPLY_RESPONSE } from '@/features/presets/types'
+import { PRESET_APPLY_CANCEL, PRESET_APPLY_REQUEST, PRESET_APPLY_RESPONSE, PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import { applyPresetVisualSettings } from '@/features/presets/visualSettings'
 import { isSceneViewportRequest, SCENE_VIEWPORT_REQUEST, SCENE_VIEWPORT_RESPONSE, SCENE_VIEWPORT_STATE } from '@/features/scene/types'
-import { normalizeManualViewport, resizeAutoViewportPadding, viewportSizeChanged } from '@/features/scene/viewportSettings'
+import { equalViewportRect, normalizeManualViewport, resizeAutoViewportPadding, viewportSizeChanged } from '@/features/scene/viewportSettings'
 import { editorsLocked } from '@/features/stateSafety/bridge'
 import { registerNativeDrain } from '@/features/stateSafety/runtime'
 import {
@@ -97,6 +98,7 @@ let rendererReady = false
 let activeWindowScalePercent = 100
 let activeViewportAutomatic = catStore.activePet3dPreset.autoViewportEnabled
 let desiredManualViewportRect = { ...catStore.activePet3dPreset.manualViewportRect }
+let manualViewportCorrection: { revision: number, requested: VisibleContentRect, applied: VisibleContentRect } | undefined
 let sceneStateGeneration = 0
 let sceneModeGeneration = 0
 let acceptedViewportMode = captureViewportMode(catStore.activePet3dPreset)
@@ -813,6 +815,7 @@ async function resolveManualViewport(): Promise<VisibleContentRect> {
   if (requested !== desiredManualViewportRect) return resolveManualViewport()
   const rect = normalizeManualViewport(requested, monitorSize)
   if (JSON.stringify(rect) !== JSON.stringify(requested)) {
+    manualViewportCorrection = { revision: acceptedViewportMode.revision, requested: { ...requested }, applied: { ...rect } }
     desiredManualViewportRect = rect
     acceptedViewportMode.rect = { ...rect }
     catStore.activePet3dPreset.manualViewportRect = { ...rect }
@@ -838,7 +841,11 @@ async function getSceneViewportState(): Promise<SceneViewportState> {
     : snapshot
       ? { ...snapshot.sourceRect, width: Math.round(snapshot.outputLogicalSize.width), height: Math.round(snapshot.outputLogicalSize.height) }
       : getFullContentRect()
-  return { automatic, revision: acceptedViewportMode.revision, rect, monitorSize }
+  const correction = manualViewportCorrection
+  return { automatic, revision: acceptedViewportMode.revision, rect, monitorSize, ...(!automatic && correction && correction.revision === acceptedViewportMode.revision
+    && equalViewportRect(catStore.activePet3dPreset.manualViewportRect, correction.applied)
+    ? { manualCorrection: { requested: { ...correction.requested }, applied: { ...correction.applied } } }
+    : {}) }
 }
 
 async function publishSceneViewportState(): Promise<void> {
@@ -850,8 +857,10 @@ async function publishSceneViewportState(): Promise<void> {
       const current = catStore.activePet3dPreset.manualViewportRect
       const clamped = normalizeManualViewport(current, state.monitorSize)
       if (JSON.stringify(current) !== JSON.stringify(clamped)) {
+        manualViewportCorrection = { revision: acceptedViewportMode.revision, requested: { ...current }, applied: { ...clamped } }
         catStore.activePet3dPreset.manualViewportRect = clamped
         requestPet3dPresetSelection(getCurrentSelection())
+        state.manualCorrection = { requested: { ...current }, applied: { ...clamped } }
       }
     }
     await emitTo(WINDOW_LABEL.PREFERENCE, SCENE_VIEWPORT_STATE, state)
@@ -929,11 +938,24 @@ function getDesiredPetAssetState(selection: Pet3dPresetSelectionPayload) {
 }
 
 function persistResolvedDmeloperSkinModel(
-  preference: VoxelSkinModelPreference,
+  selection: Pet3dPresetSelectionPayload,
   resolvedModel: VoxelSkinModel | undefined,
 ) {
+  const preference = selection.dmeloperSkinModel ?? 'auto'
   if (resolvedModel && preference !== resolvedModel) {
-    catStore.setDmeloperSkinModel(resolvedModel)
+    if (presetApplyInProgress) {
+      // Managed application returns this exact accepted snapshot to its owner.
+      catStore.setDmeloperSkinModel(resolvedModel)
+    } else {
+      // Live loading must not publish the renderer's entire stale Cat snapshot.
+      // The owner accepts this derived value only for the same skin selection.
+      void emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { resolvedSkinModel: {
+        modelId: selection.modelId,
+        skinDataUrl: selection.dmeloperSkinDataUrl,
+        requested: preference,
+        resolved: resolvedModel,
+      } }).catch(() => console.warn('Failed to synchronize the resolved skin model.'))
+    }
   }
 }
 
@@ -990,14 +1012,14 @@ async function applyPet3dPresetSelection(
         skinPreference,
       )
       if (!isCurrentSelectionRequest(requestGeneration, lifecycleGeneration)) return
-      persistResolvedDmeloperSkinModel(skinPreference, resolvedSkinModel)
+      persistResolvedDmeloperSkinModel(selection, resolvedSkinModel)
     } else if (skinChanged) {
       const resolvedSkinModel = await three3d.setDmeloperSkin(
         skinUrl,
         skinPreference,
       )
       if (!isCurrentSelectionRequest(requestGeneration, lifecycleGeneration)) return
-      persistResolvedDmeloperSkinModel(skinPreference, resolvedSkinModel)
+      persistResolvedDmeloperSkinModel(selection, resolvedSkinModel)
     }
     if (!isCurrentSelectionRequest(requestGeneration, lifecycleGeneration)) return
 
@@ -1116,7 +1138,7 @@ async function initializeRenderer(lifecycleGeneration: number): Promise<boolean>
     rendererReady = true
     await synchronizeAntialias()
     if (lifecycleGeneration !== rendererLifecycleGeneration) return false
-    persistResolvedDmeloperSkinModel(initialSelection.dmeloperSkinModel, resolvedSkinModel)
+    persistResolvedDmeloperSkinModel(initialSelection, resolvedSkinModel)
 
     let firstSelection = true
     while (firstSelection || pendingSelection) {
@@ -1383,12 +1405,14 @@ onMounted(async () => {
     await rendererInitialization?.promise
     await selectionTaskQueue.whenIdle()
     await viewportUpdateScheduler.whenIdle()
+    await antialiasSynchronization
   })
   await synchronizeWindowVisibility()
 })
 
 onUnmounted(() => {
   componentMounted = false
+  antialiasRequest = undefined
   inputUnlisteners.splice(0).forEach(stop => stop())
   visibilityGeneration += 1
   viewportResetGeneration += 1
@@ -1439,7 +1463,9 @@ watch(() => catStore.window.passThrough, value => appWindow.setIgnoreCursorEvent
 watch(() => catStore.window.alwaysOnTop, setAlwaysOnTop, { immediate: true })
 watch(() => generalStore.app.taskbarVisible, setTaskbarVisibility, { immediate: true })
 watch(() => catStore.model.eyebrowAnimationEnabled, three3d.setEyebrowAnimationEnabled.bind(three3d), { immediate: true })
-async function synchronizeAntialias() {
+let antialiasSynchronization = Promise.resolve()
+let antialiasRequest: (AntialiasSettingRequest & { responding: boolean }) | undefined
+async function applyAntialiasSetting() {
   if (!rendererReady || !desktopPetVisible.value) return
   const enabled = catStore.model.antialiasEnabled
   const lifecycle = rendererLifecycleGeneration
@@ -1450,14 +1476,60 @@ async function synchronizeAntialias() {
     if (replacement && isCurrent()) canvas.value = replacement
   } catch (error) {
     if (!isCurrent()) return
-    catStore.model.antialiasEnabled = three3d.getAntialiasEnabled()
     console.error('Failed to change antialiasing.', error)
-    await emitTo(WINDOW_LABEL.PREFERENCE, ANTIALIAS_CHANGE_FAILED).catch(() => {
-      if (componentMounted) console.warn('Failed to notify preferences about antialiasing failure.')
-    })
   }
 }
-watch(() => catStore.model.antialiasEnabled, synchronizeAntialias)
+function synchronizeAntialias() {
+  antialiasSynchronization = applyAntialiasSetting()
+  return antialiasSynchronization
+}
+async function acknowledgeAntialiasSetting() {
+  const request = antialiasRequest
+  // The explicit request can beat Pinia's incoming patch. Its existing model
+  // watcher retries after the matching value arrives; no mirror write is needed.
+  if (!request || request.responding || catStore.model.antialiasEnabled !== request.requested) return
+  request.responding = true
+  // An in-progress initialization may already be creating the previous
+  // context. Its final synchronization must settle before accepting this edit.
+  while (true) {
+    const initialization = rendererInitialization
+    if (!initialization || !desktopPetVisible.value) break
+    await initialization.promise
+    if (!componentMounted || antialiasRequest !== request) return
+  }
+  if (rendererReady && desktopPetVisible.value) {
+    void synchronizeAntialias()
+    while (true) {
+      const pending = antialiasSynchronization
+      await pending
+      if (pending === antialiasSynchronization) break
+    }
+  }
+  if (!componentMounted || antialiasRequest !== request || catStore.model.antialiasEnabled !== request.requested) return
+  // Hidden/uninitialized renderers pick up this accepted setting on creation.
+  const actual = rendererReady && desktopPetVisible.value ? three3d.getAntialiasEnabled() : request.requested
+  antialiasRequest = undefined
+  await emitTo<AntialiasSettingResponse>(WINDOW_LABEL.PREFERENCE, ANTIALIAS_SETTING_RESPONSE, {
+    requestId: request.requestId,
+    requested: request.requested,
+    actual,
+    success: actual === request.requested,
+  }).catch(() => {
+    if (componentMounted) console.warn('Failed to acknowledge the antialiasing setting.')
+  })
+}
+useTauriListen<unknown>(ANTIALIAS_SETTING_REQUEST, ({ payload }) => {
+  if (!componentMounted || !isAntialiasSettingRequest(payload)) return
+  antialiasRequest = { ...payload, responding: false }
+  void acknowledgeAntialiasSetting()
+})
+useTauriListen<unknown>(ANTIALIAS_SETTING_CANCEL, ({ payload }) => {
+  if (isAntialiasSettingRequest(payload) && antialiasRequest?.requestId === payload.requestId) antialiasRequest = undefined
+})
+watch(() => catStore.model.antialiasEnabled, () => {
+  void synchronizeAntialias()
+  void acknowledgeAntialiasSetting()
+})
 watch(() => catStore.model.pixelFilterEnabled, three3d.setPixelFilterEnabled.bind(three3d), { immediate: true })
 watch(() => catStore.model.maxFPS, three3d.setMaxFPS.bind(three3d), { immediate: true })
 watch(

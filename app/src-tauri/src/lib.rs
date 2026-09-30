@@ -14,8 +14,11 @@ mod latest_version;
 mod minecraft_skin;
 mod performance;
 mod settings_defaults;
+mod lighting_settings;
 mod skin_library;
 mod state_safety;
+#[cfg(any(feature = "channel-github", feature = "test-repository"))]
+mod uninstall_cleanup;
 
 const RELEASE_MODE_MARKER: &str = "DMELoper_CHANNEL_BOUND_SHARED_DATA_V1";
 
@@ -68,6 +71,8 @@ use tauri_plugin_custom_window::{
 
 pub fn run() {
     std::hint::black_box(RELEASE_MODE_MARKER);
+    #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+    uninstall_cleanup::exit_if_requested();
     let (lifetime_lock, roots) = match bootstrap::prepare() {
         Ok(Some(ready)) => ready,
         Ok(None) => return,

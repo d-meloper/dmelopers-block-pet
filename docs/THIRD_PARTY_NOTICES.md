@@ -1,5 +1,7 @@
 # Third-Party Notices
 
+[한국어](THIRD_PARTY_NOTICES.ko-KR.md) · English
+
 ## Upstream application code
 
 Parts of DMeloper's Block Pet are derived from
@@ -10,22 +12,22 @@ licensed under the MIT License.
 - Peeled source commit: `84f9f4ccfb11d8a4aefb9623934637878be0e384`
 - Upstream copyright: `Copyright (c) 2025 ayangweb`
 
-The upstream MIT copyright and permission notice are preserved in `LICENSE`.
+The upstream MIT copyright and permission notice are preserved in [LICENSE](../LICENSE).
 DMeloper's Block Pet contains substantial independent changes and is not an
 official BongoCat release or endorsed by the upstream project.
 
 The upstream software license does not by itself grant rights to unrelated or
 pre-existing character artwork, names, brands, user skins, 3D/Live2D models,
 music, or trademarks. No Bongo Cat character model or upstream Live2D model is
-part of the public source projection or installer.
+included in the public source or installer.
 
-## Vendored source
+## Included Source
 
 `../app/vendor/tauri-winres` contains a local patch of `tauri-winres` 0.3.5. It remains
 under its original MIT license, preserved at `../app/vendor/tauri-winres/LICENSE`, and
 retains the original Tauri Apps Contributors and Max Resch copyright notices.
 
-The retained historical installer helper `block_pet_installer_utils.dll` is derived from
+The installer helper `block_pet_installer_utils.dll`, retained from an earlier implementation, is derived from
 [Tauri nsis-tauri-utils 0.5.3](https://github.com/tauri-apps/nsis-tauri-utils/tree/nsis_tauri_utils-v0.5.3).
 Its source is retained at `../app/src-tauri/windows/installer-utils`, including
 the original MIT and Apache-2.0 texts, the original copyright
@@ -34,18 +36,21 @@ the pinned upstream archive/source hashes. The local derivative retains only
 version comparison, process inspection and non-elevated application launch;
 unused process-termination and string commands were removed. The vendored
 `nsis-plugin-api` and `nsis-fn` sources are unchanged. This locally built DLL is
-not an official or Authenticode-signed Tauri release. The current GitHub/Store packaging does not build or include this helper; its sources and notices remain for historical provenance.
+not an official or Authenticode-signed Tauri release.
 
-The shared update core and retained historical update worker are maintained under the project MIT license in `../app/crates/update-core`. The current packages do not ship the separate worker. Its dependencies and the historical installer plugin are still recorded as separate source/build consumers in the offline notices; inclusion in that inventory does not mean the component is shipped.
+Current GitHub and Store packages do not build or include this helper. Its source
+and notices are kept to document the earlier implementation.
+
+The shared update core and the update worker from the earlier implementation are maintained under the project MIT license in `../app/crates/update-core`. The current packages do not ship the separate worker. Its dependencies and the historical installer plugin are still recorded as separate source/build consumers in the offline notices; inclusion in that inventory does not mean the component is shipped.
 
 `../app/vendor/tauri-plugin-updater` contains the locally patched Tauri updater 2.11.0 used by the GitHub channel. Its MIT/Apache-2.0 license texts, upstream identity, and local changes are preserved in that directory and in the offline notices. Store packages do not use this updater.
 
-## Runtime assets
+## Models and Skins
 
 The voxel humanoid geometry and default skin were authored by DMeloper. The application icon was supplied by the maintainer and approved for use in the application; no additional authorship claim is made. The GLB intentionally contains no embedded character skin.
 A separate `default.png`, authored by DMeloper, provides the default appearance.
 The author has approved its inclusion in the public source and installer.
-User-imported skins are excluded from the public source projection and installer.
+User-imported skins are not included in the public source or installer.
 
 `Minecraft`, `Steve`, `Mojang`, and `Microsoft` are names or marks of
 their respective owners. This independent project is not an official Minecraft
@@ -65,20 +70,22 @@ Selected [Lucide Icons](https://icon-sets.iconify.design/lucide/) by the Lucide
 Contributors are used under the
 [ISC License, with MIT notices for Feather-derived icons](https://github.com/lucide-icons/lucide/blob/main/LICENSE).
 The selected arrow and square icons include Feather-derived artwork by Cole
-Bemis. Preserve both applicable license texts and copyright notices in the
-final offline notices; the package's ISC metadata alone is not the full notice.
+Bemis. The offline notices include both applicable license texts and copyright notices.
+The package's ISC declaration alone does not cover all of these icons.
 
 Icon data is supplied by local `@iconify-json` packages and rendered as CSS by
 UnoCSS. The application does not fetch these icons from a CDN at runtime.
 
 ## Offline dependency notices and source availability
 
-Open Preferences > About > Licenses and Privacy to read this document, the
-project MIT license, privacy information, and dependency notices without an
-internet connection. The same text is included in `../app/src/legal/notices.txt`.
+Open Preferences > About > Third-party Licenses to read this document, the
+project MIT license and dependency notices without an internet connection.
+The license text is included in `../app/src/legal/notices.txt`.
 The CycloneDX inventory is `../app/src/legal/dependencies.cdx.json`.
+The separate Data and Permissions entry below it explains local data and permissions
+in the selected app language.
 
-The inventory covers locked Node production dependencies, Solar/Lucide icon data compiled into CSS, the GitHub/Store/test applications' Windows Rust normal/build dependency closures, and the retained historical worker and x86 installer helper closures. Both Cargo lockfiles are recorded and development-only dependencies are excluded. Consumer labels describe the reviewed source graphs; the historical worker/helper are not components of the current packages.
+The inventory lists the application's Node and Windows Rust dependencies, Solar/Lucide icon data, and dependencies of retained source components. It includes libraries used to build the application. Detailed component relationships and locked versions are recorded in the machine-readable inventory. The historical worker and installer helper are not included in the current packages.
 Build dependencies are included conservatively; listing a package does not
 claim its code is linked into the installed executable.
 

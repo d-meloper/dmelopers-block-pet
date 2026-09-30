@@ -6,6 +6,10 @@ export interface CurrentPerformanceMetrics {
 
 export type CurrentPerformanceSample = CurrentPerformanceMetrics
 
+// Refresh native CPU/GPU delta baselines while setting-related renderer work
+// settles. Only this bounded session prefix is excluded, never high values.
+export const PERFORMANCE_WARMUP_SAMPLES = 2
+
 function finiteValue(value: number | undefined): number | undefined {
   return Number.isFinite(value) ? value : undefined
 }

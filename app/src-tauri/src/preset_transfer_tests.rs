@@ -3,6 +3,37 @@ use serde_json::json;
 
 const OP: &str = "12345678-1234-4234-8234-123456789abc";
 const PRESET: &str = "12345678-1234-4234-8234-123456789def";
+
+#[test]
+fn shared_ranges_accept_fractional_values_and_reject_outside_portable_inputs() {
+    let ranges: Value = serde_json::from_str(include_str!("../../src/config/presetRanges.json")).unwrap();
+    for group in ["preset", "eyebrows"] {
+        for (key, bounds) in ranges[group].as_object().unwrap() {
+            let min = bounds["min"].as_f64().unwrap();
+            let max = bounds["max"].as_f64().unwrap();
+            for number in [min, max, min + (max - min) * 0.37, min - 0.0001, max + 0.0001] {
+                let mut document = fixture();
+                let target = if group == "preset" {
+                    &mut document["settings"]["preset"]
+                } else {
+                    &mut document["settings"]["preset"]["dmeloperEyebrows"]
+                };
+                target[key] = json!(number);
+                let result = validate_document(&serde_json::to_vec(&document).unwrap());
+                assert_eq!(result.is_ok(), number >= min && number <= max, "{group}.{key}: {number}");
+                if let Ok(restored) = result {
+                    let target = if group == "preset" { &restored.settings["preset"] }
+                        else { &restored.settings["preset"]["dmeloperEyebrows"] };
+                    // JSON float parsing may differ by one binary ULP; it must
+                    // never round the actual setting to a display step or integer.
+                    assert!((target[key].as_f64().unwrap() - number).abs()
+                        <= f64::EPSILON * number.abs().max(1.0));
+                }
+            }
+        }
+    }
+}
+
 fn fixture() -> Value {
     serde_json::from_str(include_str!(
         "../../src/features/presets/fixtures/portable-v1.json"

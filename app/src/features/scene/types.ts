@@ -9,6 +9,7 @@ export interface SceneViewportState {
   revision: number
   rect: ViewportRect
   monitorSize: ViewportSize
+  manualCorrection?: { requested: ViewportRect, applied: ViewportRect }
 }
 
 export interface SceneViewportRequest {
@@ -38,4 +39,14 @@ export function isSceneViewportState(value: unknown): value is SceneViewportStat
     && [state.rect.x, state.rect.y, state.rect.width, state.rect.height, state.monitorSize.width, state.monitorSize.height].every(Number.isFinite)
     && state.rect.width > 0 && state.rect.height > 0
     && state.monitorSize.width >= 100 && state.monitorSize.height >= 100
+    && (state.manualCorrection === undefined || (
+      !!state.manualCorrection && typeof state.manualCorrection === 'object'
+      && isViewportRect(state.manualCorrection.requested) && isViewportRect(state.manualCorrection.applied)
+    ))
+}
+
+function isViewportRect(value: unknown): value is ViewportRect {
+  if (!value || typeof value !== 'object') return false
+  const rect = value as Partial<ViewportRect>
+  return [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) && rect.width! > 0 && rect.height! > 0
 }

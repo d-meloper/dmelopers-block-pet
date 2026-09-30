@@ -1,6 +1,8 @@
 /* eslint-disable test/no-import-node-test */
 import type { Event } from '@tauri-apps/api/event'
+import type { TrayIconOptions } from '@tauri-apps/api/tray'
 
+import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
 import { Window } from '@tauri-apps/api/window'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -10,12 +12,16 @@ import ts from 'typescript'
 import * as Vue from 'vue'
 import { compileScript, parse } from 'vue/compiler-sfc'
 
+import * as performanceConfig from '@/config/performance'
 import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
 import { isMouseSettingResponse } from '@/features/input/types'
+import { createAntialiasSettingOwner } from '@/features/performance/antialiasSetting'
 import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
+import { createPreferenceUpdates } from '@/features/updates/preferenceUpdates'
 import { useCatStore } from '@/stores/cat'
 import { useGeneralStore } from '@/stores/general'
 import { useShortcutStore } from '@/stores/shortcut'
+import { createLatestAsyncTaskQueue } from '@/utils/latestAsyncTask'
 import { shortcutIdentity } from '@/utils/shortcutIdentity'
 
 interface TestElement {
@@ -33,7 +39,7 @@ async function flush() {
   for (let index = 0; index < 60; index++) await Vue.nextTick()
 }
 
-function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light') {
+function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAntialiasSubscription = false, existingTray = false) {
   setActivePinia(createPinia())
   const catStore = useCatStore()
   const shortcutStore = useShortcutStore()
@@ -55,12 +61,20 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light') {
     hideOnHover: 'Control+KeyJ',
   })
   const active = new Map<string, (event: { state: string }) => void>()
+  let trayAction: TrayIconOptions['action']
+  let trayExists = existingTray
+  const nativeTray = { setVisible: async () => {}, setMenu: async () => {} }
+  let preferenceUpdates: ReturnType<typeof createPreferenceUpdates>
+  let preferenceShows = 0
   const current = Vue.ref(0)
   const innerView = Vue.ref<string>()
+  const presetBusy = Vue.ref(false)
   const emitted: Array<{ label: string, event: string, payload: unknown }> = []
   let visible = true
   let queryWindowState: (() => Promise<boolean>) | undefined
   const diagnostics: Array<{ level: string, operation: string }> = []
+  const errors: string[] = []
+  const performanceCalls = { start: 0, stop: 0, reset: 0 }
   let toggledPreference = 0
   let systemTheme: 'light' | 'dark' = 'light'
   let closeRequested: ((event: Event<unknown>) => Promise<void>) | undefined
@@ -80,13 +94,32 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light') {
   }
   const wrapper = Vue.defineComponent({ setup: (_, { slots }) => () => Vue.h('div', slots.default?.()) })
   const blank = Vue.defineComponent({ render: () => null })
+  const page = (name: string) => Vue.defineComponent({
+    inheritAttrs: false,
+    setup: (_, { attrs }) => () => Vue.h('section', { ...attrs, 'data-preference-page': name }),
+  })
+  const scenePage = page('scene')
+  const environmentPage = page('environment')
   const nativeListeners = new Map<string, (event: { payload: unknown }) => void>()
+  const selectionListeners = new Set<() => void>()
+  const nativeEdits = Vue.ref(0)
+  let automaticAntialiasReply = true
+  let finishAntialiasSubscription: (() => void) | undefined
   let presetEdits = 0
   const eventApi = {
     emitTo: async (label: string, event: string, payload: unknown) => {
       emitted.push({ label, event, payload })
+      if (automaticAntialiasReply && event === performanceConfig.ANTIALIAS_SETTING_REQUEST) {
+        const request = payload as performanceConfig.AntialiasSettingRequest
+        nativeListeners.get(performanceConfig.ANTIALIAS_SETTING_RESPONSE)?.({ payload: { ...request, actual: request.requested, success: true } })
+      }
     },
     listen: async (event: string, handler: (event: { payload: unknown }) => void) => {
+      if (delayedAntialiasSubscription && event === performanceConfig.ANTIALIAS_SETTING_RESPONSE) {
+        await new Promise<void>((resolve) => {
+          finishAntialiasSubscription = resolve
+        })
+      }
       nativeListeners.set(event, handler)
       return () => nativeListeners.delete(event)
     },
@@ -133,6 +166,25 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light') {
         },
       }
     }
+    if (id === '@tauri-apps/api/app') return { getVersion: async () => '1.0.0' }
+    if (id === '@tauri-apps/api/path') return { resolveResource: async (path: string) => path }
+    if (id === '@tauri-apps/api/tray') {
+      return { TrayIcon: {
+        getById: async () => trayExists ? nativeTray : null,
+        removeById: async () => {
+          trayExists = false
+          trayAction = undefined
+        },
+        new: async (options: TrayIconOptions) => {
+          assert.equal(trayExists, false)
+          trayExists = true
+          trayAction = options.action
+          return nativeTray
+        },
+      } }
+    }
+    if (id === './useAppMenu') return { useAppMenu: () => ({ getAppMenu: async () => ({ close: async () => {} }) }) }
+    if (id === '@/utils/latestAsyncTask') return { createLatestAsyncTaskQueue }
     if (id === '@tauri-apps/api/event') return eventApi
     if (id === '@tauri-apps/api/webviewWindow') {
       return { getCurrentWebviewWindow: () => ({
@@ -174,23 +226,52 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light') {
         }
       } }
     }
-    if (id === 'ant-design-vue') return { ConfigProvider: wrapper, Flex: wrapper, Select: wrapper, SelectOption: wrapper }
+    if (id === 'ant-design-vue') return { ConfigProvider: wrapper, Flex: wrapper, Modal: page('broadcast-prompt'), Select: wrapper, SelectOption: wrapper, message: { error: (text: string) => errors.push(text) } }
     if (id === '@/stores/cat') return { useCatStore: () => catStore }
     if (id === '@/stores/shortcut.ts' || id === '@/stores/shortcut') return { useShortcutStore: () => shortcutStore }
     if (id === '@/stores/general') return { useGeneralStore: () => generalStore }
-    if (id === '@/stores/performance') return { usePerformanceStore: () => ({ start: async () => {}, stop: async () => {} }) }
+    if (id === '@/stores/performance') {
+      return { usePerformanceStore: () => ({
+        start: async () => {
+          performanceCalls.start++
+        },
+        stop: async () => {
+          performanceCalls.stop++
+        },
+        reset: async () => {
+          performanceCalls.reset++
+        },
+      }) }
+    }
     if (id === '@/composables/useKeyPress') return keyPressModule
-    if (id === '@/features/stateSafety/bridge') return dataBridge
+    if (id === '@/composables/usePreferenceUpdates') {
+      // Keep the live controller's complete reactive API without native update I/O.
+      const unexpectedUpdate = async () => assert.fail('Shortcut lifecycle tests must not invoke native updates.')
+      return { providePreferenceUpdates: () => preferenceUpdates = createPreferenceUpdates({
+        channel: async () => 'development',
+        checkApp: unexpectedUpdate,
+        install: unexpectedUpdate,
+        cancel: unexpectedUpdate,
+        hiddenUntil: () => generalStore.app.updateReminderHiddenUntil,
+        hideUntil: (deadline) => {
+          generalStore.app.updateReminderHiddenUntil = deadline
+        },
+        report: (_operation, error) => {
+          throw error
+        },
+      }) }
+    }
+    if (id === '@/features/stateSafety/bridge' || id === '@/features/stateSafety') return dataBridge
     if (id === '@/composables/usePreferenceTheme') {
       return load(readFileSync(new URL('../../composables/usePreferenceTheme.ts', import.meta.url), 'utf8'), true)
     }
-    if (id === '@/composables/useTray') return { useTray: () => {} }
+    if (id === '@/composables/useTray') return load(readFileSync(new URL('../../composables/useTray.ts', import.meta.url), 'utf8'), true)
     if (id === '@/composables/useThemeVars') return { useThemeVars: () => ({ generateColorVars: () => {} }) }
     if (id === '@/composables/useBroadcast') return { BROADCAST_CONTROLLER: Symbol('broadcast'), useBroadcast: () => ({}) }
     if (id === '@/composables/usePresetManager') {
       return { usePresetManager: () => ({
         ready: Vue.ref(true),
-        busy: Vue.ref(false),
+        busy: presetBusy,
         setListVisible: () => {},
         markUserEdit: () => {
           presetEdits++
@@ -208,26 +289,50 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light') {
     }
     if (id === '@/plugins/process') return { APP_PROCESS_FAILED: 'app-process-failed' }
     if (id === '@/plugins/window') {
-      return { toggleWindowVisible: async (label: string) => {
+      return { showWindow: async () => {
+        preferenceShows++
+      }, toggleWindowVisible: async (label: string) => {
         assert.equal(label, WINDOW_LABEL.PREFERENCE)
         toggledPreference++
       } }
     }
-    if (id === '@/constants') return { LISTEN_KEY, WINDOW_LABEL }
+    if (id === '@/constants') return { LISTEN_KEY, WINDOW_LABEL, APP_DISPLAY_NAME: 'Test Pet' }
     if (id === '@/constants/branding') return { APP_DISPLAY_NAME: 'Test Pet' }
-    if (id === '@/config/performance') return {}
-    if (id === '@/composables/useTauriListen') return { useTauriListen: () => {} }
+    if (id === '@/config/performance') return performanceConfig
+    if (id === '@/composables/useTauriListen') {
+      return load(readFileSync(new URL('../../composables/useTauriListen.ts', import.meta.url), 'utf8'), true)
+    }
+    if (id === '@/composables/useAntialiasSetting') {
+      return load(readFileSync(new URL('../../composables/useAntialiasSetting.ts', import.meta.url), 'utf8'), true)
+    }
+    if (id === '@/features/performance/antialiasSetting') return { createAntialiasSettingOwner }
     if (id === '@/composables/usePetRuntimeRecovery') return { usePetRuntimeRecovery: () => {} }
     if (id === '@/config/theme') return {}
     if (id === '@/locales/antd') return { getAntdLocale: () => ({}) }
     if (id === '@/utils/viewportInteraction') return { captureViewportPointer: () => {} }
     if (id === '@/features/input/types') return { isMouseSettingResponse }
-    if (id === '@/features/presets/editIntent') return { onPresetSelectionChange: () => () => {}, confirmPresetUserEdit: () => {} }
+    if (id === '@/features/presets/editIntent') {
+      return {
+        onPresetSelectionChange: (handler: () => void) => {
+          selectionListeners.add(handler)
+          return () => selectionListeners.delete(handler)
+        },
+        confirmPresetUserEdit: () => {},
+      }
+    }
     if (id === '@/features/presets/operations') {
       return {
         presetOperationInProgress: Vue.ref(false),
         presetResetInProgress: Vue.ref(false),
-        beginPresetNativeEdit: () => () => {},
+        beginPresetNativeEdit: () => {
+          nativeEdits.value++
+          let released = false
+          return () => {
+            if (released) return
+            released = true
+            nativeEdits.value--
+          }
+        },
       }
     }
     if (id === '@/features/presets/types') return { PRESET_EDIT_REQUEST }
@@ -236,6 +341,9 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light') {
     if (id === './performanceLifecycle') return { shouldMonitorPreferencePerformance: () => false }
     if (id === './components/shortcut/index.vue') return { default: shortcutComponent }
     if (id === './components/general/index.vue') return { default: Vue.defineComponent({ render: () => Vue.h(themeComponent) }) }
+    if (id === './components/scene/index.vue') return { default: scenePage }
+    if (id === './components/environment/index.vue') return { default: environmentPage }
+    if (id === './components/UpdateReminder.vue') return { default: page('update-reminder') }
     if (id.startsWith('./components/') || id.startsWith('@/components/')) return { default: blank }
     if (id.endsWith('.css')) return {}
     throw new Error(`Unexpected import: ${id}`)
@@ -269,6 +377,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light') {
   app.config.globalProperties.$t = (key: string) => key
   const root = element()
   app.mount(root)
+  const flatten = (node: TestElement): TestElement[] => [node, ...node.children.flatMap(flatten)]
   function scrollContainer() {
     const find = (node: TestElement): TestElement | undefined => {
       if (String(node.props.class).includes('overflow-auto')) return node
@@ -283,13 +392,37 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light') {
   }
   return {
     app,
+    updates: () => preferenceUpdates,
+    preferenceShows: () => preferenceShows,
+    clickTray: () => trayAction?.({
+      type: 'Click',
+      id: 'DMELOPERS_BLOCK_PET_TRAY',
+      button: 'Left',
+      buttonState: 'Up',
+      position: new PhysicalPosition(0, 0),
+      rect: { position: new PhysicalPosition(0, 0), size: new PhysicalSize(16, 16) },
+    }),
     diagnostics,
+    errors,
+    performanceCalls,
+    nativeEdits,
+    invalidatePresetSelection: () => selectionListeners.forEach(handler => handler()),
+    emitNative: (event: string, payload: unknown) => nativeListeners.get(event)?.({ payload }),
+    hasNativeListener: (event: string) => nativeListeners.has(event),
+    finishAntialiasSubscription: () => finishAntialiasSubscription?.(),
+    holdAntialiasReplies: () => {
+      automaticAntialiasReply = false
+    },
+    antialiasRequests: () => emitted.filter(message => message.event === performanceConfig.ANTIALIAS_SETTING_REQUEST)
+      .map(message => message.payload as performanceConfig.AntialiasSettingRequest),
     queryWindowState: (query?: () => Promise<boolean>) => {
       queryWindowState = query
     },
     active,
     current,
     innerView,
+    presetBusy,
+    nodes: () => flatten(root),
     scrollContainer,
     shortcutStore,
     catStore,
@@ -332,6 +465,56 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light') {
     },
   }
 }
+
+describe('preference tab identities', () => {
+  it('orders Objects before Scene while retaining route identities, component inputs and saved scroll positions', async () => {
+    const h = mountPreferences()
+    try {
+      await flush()
+      const tabs = () => h.nodes().filter(node => node.props.role === 'tab')
+      const selectedIds: number[] = []
+      for (const tab of tabs()) {
+        ;(tab.props.onClick as () => void)()
+        await flush()
+        selectedIds.push(h.current.value)
+        assert.equal(tab.props['aria-selected'], true)
+        assert.equal(tabs().filter(node => node.props['aria-selected']).length, 1)
+      }
+      assert.deepEqual(selectedIds, [0, 1, 3, 2, 4, 5, 6, 7])
+      for (const [id, name, input, otherInput, position] of [
+        [2, 'scene', 'requestViewportMode', 'requestMouseEnabled', 240],
+        [3, 'environment', 'requestMouseEnabled', 'requestViewportMode', 360],
+      ] as const) {
+        h.current.value = id
+        await flush()
+        const content = h.nodes().find(node => node.props['data-preference-page'] === name)!
+        assert.ok(content)
+        assert.equal(typeof content.props[input], 'function')
+        assert.ok(!(otherInput in content.props))
+        h.scrollContainer().scrollTop = position
+      }
+      ;(tabs()[3].props.onClick as () => void)()
+      await flush()
+      assert.equal(h.current.value, 2)
+      assert.equal(h.scrollContainer().scrollTop, 240)
+      ;(tabs()[2].props.onClick as () => void)()
+      await flush()
+      assert.equal(h.current.value, 3)
+      assert.equal(h.scrollContainer().scrollTop, 360)
+      h.presetBusy.value = true
+      await flush()
+      for (const id of [1, 2, 3, 4, 6]) {
+        h.current.value = id
+        await flush()
+        const gate = h.nodes().find(node => typeof node.props.onInputCapture === 'function')!
+        assert.equal(gate.props.inert, id >= 1 && id <= 3)
+      }
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
+  })
+})
 
 describe('preference window query diagnostics', () => {
   it('cancels the actual Tauri close default so hiding never requests window destruction', async () => {
@@ -581,6 +764,68 @@ describe('preference shortcut lifetime', () => {
     }
   })
 
+  for (const closingBeforeDelivery of [true, false]) {
+    it(`retains an accepted mouse setting and its save lease when closing ${closingBeforeDelivery ? 'before' : 'after'} delivery`, async () => {
+      const h = mountPreferences()
+      try {
+        await flush()
+        h.respondMouse(true, true)
+        h.current.value = 3
+        await flush()
+        const page = h.nodes().find(node => node.props['data-preference-page'] === 'environment')!
+        const requestMouse = page.props.requestMouseEnabled as (enabled: boolean) => Promise<boolean>
+        const request = requestMouse(false)
+        assert.equal(h.nativeEdits.value, 1)
+        if (!closingBeforeDelivery) await flush()
+        await h.close()
+        h.hide()
+        await flush()
+        assert.equal(h.mouseRequests().at(-1)?.enabled, false)
+        assert.equal(h.nativeEdits.value, 1)
+        assert.equal(h.catStore.activePet3dPreset.mouseEnabled, true)
+        assert.equal(await requestMouse(true), false, 'a new ordinary request stays blocked while closing')
+        assert.equal(h.mouseRequests().length, 2)
+        h.respondMouse(true, false)
+        assert.equal(await request, true)
+        assert.equal(h.catStore.activePet3dPreset.mouseEnabled, false)
+        assert.equal(h.nativeEdits.value, 0)
+        assert.equal(h.presetEdits(), 1)
+        h.respondMouse(true, false)
+        assert.equal(h.nativeEdits.value, 0)
+        assert.equal(h.presetEdits(), 1)
+      } finally {
+        h.app.unmount()
+        await flush()
+      }
+    })
+  }
+
+  for (const boundary of ['selection', 'unmount'] as const) {
+    it(`still cancels a pending mouse request on ${boundary} and ignores its late reply`, async () => {
+      const h = mountPreferences()
+      try {
+        await flush()
+        h.respondMouse(true, true)
+        h.current.value = 3
+        await flush()
+        const page = h.nodes().find(node => node.props['data-preference-page'] === 'environment')!
+        const request = (page.props.requestMouseEnabled as (enabled: boolean) => Promise<boolean>)(false)
+        await flush()
+        assert.equal(h.nativeEdits.value, 1)
+        if (boundary === 'selection') h.invalidatePresetSelection()
+        else h.app.unmount()
+        assert.equal(await request, false)
+        assert.equal(h.nativeEdits.value, 0)
+        h.respondMouse(true, false)
+        assert.equal(h.catStore.activePet3dPreset.mouseEnabled, true)
+        assert.equal(h.presetEdits(), 0)
+      } finally {
+        if (boundary !== 'unmount') h.app.unmount()
+        await flush()
+      }
+    })
+  }
+
   it('rechecks mouse state after the preference window closes and only toggles after a successful query', async () => {
     const h = mountPreferences()
     try {
@@ -646,6 +891,86 @@ describe('preference shortcut lifetime', () => {
   })
 })
 
+describe('antialias failure ownership', () => {
+  it('rolls back the latest failed request once across tabs and hidden preferences', async () => {
+    const h = mountPreferences()
+    try {
+      await flush()
+      h.holdAntialiasReplies()
+      h.current.value = 6
+      h.catStore.model.antialiasEnabled = false
+      h.hide()
+      await flush()
+      const starts = h.performanceCalls.start
+      const failure = { ...h.antialiasRequests().at(-1)!, actual: true, success: false }
+      h.emitNative(performanceConfig.ANTIALIAS_SETTING_RESPONSE, failure)
+      assert.equal(h.catStore.model.antialiasEnabled, true)
+      assert.equal(h.performanceCalls.reset, 1)
+      assert.equal(h.performanceCalls.start, starts)
+      assert.deepEqual(h.errors, ['pages.preference.performance.errors.antialiasFailed'])
+      h.emitNative(performanceConfig.ANTIALIAS_SETTING_RESPONSE, failure)
+      assert.equal(h.performanceCalls.reset, 1)
+      assert.equal(h.errors.length, 1)
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
+  })
+
+  it('ignores stale, invalid and unmounted failure replies without resetting measurements', async () => {
+    const h = mountPreferences()
+    try {
+      await flush()
+      h.holdAntialiasReplies()
+      h.catStore.model.antialiasEnabled = false
+      await flush()
+      const stale = h.antialiasRequests().at(-1)!
+      h.catStore.model.antialiasEnabled = true
+      await flush()
+      for (const payload of [null, {}, { ...stale, actual: 'true', success: false }, { ...stale, actual: true, success: false }]) {
+        h.emitNative(performanceConfig.ANTIALIAS_SETTING_RESPONSE, payload)
+      }
+      assert.equal(h.catStore.model.antialiasEnabled, true)
+      assert.equal(h.performanceCalls.reset, 0)
+      assert.deepEqual(h.errors, [])
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
+    h.emitNative(performanceConfig.ANTIALIAS_SETTING_RESPONSE, { ...h.antialiasRequests().at(-1)!, actual: false, success: false })
+    assert.equal(h.catStore.model.antialiasEnabled, true)
+    assert.equal(h.performanceCalls.reset, 0)
+    assert.deepEqual(h.errors, [])
+  })
+
+  it('holds the startup lease until response subscription is ready and disposes a late subscription', async () => {
+    for (const disposeBeforeReady of [false, true]) {
+      const h = mountPreferences('light', true)
+      let disposed = false
+      try {
+        await flush()
+        h.respondMouse(true, true)
+        assert.equal(h.nativeEdits.value, 1)
+        assert.equal(h.antialiasRequests().length, 0)
+        if (disposeBeforeReady) {
+          h.app.unmount()
+          disposed = true
+          assert.equal(h.nativeEdits.value, 0)
+        }
+        h.finishAntialiasSubscription()
+        await flush()
+        assert.equal(h.antialiasRequests().length, disposeBeforeReady ? 0 : 1)
+        assert.equal(h.nativeEdits.value, 0)
+        assert.equal(h.hasNativeListener(performanceConfig.ANTIALIAS_SETTING_RESPONSE), !disposeBeforeReady)
+      } finally {
+        if (!disposed) h.app.unmount()
+        await flush()
+      }
+      assert.equal(h.hasNativeListener(performanceConfig.ANTIALIAS_SETTING_RESPONSE), false)
+    }
+  })
+})
+
 describe('preference theme lifetime', () => {
   it('applies a restored dark appearance to the initial Presets page before General is opened', async () => {
     const h = mountPreferences('dark')
@@ -690,5 +1015,56 @@ describe('preference theme lifetime', () => {
       await flush()
     }
     assert.equal(h.themeListeners.size, 0)
+  })
+})
+
+describe('tray broadcast prompt in the mounted preference window', () => {
+  it('rebinds a retained tray, retains the tab, blocks restore during preset work, and defers update reminders through modal closure', async () => {
+    const h = mountPreferences('light', false, true)
+    try {
+      await flush()
+      h.current.value = 2
+      h.hide()
+      h.generalStore.broadcast.enabled = true
+      h.generalStore.broadcast.showOnDesktop = false
+      h.catStore.window.visible = false
+      const before = JSON.stringify(h.catStore.activePet3dPreset)
+      h.clickTray()
+      await flush()
+      h.updates().reminderVersion.value = '1.0.2'
+      await flush()
+      const prompt = () => h.nodes().find(node => node.props['data-preference-page'] === 'broadcast-prompt')!
+      const reminder = () => h.nodes().find(node => node.props['data-preference-page'] === 'update-reminder')!
+      assert.equal(h.preferenceShows(), 1)
+      assert.equal(h.current.value, 2)
+      assert.equal(prompt().props.open, true)
+      assert.equal(prompt().props['ok-text'], 'pages.preference.broadcastRestore.enable')
+      assert.equal(prompt().props['cancel-text'], 'pages.preference.broadcastRestore.cancel')
+      assert.equal(reminder().props.version, undefined)
+      h.presetBusy.value = true
+      await flush()
+      assert.equal((prompt().props['ok-button-props'] as { disabled: boolean }).disabled, true)
+      ;(prompt().props.onOk as () => void)()
+      assert.equal(h.catStore.window.visible, false)
+      assert.equal(h.generalStore.broadcast.showOnDesktop, false)
+      h.presetBusy.value = false
+      await flush()
+      ;(prompt().props.onOk as () => void)()
+      await flush()
+      assert.equal(h.catStore.window.visible, true)
+      assert.equal(h.generalStore.broadcast.showOnDesktop, true)
+      assert.equal(h.generalStore.broadcast.enabled, true)
+      assert.equal(JSON.stringify(h.catStore.activePet3dPreset), before)
+      assert.equal(prompt().props.open, false)
+      assert.equal(reminder().props.version, undefined)
+      ;(prompt().props['after-close'] as () => void)()
+      await flush()
+      assert.equal(reminder().props.version, '1.0.2')
+      assert.equal(h.updates().reminderVersion.value, '1.0.2')
+      assert.equal(h.current.value, 2)
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
   })
 })

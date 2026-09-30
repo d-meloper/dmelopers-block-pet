@@ -8,13 +8,14 @@ import * as Vue from 'vue'
 import { compileScript, parse } from 'vue/compiler-sfc'
 
 import * as deskSettings from '@/config/desk'
+import presetRanges from '@/config/presetRanges.json'
 import { capturePresetSnapshot } from '@/features/presets/model'
 import { createDefaultPet3dPreset, useCatStore } from '@/stores/cat'
 
 const colorKeys = ['keyboardColor', 'keyboardKeycapColor', 'keyboardLegendColor', 'keyboardPressedColor', 'mouseColor', 'mousePressedColor'] as const
 type ColorKey = typeof colorKeys[number] | 'deskColor'
 
-function harness() {
+function harness(options: { mousePending?: boolean, mouseReady?: boolean } = {}) {
   setActivePinia(createPinia())
   const store = useCatStore()
   const confirmations: Array<{ title: string, onOk: () => Promise<void> }> = []
@@ -36,6 +37,7 @@ function harness() {
     if (id === 'vue-i18n') return { useI18n: () => ({ t: translate }) }
     if (id === 'ant-design-vue') return { Button: {}, Modal: { confirm: (options: typeof confirmations[number]) => confirmations.push(options) }, Select: { Option: {} }, Switch: {} }
     if (id === '@/config/desk') return deskSettings
+    if (id === '@/config/presetRanges.json') return { default: presetRanges }
     if (id === '@/stores/cat') return { createDefaultPet3dPreset, useCatStore: () => store }
     if (id === '@/features/presets/editIntent') {
       return { markPresetUserEdit: () => changes.push({ key: changingKey, before: store.activePet3dPreset[changingKey] }) }
@@ -44,8 +46,8 @@ function harness() {
     throw new Error(`Unexpected import: ${id}`)
   }, module, module.exports)
   const render = module.exports.default.setup({
-    mousePending: false,
-    mouseReady: true,
+    mousePending: options.mousePending ?? false,
+    mouseReady: options.mouseReady ?? true,
     requestMouseEnabled: async (enabled: boolean) => {
       mouseRequests.push(enabled)
       return mouseAllowed

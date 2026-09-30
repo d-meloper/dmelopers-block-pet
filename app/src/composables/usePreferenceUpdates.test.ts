@@ -13,7 +13,7 @@ async function settle() {
   for (let i = 0; i < 30; i++) await Promise.resolve()
 }
 
-function harness(channel: DistributionChannel = 'github') {
+function harness(channel: DistributionChannel = 'github', failures: { check?: unknown, install?: unknown } = {}) {
   let mount!: () => Promise<void>
   let unmount!: () => void
   let event!: (value: { payload: boolean }) => void
@@ -21,6 +21,7 @@ function harness(channel: DistributionChannel = 'github') {
   let checks = 0
   let releases = 0
   let provided: unknown
+  const diagnostics: Array<{ level: string, operation: string, error: unknown }> = []
   const general = { app: { updateReminderHiddenUntil: 0 } }
   const api = {} as typeof import('./usePreferenceUpdates')
   const mocks: Record<string, unknown> = {
@@ -51,10 +52,14 @@ function harness(channel: DistributionChannel = 'github') {
     '@/services/inAppUpdates': {
       checkAppUpdate: async () => {
         checks++
+        if (failures.check !== undefined) throw failures.check
         return { available: true, currentVersion: '1.0.1', version: '1.0.2', bytes: 10 }
       },
+      installAppUpdate: async () => {
+        if (failures.install !== undefined) throw failures.install
+      },
     },
-    '@/services/diagnostics': { reportDiagnostic: () => assert.fail('Unexpected diagnostic') },
+    '@/services/diagnostics': { reportDiagnostic: (level: string, operation: string, error: unknown) => diagnostics.push({ level, operation, error }) },
     '@/stores/general': { useGeneralStore: () => general },
   }
   runInNewContext(ts.transpileModule(readFileSync(new URL('./usePreferenceUpdates.ts', import.meta.url), 'utf8'), {
@@ -65,6 +70,7 @@ function harness(channel: DistributionChannel = 'github') {
   return {
     updates,
     general,
+    diagnostics,
     mount: () => mount(),
     unmount: () => unmount(),
     show: (visible: boolean) => event({ payload: visible }),
@@ -140,4 +146,28 @@ test('the Store window adapter never requests a GitHub update on opening or manu
   assert.equal(h.updates.reminderVersion.value, undefined)
   h.unmount()
   assert.equal(h.releases(), 1)
+})
+
+test('background checks are WARN, requested installation failures are ERROR, and cancellation stays silent', async () => {
+  const checkFailure = new Error('check failed')
+  const check = harness('github', { check: checkFailure })
+  await check.mount()
+  check.show(true)
+  await settle()
+  assert.deepEqual(check.diagnostics, [{ level: 'warn', operation: 'updates.check', error: checkFailure }])
+
+  const installFailure = new Error('install failed')
+  const install = harness('github', { install: installFailure })
+  await install.mount()
+  install.show(true)
+  await settle()
+  await install.updates.update()
+  assert.deepEqual(install.diagnostics, [{ level: 'error', operation: 'updates.install', error: installFailure }])
+
+  const cancelled = harness('github', { install: 'UPDATE_CANCELLED' })
+  await cancelled.mount()
+  cancelled.show(true)
+  await settle()
+  await cancelled.updates.update()
+  assert.deepEqual(cancelled.diagnostics, [])
 })

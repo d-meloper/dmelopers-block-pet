@@ -20,6 +20,7 @@ pub(crate) mod preset_transfer;
 
 const CATALOG_VERSION: u32 = 1;
 const LIBRARY_DIRECTORY: &str = "skin-library";
+const PREFERENCE_WINDOW_LABEL: &str = "preference";
 const MANIFEST_FILE: &str = "manifest.json";
 const CATALOG_BYTE_LIMIT: usize = 2 * 1024 * 1024 * 1024;
 const RAW_DIRECTORY: &str = "raw";
@@ -179,6 +180,15 @@ impl From<io::Error> for LibraryError {
     }
 }
 
+fn require_preference_window(label: &str) -> Result<(), SkinLibraryErrorResponse> {
+    if label == PREFERENCE_WINDOW_LABEL {
+        Ok(())
+    } else {
+        crate::diagnostics::warn("skin_library.access", "preference_only");
+        Err(LibraryError::new(LibraryErrorKind::InvalidRequest).into())
+    }
+}
+
 pub struct SkinLibraryState {
     service: Arc<SkinLibraryService>,
 }
@@ -197,17 +207,21 @@ impl SkinLibraryState {
 
 #[tauri::command]
 pub async fn list_skin_library(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, SkinLibraryState>,
 ) -> Result<Vec<SkinLibraryEntry>, SkinLibraryErrorResponse> {
+    require_preference_window(window.label())?;
     let service = Arc::clone(&state.service);
     run_blocking("skin_library.list", move || service.list()).await
 }
 
 #[tauri::command]
 pub async fn store_skin_library_entry(
+    window: tauri::WebviewWindow,
     request: StoreSkinLibraryEntryRequest,
     state: tauri::State<'_, SkinLibraryState>,
 ) -> Result<SkinLibraryEntry, SkinLibraryErrorResponse> {
+    require_preference_window(window.label())?;
     let service = Arc::clone(&state.service);
     run_blocking("skin_library.store", move || {
         let _guard = crate::state_safety::guard_write().map_err(|_| LibraryError::new(LibraryErrorKind::Io))?;
@@ -218,26 +232,32 @@ pub async fn store_skin_library_entry(
 
 #[tauri::command]
 pub async fn read_skin_library_entry(
+    window: tauri::WebviewWindow,
     entry_id: String,
     state: tauri::State<'_, SkinLibraryState>,
 ) -> Result<SkinLibraryReadResponse, SkinLibraryErrorResponse> {
+    require_preference_window(window.label())?;
     let service = Arc::clone(&state.service);
     run_blocking("skin_library.read", move || service.read(&entry_id)).await
 }
 
 #[tauri::command]
 pub async fn read_local_skin_file(
+    window: tauri::WebviewWindow,
     file_path: String,
 ) -> Result<ReadLocalSkinFileResponse, SkinLibraryErrorResponse> {
+    require_preference_window(window.label())?;
     run_blocking("skin_library.read_local", move || read_local_skin_file_path(&file_path)).await
 }
 
 #[tauri::command]
 pub async fn rename_skin_library_entry(
+    window: tauri::WebviewWindow,
     entry_id: String,
     display_name: String,
     state: tauri::State<'_, SkinLibraryState>,
 ) -> Result<SkinLibraryEntry, SkinLibraryErrorResponse> {
+    require_preference_window(window.label())?;
     let service = Arc::clone(&state.service);
     run_blocking("skin_library.rename", move || {
         let _guard = crate::state_safety::guard_write().map_err(|_| LibraryError::new(LibraryErrorKind::Io))?;
@@ -248,9 +268,11 @@ pub async fn rename_skin_library_entry(
 
 #[tauri::command]
 pub async fn delete_skin_library_entries(
+    window: tauri::WebviewWindow,
     entry_ids: Vec<String>,
     state: tauri::State<'_, SkinLibraryState>,
 ) -> Result<DeleteSkinLibraryEntriesResponse, SkinLibraryErrorResponse> {
+    require_preference_window(window.label())?;
     let service = Arc::clone(&state.service);
     run_blocking("skin_library.delete", move || {
         let _guard = crate::state_safety::guard_write().map_err(|_| LibraryError::new(LibraryErrorKind::Io))?;
@@ -261,8 +283,10 @@ pub async fn delete_skin_library_entries(
 
 #[tauri::command]
 pub async fn cleanup_skin_library(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, SkinLibraryState>,
 ) -> Result<CleanupSkinLibraryResponse, SkinLibraryErrorResponse> {
+    require_preference_window(window.label())?;
     let service = Arc::clone(&state.service);
     run_blocking("skin_library.cleanup", move || {
         let _guard = crate::state_safety::guard_write().map_err(|_| LibraryError::new(LibraryErrorKind::Io))?;
@@ -273,8 +297,10 @@ pub async fn cleanup_skin_library(
 
 #[tauri::command]
 pub async fn clear_skin_library(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, SkinLibraryState>,
 ) -> Result<ClearSkinLibraryResponse, SkinLibraryErrorResponse> {
+    require_preference_window(window.label())?;
     let service = Arc::clone(&state.service);
     run_blocking("skin_library.clear", move || {
         let _guard = crate::state_safety::guard_write().map_err(|_| LibraryError::new(LibraryErrorKind::Io))?;
@@ -1309,6 +1335,15 @@ mod tests {
     thread_local! {
         pub(super) static PNG_DECODE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
         pub(super) static SHA256_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    #[test]
+    fn skin_library_commands_are_restricted_to_preferences() {
+        assert!(require_preference_window("preference").is_ok());
+        assert_eq!(
+            require_preference_window("main").unwrap_err().code,
+            "INVALID_REQUEST"
+        );
     }
 
     #[test]

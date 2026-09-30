@@ -1,12 +1,13 @@
 /* eslint-disable test/no-import-node-test */
 import type { TestContext } from 'node:test'
-import type { BufferGeometry, Material, Texture } from 'three'
+import type { Box3, BufferGeometry, DirectionalLight, Material, Texture, Vector2, WebGLRenderer } from 'three'
 
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { Color, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, Scene } from 'three'
+import { Color, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, Raycaster, Scene, Vector3 } from 'three'
 
 import { DEFAULT_DEVICE_COLORS, normalizeDeviceColors } from '@/config/deviceColors'
+import { createDefaultLightingSettings } from '@/config/lighting'
 import { MODEL_3D_CONFIG } from '@/config/model3d'
 import { applyPresetVisualSettings } from '@/features/presets/visualSettings'
 import { createDefaultPet3dPreset } from '@/stores/cat'
@@ -173,7 +174,126 @@ describe('keyboard color and input feedback', () => {
   })
 })
 
+describe('rounded sculpt keyboard compatibility', () => {
+  it('retains housing dimensions, all key footprints and the existing hand targets', (t) => {
+    installLegendCanvas(t)
+    const keyboard = createKeyboardGroup()
+    t.after(keyboard.dispose)
+    const housing = getMesh(keyboard.group, 'keyboard-housing')
+    const housingSize = housing.geometry.boundingBox!.getSize(new Vector3())
+    ;[3.3, 0.1, 1.16].forEach((value, index) => assert.ok(Math.abs(housingSize.getComponent(index) - value) < 1e-6))
+    let keys = 0
+    const widths = new Map<number, BufferGeometry>()
+    keyboard.group.traverse((object) => {
+      if (!(object instanceof Mesh) || !/^keyboard-key-r\d+-c\d+$/.test(object.name)) return
+      keys += 1
+      const units = object.userData.units as number
+      const size = (object.geometry.boundingBox as Box3).getSize(new Vector3())
+      assert.ok(Math.abs(size.x - (units * 3.08 / 16 - 0.014)) < 1e-6)
+      assert.ok(Math.abs(size.y - 0.105) < 1e-6)
+      assert.ok(Math.abs(size.z - 0.18) < 1e-6)
+      if (widths.has(units)) assert.equal(widths.get(units), object.geometry)
+      else widths.set(units, object.geometry)
+    })
+    assert.equal(keys, 67)
+    for (const [key, x, z] of [['KeyF', -0.5053125, 0], ['PageUp', 1.4196875, 0], ['Space', -0.1684375, 0.41]] as const) {
+      const position = keyboard.getKeyTarget(key)!.position
+      ;[x, 0.217, z].forEach((value, index) => assert.ok(Math.abs(position[index] - value) < 1e-10, key))
+    }
+  })
+
+  it('recesses the cap center and keeps lettering just above the same dish, including wide keys', (t) => {
+    installLegendCanvas(t)
+    const keyboard = createKeyboardGroup()
+    t.after(keyboard.dispose)
+    keyboard.group.updateMatrixWorld(true)
+    for (const name of ['keyboard-key-r1-c1', 'keyboard-key-r4-c3']) {
+      const keycap = getMesh(keyboard.group, name)
+      const legend = getMesh(keyboard.group, `${name}-legend`)
+      const origin = keycap.getWorldPosition(new Vector3())
+      const width = keycap.geometry.boundingBox!.getSize(new Vector3()).x
+      for (const [x, z] of [[0, 0], [width * 0.25, 0.025], [-width * 0.25, -0.025]]) {
+        const ray = new Raycaster(new Vector3(origin.x + x, 1, origin.z + z), new Vector3(0, -1, 0))
+        const capHit = ray.intersectObject(keycap)[0]
+        const legendHit = ray.intersectObject(legend)[0]
+        assert.ok(capHit && legendHit, `${name}: missing upward surface`)
+        assert.ok(Math.abs(legendHit.point.y - capHit.point.y - 0.0006) < 1e-6)
+        if (x === 0) assert.ok(Math.abs(capHit.point.y - (origin.y + 0.105 / 2 - 0.0055)) < 1e-6)
+      }
+      const normals = keycap.geometry.getAttribute('normal')
+      for (let index = 0; index < normals.count; index += 1) {
+        assert.ok(Math.abs(new Vector3().fromBufferAttribute(normals, index).length() - 1) < 1e-5)
+      }
+      const uv = legend.geometry.getAttribute('uv')
+      const positions = legend.geometry.getAttribute('position')
+      for (let index = 0; index < positions.count; index += 1) {
+        assert.ok(Math.abs(uv.getX(index) - (positions.getX(index) / (width * 0.82) + 0.5)) < 1e-6)
+        assert.ok(Math.abs(uv.getY(index) - (0.5 - positions.getZ(index) / (0.18 * 0.8))) < 1e-6)
+      }
+    }
+  })
+})
+
 describe('device colors through the shared preset renderer path', () => {
+  it('retains key lighting after scene recreation and keeps fixed output with common shadow quality', (t) => {
+    installLegendCanvas(t)
+    const renderer = new Three3DRenderer()
+    const state = renderer as unknown as {
+      scene: Scene
+      sceneRoot: Group
+      renderer?: WebGLRenderer
+      directionalLight: DirectionalLight
+      buildScene: (scene: Scene, root: Group) => void
+    }
+    t.after(() => {
+      state.renderer = undefined
+      renderer.destroy()
+    })
+    const lighting = createDefaultLightingSettings()
+    lighting.key.color = '#123456'
+    lighting.key.azimuthDegrees = 45
+    lighting.key.strengthPercent = 125
+    renderer.setLightingSettings(lighting)
+    const build = () => {
+      state.scene = new Scene()
+      state.sceneRoot = new Group()
+      state.buildScene(state.scene, state.sceneRoot)
+    }
+    build()
+    sameColor(state.directionalLight.color, new Color('#123456'))
+    const key = getMesh(state.sceneRoot, 'keyboard-key-r1-c1')
+    const material = key.material
+    const geometry = key.geometry
+    const light = state.directionalLight
+    state.renderer = {
+      shadowMap: { enabled: true },
+      getDrawingBufferSize: (target: Vector2) => target.set(512, 512),
+      capabilities: { maxTextureSize: 2048 },
+    } as unknown as WebGLRenderer
+    renderer.setShadowQuality('high')
+    lighting.key.elevationDegrees = 20
+    renderer.setLightingSettings(lighting)
+    assert.equal(state.renderer.toneMappingExposure, 1)
+    assert.equal(light.shadow.mapSize.x, 1024)
+    assert.equal(light.shadow.radius, 4)
+    renderer.setShadowsEnabled(false)
+    lighting.key.azimuthDegrees = 90
+    renderer.setLightingSettings(lighting)
+    assert.equal(state.renderer.shadowMap.enabled, false)
+    assert.equal(state.directionalLight, light)
+    assert.equal(key.geometry, geometry)
+    assert.equal(key.material, material)
+    state.renderer = undefined
+    renderer.destroy()
+    build()
+    assert.notEqual(state.directionalLight, light)
+    sameColor(state.directionalLight.color, new Color('#123456'))
+    assert.equal(state.directionalLight.intensity, 3.875)
+    assert.equal(state.scene.getObjectByName('lighting-fill'), undefined)
+    assert.ok(state.directionalLight.position.x > 0)
+    assert.ok(Math.abs(state.directionalLight.position.z) < 1e-10)
+  })
+
   it('moves the desk and devices together without accumulating scale offsets or moving the pet', (t) => {
     installLegendCanvas(t)
     const renderer = new Three3DRenderer()

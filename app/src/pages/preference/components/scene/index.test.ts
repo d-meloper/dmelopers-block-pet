@@ -145,7 +145,7 @@ describe('3D scene dimension controls', () => {
     control.reset()
     assert.equal(preset.showDisplayArea, false)
     assert.equal(preset.autoViewportEnabled, true)
-    assert.equal(preset.autoViewportPaddingPixels, 16)
+    assert.equal(preset.autoViewportPaddingPixels, createDefaultPet3dPreset().autoViewportPaddingPixels)
     assert.equal(preset.cameraZoomPercent, 100)
     assert.equal(preset.cameraHorizontalOffset, 0)
     assert.equal(control.store.model.mirror, false)

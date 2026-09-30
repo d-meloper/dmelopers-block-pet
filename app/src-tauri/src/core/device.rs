@@ -914,7 +914,6 @@ mod tests {
         assert_eq!(payload["contact"]["row"], 2);
         assert_eq!(payload["contact"]["column"], 4);
         assert_eq!(payload["contact"]["pressed"], true);
-
         let scroll = serde_json::to_value(SemanticInputEvent::Scroll {
             delta_x: 1,
             delta_y: -1,

@@ -339,7 +339,9 @@ async function createPreferenceHarness() {
         } },
         '@/composables/useKeyPress': { useKeyPress: () => {}, cancelShortcutRecording: () => {} },
         '@/composables/usePreferenceTheme': { usePreferenceTheme: () => {} },
+        '@/composables/useAntialiasSetting': { useAntialiasSetting: () => {} },
         '@/composables/usePetRuntimeRecovery': { usePetRuntimeRecovery: () => {} },
+        '@/composables/usePreferenceUpdates': { providePreferenceUpdates: () => {} },
         '@/composables/useTray': { useTray: () => { } },
         '@/composables/useBroadcast': { BROADCAST_CONTROLLER: Symbol('broadcast'), useBroadcast: () => ({}) },
         '@/composables/usePresetManager': { usePresetManager: () => ({
@@ -528,7 +530,7 @@ describe('actual preference request and persistence flow', () => {
     h.unmount()
   })
 
-  it('does not infer success on repeated timeout and invalidates requests when closing', async () => {
+  it('does not infer success on repeated timeout and retains accepted requests while hiding', async () => {
     const h = await createPreferenceHarness()
     const off = h.api.request(false)
     await flush()
@@ -541,9 +543,13 @@ describe('actual preference request and persistence flow', () => {
     const retry = h.api.request(false)
     await flush()
     h.close()
+    assert.equal(h.api.pending(), true)
+    assert.equal(presetOperations.presetNativeEditPending.value, 1)
     h.reply(false)
-    assert.equal(await retry, false)
-    assert.equal(h.store.activePet3dPreset.mouseEnabled, true)
+    assert.equal(await retry, true)
+    assert.equal(h.store.activePet3dPreset.mouseEnabled, false)
+    assert.equal(presetOperations.presetNativeEditPending.value, 0)
+    assert.equal(await h.api.request(true), false, 'hiding still rejects new interactive requests')
     h.unmount()
   })
 })

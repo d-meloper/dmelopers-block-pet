@@ -2,11 +2,12 @@
 import { emitTo, listen } from '@tauri-apps/api/event'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { useEventListener } from '@vueuse/core'
-import { ConfigProvider, Flex, message } from 'ant-design-vue'
+import { ConfigProvider, Flex, message, Modal } from 'ant-design-vue'
 import { storeToRefs } from 'pinia'
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { useAntialiasSetting } from '@/composables/useAntialiasSetting'
 import { BROADCAST_CONTROLLER, useBroadcast } from '@/composables/useBroadcast'
 import { cancelShortcutRecording, useKeyPress } from '@/composables/useKeyPress'
 import { usePetRuntimeRecovery } from '@/composables/usePetRuntimeRecovery'
@@ -17,7 +18,6 @@ import { useSceneViewport } from '@/composables/useSceneViewport'
 import { useTauriListen } from '@/composables/useTauriListen'
 import { useThemeVars } from '@/composables/useThemeVars'
 import { useTray } from '@/composables/useTray'
-import { ANTIALIAS_CHANGE_FAILED } from '@/config/performance'
 import { appDarkAlgorithm, appLightAlgorithm } from '@/config/theme'
 import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
 import { APP_DISPLAY_NAME } from '@/constants/branding'
@@ -51,7 +51,6 @@ import { shouldMonitorPreferencePerformance } from './performanceLifecycle'
 
 import 'ant-design-vue/dist/reset.css'
 
-useTray()
 usePreferenceTheme()
 const { generateColorVars } = useThemeVars()
 const { current, innerView, closeInnerView, openSkinLibrary } = usePreferenceNavigation()
@@ -72,8 +71,6 @@ watch([scrollTab, scrollContainer], ([tab, container]) => {
 const { t } = useI18n()
 const updates = providePreferenceUpdates()
 usePetRuntimeRecovery(t)
-// Keep errors visible when a reset or tab change unmounts the Performance page.
-useTauriListen(ANTIALIAS_CHANGE_FAILED, () => message.error(t('pages.preference.performance.errors.antialiasFailed')))
 useTauriListen<{ action: 'quit' | 'restart' }>(APP_PROCESS_FAILED, ({ payload }) => {
   const action = payload?.action === 'restart' ? 'restart' : 'quit'
   message.error(t(`composables.useAppMenu.errors.${action}`), 8)
@@ -88,10 +85,13 @@ const { viewportState, viewportPending, viewportError, requestViewportMode, refr
   (payload, isCurrent) => emitMainEvent(SCENE_VIEWPORT_REQUEST, payload, isCurrent),
 )
 let performanceLifecycleGeneration = 0
+let nativePreferenceVisible: boolean | undefined
 const performanceLifecycleUnlisteners: Array<() => void> = []
 let interactionButtons = 0
 let mainEventQueue = Promise.resolve()
+useAntialiasSetting(emitMainEvent, reason => message.error(t(`pages.preference.performance.errors.${reason === 'failed' ? 'antialiasFailed' : 'antialiasUnconfirmed'}`)))
 const presetManager = usePresetManager(emitMainEvent)
+const tray = useTray(() => presetManager.ready.value && !presetManager.busy.value)
 provide(BROADCAST_CONTROLLER, useBroadcast(presetManager.ready, presetManager.busy))
 // Global shortcuts belong to the window, which stays mounted across tabs and hide/show.
 useKeyPress(visibleCat, () => {
@@ -144,7 +144,6 @@ let mouseRequest: {
   id: string
   desired?: boolean
   querying: boolean
-  allowHidden: boolean
   resolve: (success: boolean) => void
   releaseNative: () => void
   timer?: ReturnType<typeof setTimeout>
@@ -181,7 +180,7 @@ function sendMouseRequest(querying: boolean) {
   void emitMainEvent(LISTEN_KEY.MOUSE_SETTING_REQUEST, {
     requestId: id,
     ...(!querying && request.desired !== undefined ? { enabled: request.desired } : {}),
-  }, () => !preferenceDisposed && (!closing.value || request.allowHidden) && mouseRequest?.id === id)
+  }, () => !preferenceDisposed && mouseRequest?.id === id)
   request.timer = setTimeout(() => {
     if (mouseRequest?.id !== id) return
     mouseError.value = 'timeout'
@@ -199,7 +198,7 @@ function requestMouseEnabled(enabled?: boolean, allowHidden = false): Promise<bo
   mousePending.value = true
   mouseError.value = undefined
   return new Promise((resolve) => {
-    mouseRequest = { id: '', desired: enabled, allowHidden, querying: enabled === undefined, resolve, releaseNative: beginPresetNativeEdit() }
+    mouseRequest = { id: '', desired: enabled, querying: enabled === undefined, resolve, releaseNative: beginPresetNativeEdit() }
     sendMouseRequest(enabled === undefined)
   })
 }
@@ -217,7 +216,7 @@ watch([presetOperationInProgress, presetResetInProgress], ([operating, resetting
 
 async function listenForMouseResponses() {
   const unlisten = await listen<unknown>(LISTEN_KEY.MOUSE_SETTING_RESPONSE, ({ payload }) => {
-    if (preferenceDisposed || (closing.value && !mouseRequest?.allowHidden) || !isMouseSettingResponse(payload)
+    if (preferenceDisposed || !isMouseSettingResponse(payload)
       || !mouseRequest || mouseRequest.id !== payload.requestId) {
       return
     }
@@ -270,9 +269,24 @@ useEventListener(document, 'visibilitychange', () => {
   if (document.hidden) cancelInteraction()
   void reconcilePerformanceMonitoring()
 })
+useTauriListen<boolean>('preference-visibility-changed', ({ payload }) => {
+  if (preferenceDisposed || typeof payload !== 'boolean') return
+  nativePreferenceVisible = payload
+  if (payload) closing.value = false
+  else cancelInteraction()
+  void reconcilePerformanceMonitoring()
+})
+
+function locallyAllowsPerformanceMonitoring() {
+  return !preferenceDisposed && !closing.value && !document.hidden
+    && !innerView.value && current.value === 4 && nativePreferenceVisible !== false
+}
 
 async function reconcilePerformanceMonitoring() {
   const generation = ++performanceLifecycleGeneration
+  // Cancel pending native primes before waiting for visibility IPC. Tab exits
+  // and explicit hide/close events already prove this session is inactive.
+  const stopping = locallyAllowsPerformanceMonitoring() ? undefined : performanceStore.stop()
   const [visible, minimized] = await Promise.all([
     appWindow.isVisible().catch((error) => {
       if (!preferenceDisposed && !closing.value && generation === performanceLifecycleGeneration) {
@@ -287,19 +301,19 @@ async function reconcilePerformanceMonitoring() {
       return true
     }),
   ])
-  if (generation !== performanceLifecycleGeneration) return
+  if (generation !== performanceLifecycleGeneration || preferenceDisposed) return
 
-  const shouldMonitor = shouldMonitorPreferencePerformance({
+  const shouldMonitor = locallyAllowsPerformanceMonitoring() && shouldMonitorPreferencePerformance({
     activeTab: innerView.value ? -1 : current.value,
     performanceTab: 4,
     visible,
     minimized,
     closing: closing.value,
   })
-  presetManager.setListVisible(visible && !minimized && !closing.value && !document.hidden
+  presetManager.setListVisible(visible && nativePreferenceVisible !== false && !minimized && !closing.value && !document.hidden
     && !innerView.value && current.value === 0)
   if (shouldMonitor) await performanceStore.start()
-  else await performanceStore.stop()
+  else await (stopping ?? performanceStore.stop())
 }
 
 function emitPet3dPresetSelection() {
@@ -345,7 +359,8 @@ onMounted(async () => {
       cancelInteraction()
       closing.value = true
       mouseReady.value = false
-      finishMouseRequest(false)
+      // This persistent window still owns requests accepted before hiding.
+      // Keep their save lease until native acknowledgement or timeout.
       void reconcilePerformanceMonitoring()
     }),
   )
@@ -364,7 +379,7 @@ onBeforeUnmount(() => {
   void performanceStore.stop()
 })
 
-watch([current, innerView], () => void reconcilePerformanceMonitoring())
+watch([current, innerView], () => void reconcilePerformanceMonitoring(), { flush: 'sync' })
 
 watch(() => generalStore.appearance.language, () => {
   appWindow.setTitle(`${APP_DISPLAY_NAME} — ${t('pages.preference.title')}`)
@@ -386,46 +401,57 @@ watch(
 
 const menus = computed(() => [
   {
+    id: 0,
     label: t('pages.preference.presets.title'),
     icon: 'i-solar:layers-bold',
     component: Presets,
   },
   {
+    id: 1,
     label: t('pages.preference.cat.title'),
     icon: 'i-solar:user-hands-bold',
     component: Cat,
   },
   {
-    label: t('pages.preference.scene.title'),
-    icon: 'i-solar:videocamera-bold-duotone',
-    component: Scene,
-  },
-  {
+    id: 3,
     label: t('pages.preference.environment.title'),
     icon: 'i-solar:box-minimalistic-bold-duotone',
     component: Environment,
   },
   {
+    id: 2,
+    label: t('pages.preference.scene.title'),
+    icon: 'i-solar:videocamera-bold-duotone',
+    component: Scene,
+  },
+  {
+    id: 4,
     label: t('pages.preference.performance.title'),
     icon: 'i-solar:chart-square-bold',
     component: Performance,
   },
   {
+    id: 5,
     label: t('pages.preference.shortcut.title'),
     icon: 'i-solar:keyboard-bold',
     component: Shortcut,
   },
   {
+    id: 6,
     label: t('pages.preference.general.title'),
     icon: 'i-solar:settings-bold',
     component: General,
   },
   {
+    id: 7,
     label: t('pages.preference.about.title'),
     icon: 'i-solar:info-circle-bold',
     component: About,
   },
 ])
+// Route IDs remain stable when the visual order changes, including retained tabs
+// and existing numeric deep links.
+const activeMenu = computed(() => menus.value.find(item => item.id === current.value))
 </script>
 
 <template>
@@ -436,12 +462,27 @@ const menus = computed(() => [
       algorithm: generalStore.appearance.isDark ? appDarkAlgorithm : appLightAlgorithm,
     }"
   >
+    <Modal
+      :after-close="tray.finishBroadcastPrompt"
+      :cancel-text="t('pages.preference.broadcastRestore.cancel')"
+      centered
+      :closable="false"
+      :mask-closable="false"
+      :ok-button-props="{ disabled: tray.broadcastRestoreDisabled.value }"
+      :ok-text="t('pages.preference.broadcastRestore.enable')"
+      :open="tray.broadcastPromptOpen.value"
+      :title="t('pages.preference.broadcastRestore.title')"
+      @cancel="tray.cancelBroadcastRestore"
+      @ok="tray.confirmBroadcastRestore"
+    >
+      {{ t('pages.preference.broadcastRestore.body') }}
+    </Modal>
     <UpdateReminder
       :busy="updates.busy.value"
       :can-cancel="updates.canCancel.value"
       :cancelling="updates.cancelling.value"
       :status="updates.phase.value ? t(`inAppUpdates.${updates.phase.value}`) : undefined"
-      :version="updates.reminderVersion.value"
+      :version="tray.broadcastPromptActive.value ? undefined : updates.reminderVersion.value"
       @cancel="updates.cancel"
       @close="updates.dismiss"
       @snooze="updates.snooze"
@@ -465,14 +506,14 @@ const menus = computed(() => [
           role="tablist"
         >
           <button
-            v-for="(item, index) in menus"
-            :key="item.label"
-            :aria-selected="current === index"
+            v-for="item in menus"
+            :key="item.id"
+            :aria-selected="current === item.id"
             class="preference-tab w-full flex flex-col cursor-pointer items-center justify-center gap-1 rounded-lg border-none bg-transparent text-color-3 transition hover:bg-color-7 dark:text-color-2"
-            :class="{ 'bg-color-2! text-primary-7 font-bold dark:(bg-primary-3! text-primary-8)': current === index }"
+            :class="{ 'bg-color-2! text-primary-7 font-bold dark:(bg-primary-3! text-primary-8)': current === item.id }"
             role="tab"
             type="button"
-            @click="current = index"
+            @click="current = item.id"
           >
             <div
               aria-hidden="true"
@@ -500,12 +541,12 @@ const menus = computed(() => [
           @pointermove.capture="markPresetUserEdit"
         >
           <component
-            :is="menus[current]?.component"
-            v-bind="menus[current]?.component === Environment ? {
+            :is="activeMenu?.component"
+            v-bind="activeMenu?.component === Environment ? {
               mousePending, mouseReady, mouseError, requestMouseEnabled, refreshMouseSetting,
-            } : menus[current]?.component === Scene ? {
+            } : activeMenu?.component === Scene ? {
               viewportState, viewportPending, viewportError, requestViewportMode, refreshViewport,
-            } : menus[current]?.component === Presets ? { manager: presetManager } : {}"
+            } : activeMenu?.component === Presets ? { manager: presetManager } : {}"
             @open-skin-library="openSkinLibrary"
           />
         </div>

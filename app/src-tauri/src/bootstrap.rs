@@ -128,6 +128,7 @@ pub fn remove_user_data_for_uninstall() -> Result<(), &'static str> {
     let roots = DataRoots::resolve().map_err(|_| "UNINSTALL_DATA_UNAVAILABLE")?;
     match channel {
         crate::distribution::Channel::Github => crate::data_paths::remove_github_user_data(&roots),
+        #[cfg(feature = "test-repository")]
         crate::distribution::Channel::Test => crate::data_paths::remove_test_user_data(&roots),
         _ => Err("UNINSTALL_CLEANUP_CALLER_INVALID"),
     }

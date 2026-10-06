@@ -15,6 +15,7 @@ import { APP_DISPLAY_NAME } from '@/constants/branding'
 import { createPreferenceUpdates } from '@/features/updates/preferenceUpdates'
 import en from '@/locales/en-US.json'
 import ko from '@/locales/ko-KR.json'
+import { DEFAULT_PROGRAM_SETTINGS_RESET_OPTIONS } from '@/utils/programSettingsReset'
 
 const listItem = { name: 'ListItem' }
 
@@ -85,9 +86,11 @@ function renderComponent(filename: string, updates?: PreferenceUpdates, override
   type Render = (context: object, cache: unknown[]) => Vue.VNode
   const exports = {} as { default: { setup: (props: object, context: object) => Render } }
   const mocks: Record<string, unknown> = {
-    'vue': { ...Vue, onMounted: () => {} },
+    'vue': { ...Vue, onMounted: () => {}, renderSlot: (slots: Vue.Slots, name: string) => Vue.createVNode(Vue.Fragment, null, slots?.[name]?.() ?? []) },
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
-    'ant-design-vue': { Button: 'button', Flex: 'flex', Progress: 'progress', Modal: 'modal', message: { error: () => {} } },
+    '@ant-design/icons-vue': { GithubFilled: 'github-icon' },
+    './NotionIcon.vue': { default: 'notion-icon' },
+    'ant-design-vue': { Button: 'button', Flex: 'flex', Progress: 'progress', Modal: 'modal', Switch: 'switch', message: { error: () => {} } },
     '@/components/preference-sections/index.vue': { default: 'sections' },
     '@/constants/branding': { APP_DISPLAY_NAME },
     '@/composables/useProgramSettingsReset': { useProgramSettingsReset: () => ({ resetProgramSettings: async () => {} }) },
@@ -95,8 +98,10 @@ function renderComponent(filename: string, updates?: PreferenceUpdates, override
     '@/components/pro-list/index.vue': { default: 'list' },
     '@/composables/usePreferenceUpdates': { usePreferenceUpdates: () => updates },
     '@/services/diagnostics': { reportDiagnostic: () => {} },
+    '@/utils/programSettingsReset': { DEFAULT_PROGRAM_SETTINGS_RESET_OPTIONS },
     '@/stores/app': { useAppStore: () => ({ version: '1.0.1' }) },
     './AutomaticUpdates.vue': { default: 'automatic-updates' },
+    './AppIdentity.vue': { default: listItem },
     ...overrides,
   }
   runInNewContext(ts.transpileModule(component.content, {
@@ -159,6 +164,10 @@ it('keeps progress, cancellation and duplicate-action guards during every update
     h.updates.phase.value = phase
     h.updates.percent.value = 42
     assert.equal(h.action().props!.disabled, true)
+    assert.ok(h.nodes().some(node => String(node.props?.class).includes('i-lucide:loader-circle')))
+    assert.ok(!h.nodes().some(node => String(node.props?.class).includes('i-lucide:download')))
+    assert.equal(h.nodes().find(node => node.type === listItem)!.props!['stack-actions'], true)
+    assert.equal(h.nodes().find(node => node.props?.class === 'update-phase-text')!.children, `inAppUpdates.${phase}`)
     const before = h.calls.length
     await h.click()
     assert.equal(h.calls.length, before)
@@ -214,20 +223,37 @@ it('keeps the development refresh action disabled without development status or 
   assert.deepEqual(h.calls, [])
 })
 
-it('places app updates and inert release notes before Introduction within App Information, without a separate update section', () => {
+it('groups app information and support actions in their requested order', () => {
   const nodes = renderComponent('index.vue')()
   const updateIndex = nodes.findIndex(node => node.type === 'automatic-updates')
-  const releaseIndex = nodes.findIndex(node => node.type === listItem && node.props?.title === 'pages.preference.about.labels.releaseNotes')
-  const introductionIndex = nodes.findIndex(node => node.props?.title === 'pages.preference.about.labels.introduction')
-  const appSection = nodes.findIndex(node => node.type === 'list' && node.props?.title === 'pages.preference.about.labels.aboutApp')
-  assert.ok(appSection >= 0 && updateIndex > appSection && releaseIndex > updateIndex && introductionIndex > releaseIndex)
+  const developerIndex = nodes.findIndex(node => node.props?.title === 'pages.preference.about.labels.developer')
+  const environmentIndex = nodes.findIndex(node => node.props?.title === 'pages.preference.about.labels.appInfo')
+  const contactIndex = nodes.findIndex(node => node.props?.title === 'pages.preference.about.labels.contactUs')
+  const developerEmailIndex = nodes.findIndex(node => node.props?.title === 'pages.preference.about.labels.developerEmail')
+  const appLogIndex = nodes.findIndex(node => node.props?.title === 'pages.preference.about.labels.appLog')
+  const introductionIndex = nodes.findIndex(node => node.props?.['aria-label'] === 'pages.preference.about.labels.introduction')
+  const releaseNotesIndex = nodes.findIndex(node => node.props?.['aria-label'] === 'pages.preference.about.labels.releaseNotes')
+  const appSection = nodes.findIndex(node => node.type === 'list' && !node.props?.title)
+  const supportSection = nodes.findIndex(node => node.type === 'list' && node.props?.title === 'pages.preference.about.labels.troubleshootingSupport')
+  assert.ok(appSection >= 0 && updateIndex > appSection && developerIndex > updateIndex && introductionIndex > developerIndex)
+  assert.ok(releaseNotesIndex > introductionIndex && supportSection > releaseNotesIndex)
+  assert.ok(contactIndex > supportSection && developerEmailIndex > contactIndex)
+  assert.ok(environmentIndex > developerEmailIndex && appLogIndex > environmentIndex)
+  assert.ok(!nodes.some(node => node.type === 'list' && node.props?.title === 'pages.preference.about.labels.developerInfo'))
   assert.ok(!nodes.some(node => node.props?.title === 'inAppUpdates.title' || node.props?.title === 'inAppUpdates.latest'))
-  const buttons = nodes.slice(releaseIndex, introductionIndex).filter(node => node.type === 'button')
-  assert.equal(buttons.length, 2)
-  for (const button of buttons) {
-    assert.equal(button.props?.onClick, undefined)
-    assert.equal(button.props?.href, undefined)
-    assert.equal(button.props?.disabled, undefined)
+  const buttonsFor = (index: number) => {
+    const end = nodes.findIndex((node, next) => next > index && (node.type === listItem || node.props?.class === 'about-resource-group' || node.props?.class === 'about-policy-links' || node.props?.class === 'about-reset'))
+    return nodes.slice(index, end < 0 ? undefined : end).filter(node => node.type === 'button')
+  }
+  for (const index of [introductionIndex, releaseNotesIndex]) {
+    const buttons = buttonsFor(index)
+    assert.equal(buttons.length, 2)
+    for (const button of buttons) assert.equal(typeof button.props?.onClick, 'function')
+  }
+  for (const index of [environmentIndex, contactIndex, developerEmailIndex, appLogIndex]) {
+    const buttons = buttonsFor(index)
+    assert.equal(buttons.length, 1)
+    assert.equal(typeof buttons[0].props?.onClick, 'function')
   }
 })
 

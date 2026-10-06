@@ -64,17 +64,32 @@ fn previous() -> PreviousPresetState {
     let mut snapshot = fixture()["settings"].clone();
     snapshot["appearance"] = json!({"selectedModelId":"dmeloper", "dmeloperSkinModel":"wide", "useDefaultDmeloperSkin":true});
     PreviousPresetState {
-        collection: json!({"schemaVersion":3,"activeId":"builtin:default","entries":[{"id":"builtin:default","name":"","builtin":true,"favorite":false,"snapshot":snapshot}]}),
+        collection: json!({"schemaVersion":4,"activeId":null,"entries":[]}),
         snapshot,
         visible: false,
     }
 }
-fn cat(previous: &PreviousPresetState) -> Value {
+fn block(previous: &PreviousPresetState) -> Value {
     let mut customization = previous.snapshot["appearance"].clone();
     customization["preset"] = previous.snapshot["preset"].clone();
     json!({"presetCollection":previous.collection,"customization3d":customization,
         "window":{"visible":previous.visible,"opacity":previous.snapshot["opacity"]},
         "model":{"mirror":previous.snapshot["mirror"],"eyebrowAnimationEnabled":previous.snapshot["eyebrowAnimationEnabled"]}})
+}
+
+fn imported(previous: &PreviousPresetState, skin: &SkinLibraryReadResponse) -> PreviousPresetState {
+    let mut snapshot = validate_document(&serde_json::to_vec(&fixture()).unwrap())
+        .unwrap().settings;
+    snapshot["appearance"] = json!({
+        "selectedModelId":"dmeloper", "dmeloperSkinModel":"wide", "useDefaultDmeloperSkin":true,
+        "activeSkinLibraryEntryId":skin.entry.id,
+        "dmeloperSkinDataUrl":format!("data:image/png;base64,{}", skin.png_base64),
+    });
+    let mut expected = previous.clone();
+    expected.collection["entries"].as_array_mut().unwrap().push(json!({
+        "id":PRESET,"name":"Imported","favorite":false,"snapshot":snapshot,
+    }));
+    expected
 }
 
 #[test]
@@ -189,7 +204,7 @@ fn identical_skin_is_reused_and_rollback_preserves_existing_metadata() {
     assert!(journal(temp.path()).unwrap().unwrap().created.is_none());
     assert!(service.ensure_no_preset_import().is_err());
     service
-        .finish_import(OP, false, &previous, &cat(&previous))
+        .finish_import(OP, false, &previous, &block(&previous))
         .unwrap();
     assert_eq!(fs::read(temp.path().join(MANIFEST_FILE)).unwrap(), before);
     assert_eq!(service.list().unwrap(), vec![existing]);
@@ -217,7 +232,7 @@ fn changed_nickname_becomes_a_separate_local_skin_and_restart_rollback_removes_o
     let restarted = SkinLibraryService::new(Some(temp.path().into()));
     assert_eq!(journal(temp.path()).unwrap().unwrap().phase, "prepared");
     restarted
-        .finish_import(OP, false, &previous, &cat(&previous))
+        .finish_import(OP, false, &previous, &block(&previous))
         .unwrap();
     assert_eq!(restarted.list().unwrap(), vec![existing]);
     assert!(
@@ -235,7 +250,7 @@ fn changed_nickname_becomes_a_separate_local_skin_and_restart_rollback_removes_o
 }
 
 #[test]
-fn commit_requires_saved_target_and_retains_an_idempotent_receipt() {
+fn commit_requires_saved_inactive_target_and_retains_an_idempotent_receipt() {
     let temp = tempfile::tempdir().unwrap();
     let service = SkinLibraryService::new(Some(temp.path().into()));
     let previous = previous();
@@ -244,26 +259,70 @@ fn commit_requires_saved_target_and_retains_an_idempotent_receipt() {
         .unwrap();
     assert!(
         service
-            .finish_import(OP, true, &previous, &cat(&previous))
+            .finish_import(OP, true, &previous, &block(&previous))
             .is_err()
     );
-    let mut expected = previous.clone();
-    expected.snapshot["appearance"]["activeSkinLibraryEntryId"] = json!(entry.id);
-    expected.collection["activeId"] = json!(PRESET);
-    expected.collection["entries"].as_array_mut().unwrap().push(json!({"id":PRESET,"name":"Imported","builtin":false,"favorite":false,"snapshot":expected.snapshot}));
-    expected.visible = true;
-    let saved = cat(&expected);
+    let expected = imported(&previous, &service.read(&entry.id).unwrap());
+    let saved = block(&expected);
+    assert!(service.finish_import(OP, true, &expected, &block(&previous)).is_err());
     service.finish_import(OP, true, &expected, &saved).unwrap();
     assert_eq!(journal(temp.path()).unwrap().unwrap().phase, "committed");
     service.finish_import(OP, true, &expected, &saved).unwrap();
     assert!(
         service
-            .finish_import(OP, false, &previous, &cat(&previous))
+            .finish_import(OP, false, &previous, &block(&previous))
             .is_err()
     );
     service.ensure_no_preset_import().unwrap();
     assert!(journal(temp.path()).unwrap().is_none());
     assert!(service.read(&entry.id).is_ok());
+}
+
+#[test]
+fn import_commit_preserves_selected_and_unselected_existing_catalogs() {
+    for selected in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let service = SkinLibraryService::new(Some(temp.path().into()));
+        let mut previous = previous();
+        previous.collection["entries"] = json!([
+            {"id":"first","name":"First","favorite":true,"snapshot":previous.snapshot},
+            {"id":"second","name":"Second","favorite":false,"snapshot":previous.snapshot},
+        ]);
+        if selected {
+            previous.collection["activeId"] = json!("first");
+        }
+        let entry = service.prepare_import(OP.into(), PRESET.into(), previous.clone(), request(40)).unwrap();
+        let expected = imported(&previous, &service.read(&entry.id).unwrap());
+        service.finish_import(OP, true, &expected, &block(&expected)).unwrap();
+        assert_eq!(expected.snapshot, previous.snapshot);
+        assert_eq!(expected.visible, previous.visible);
+        assert_eq!(expected.collection["activeId"], previous.collection["activeId"]);
+    }
+}
+
+#[test]
+fn import_commit_rejects_changed_live_state_and_unbound_or_invalid_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let service = SkinLibraryService::new(Some(temp.path().into()));
+    let previous = previous();
+    let entry = service.prepare_import(OP.into(), PRESET.into(), previous.clone(), request(40)).unwrap();
+    let expected = imported(&previous, &service.read(&entry.id).unwrap());
+    for field in ["selection", "settings", "visibility", "skinId", "png", "targetSettings"] {
+        let mut changed = expected.clone();
+        match field {
+            "selection" => changed.collection["activeId"] = json!(PRESET),
+            "settings" => changed.snapshot["opacity"] = json!(42),
+            "visibility" => changed.visible = true,
+            "skinId" => changed.collection["entries"][0]["snapshot"]["appearance"]["activeSkinLibraryEntryId"] = json!("a".repeat(64)),
+            "png" => changed.collection["entries"][0]["snapshot"]["appearance"]["dmeloperSkinDataUrl"] = json!("data:image/png;base64,YQ=="),
+            "targetSettings" => changed.collection["entries"][0]["snapshot"]["opacity"] = json!(101),
+            _ => unreachable!(),
+        }
+        assert!(service.finish_import(OP, true, &changed, &block(&changed)).is_err(), "{field}");
+        assert_eq!(journal(temp.path()).unwrap().unwrap().phase, "prepared");
+        assert!(service.read(&entry.id).is_ok());
+    }
+    service.finish_import(OP, true, &expected, &block(&expected)).unwrap();
 }
 
 #[test]
@@ -276,10 +335,10 @@ fn failed_or_stale_recovery_preserves_journal_and_skin() {
         .unwrap();
     assert!(
         service
-            .finish_import("wrong", false, &previous, &cat(&previous))
+            .finish_import("wrong", false, &previous, &block(&previous))
             .is_err()
     );
-    let mut changed = cat(&previous);
+    let mut changed = block(&previous);
     changed["window"]["visible"] = json!(true);
     assert!(
         service
@@ -289,7 +348,7 @@ fn failed_or_stale_recovery_preserves_journal_and_skin() {
     assert!(journal(temp.path()).unwrap().is_some());
     assert!(service.read(&entry.id).is_ok());
     service
-        .finish_import(OP, false, &previous, &cat(&previous))
+        .finish_import(OP, false, &previous, &block(&previous))
         .unwrap();
 }
 
@@ -301,7 +360,10 @@ fn stale_recovery_rejects_reordered_or_edited_existing_presets() {
     previous.collection["entries"]
         .as_array_mut()
         .unwrap()
-        .push(json!({"id":"existing","name":"Old","snapshot":previous.snapshot}));
+        .extend([
+            json!({"id":"first","name":"First","favorite":false,"snapshot":previous.snapshot}),
+            json!({"id":"existing","name":"Old","favorite":false,"snapshot":previous.snapshot}),
+        ]);
     service
         .prepare_import(OP.into(), PRESET.into(), previous.clone(), request(60))
         .unwrap();
@@ -314,6 +376,11 @@ fn stale_recovery_rejects_reordered_or_edited_existing_presets() {
         .unwrap()
         .push(json!({"id":PRESET}));
     assert!(recoverable_collection(&pending, &record));
+    pending["activeId"] = previous.collection["activeId"].clone();
+    assert!(recoverable_collection(&pending, &record));
+    pending["activeId"] = json!("unrelated");
+    assert!(!recoverable_collection(&pending, &record));
+    pending["activeId"] = previous.collection["activeId"].clone();
     pending["entries"].as_array_mut().unwrap().swap(0, 1);
     assert!(!recoverable_collection(&pending, &record));
     pending["entries"].as_array_mut().unwrap().swap(0, 1);
@@ -334,7 +401,7 @@ fn rollback_accepts_only_center_preserving_viewport_shrink_and_exact_appearance(
     expected = previous.clone();
     expected.snapshot["preset"]["dmeloperPalmColor"] = json!("#abcdef");
     assert!(!valid_rollback(&previous, &expected));
-    let mut saved = cat(&previous);
+    let mut saved = block(&previous);
     saved["customization3d"]["minecraftSkinUsername"] = json!("Unexpected");
     assert!(!matches_previous(&saved, &previous));
 }
@@ -363,21 +430,28 @@ fn eyebrow_depth_preserves_legacy_defaults_and_rejects_invalid_external_values()
 #[test]
 fn desk_legacy_defaults_and_explicit_settings_round_trip_without_a_version_change() {
     let legacy = validate_document(&serde_json::to_vec(&fixture()).unwrap()).unwrap();
+    let defaults: Value = crate::settings_defaults::section("preset").unwrap();
     assert_eq!(legacy.version, 1);
     assert_eq!(legacy.settings["preset"]["deskTransparent"], json!(true));
     assert_eq!(legacy.settings["preset"]["deskHeightOffset"], json!(0));
+    assert_eq!(legacy.settings["preset"]["deskWidthOffset"], json!(-1));
+    assert_eq!(legacy.settings["preset"]["deskDepthOffset"], defaults["deskDepthOffset"]);
     assert_eq!(legacy.settings["preset"]["deskColor"], json!("#D9D9D9"));
     for height in [-1.0, 0.0, 1.0] {
         for transparent in [false, true] {
             let mut doc = fixture();
             doc["settings"]["preset"]["deskTransparent"] = json!(transparent);
             doc["settings"]["preset"]["deskHeightOffset"] = json!(height);
+            doc["settings"]["preset"]["deskWidthOffset"] = json!(height);
+            doc["settings"]["preset"]["deskDepthOffset"] = json!(-height);
             doc["settings"]["preset"]["deskColor"] = json!("#123aBC");
             let restored = validate_document(&serde_json::to_vec(&doc).unwrap()).unwrap();
             let round_trip = validate_document(&serde_json::to_vec(&restored).unwrap()).unwrap();
             assert_eq!(round_trip.settings, restored.settings);
             assert_eq!(restored.settings["preset"]["deskTransparent"], json!(transparent));
             assert_eq!(restored.settings["preset"]["deskHeightOffset"], json!(height));
+            assert_eq!(restored.settings["preset"]["deskWidthOffset"], json!(height));
+            assert_eq!(restored.settings["preset"]["deskDepthOffset"], json!(-height));
             assert_eq!(restored.settings["preset"]["deskColor"], json!("#123aBC"));
         }
     }
@@ -394,6 +468,8 @@ fn malformed_explicit_desk_fields_are_not_replaced_by_defaults() {
         ("deskTransparent", vec![json!(null), json!(1), json!("false")]),
         ("deskColor", vec![json!(null), json!(true), json!("#12345"), json!("#GGGGGG")]),
         ("deskHeightOffset", vec![json!(null), json!(false), json!("0"), json!(-1.01), json!(1.01)]),
+        ("deskWidthOffset", vec![json!(null), json!(false), json!("0"), json!(-1.01), json!(1.01)]),
+        ("deskDepthOffset", vec![json!(null), json!(false), json!("0"), json!(-1.01), json!(1.01)]),
         ("deskEnabled", vec![json!(true)]),
     ] {
         for value in values {

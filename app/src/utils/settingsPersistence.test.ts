@@ -4,7 +4,7 @@ import { describe, it } from 'node:test'
 
 import type { SettingsPersistenceSteps } from './settingsPersistence'
 
-import { saveSynchronizedSettings } from './settingsPersistence'
+import { saveSynchronizedSettings, SettingsSnapshotSupersededError } from './settingsPersistence'
 
 function harness() {
   const calls: string[] = []
@@ -35,24 +35,50 @@ function harness() {
 }
 
 describe('settings persistence acknowledgement', () => {
+  it('cancels an obsolete autosave without waiting for a snapshot the backend has passed', async () => {
+    const h = harness()
+    let current = true
+    h.steps.isCurrent = () => current
+    h.steps.readBackend = async () => {
+      current = false
+      return { model: { antialiasEnabled: true } }
+    }
+    await assert.rejects(saveSynchronizedSettings(h.steps), SettingsSnapshotSupersededError)
+    assert.equal(h.calls.includes('wait'), false)
+    assert.equal(h.calls.includes('disk'), false)
+    current = true
+    h.steps.readBackend = async () => ({ model: { antialiasEnabled: false } })
+    await saveSynchronizedSettings(h.steps)
+    assert.equal(h.calls.at(-1), 'disk')
+  })
+
+  it('does not acknowledge an autosave superseded while its disk write was pending', async () => {
+    const h = harness()
+    let current = true
+    h.steps.isCurrent = () => current
+    h.steps.saveNow = async () => {
+      current = false
+    }
+    await assert.rejects(saveSynchronizedSettings(h.steps), SettingsSnapshotSupersededError)
+  })
   it('revalidates every owned field when incoming frontend state changes during a quiescence read', async () => {
     const h = harness()
     h.steps.followFrontendChanges = true
     let state = { model: { antialiasEnabled: true }, entries: ['old'] }
     h.steps.snapshots = () => [{ id: 'cat', state }, { id: 'general', state: { language: 'ko-KR' } }]
-    let catReads = 0
+    let blockReads = 0
     let generalReads = 0
     h.steps.readBackend = async (id) => {
       if (id === 'general') {
         generalReads++
         return { language: 'ko-KR' }
       }
-      catReads++
+      blockReads++
       state = { model: { antialiasEnabled: false }, entries: ['new'] }
       return state
     }
     await saveSynchronizedSettings(h.steps)
-    assert.equal(catReads, 2)
+    assert.equal(blockReads, 2)
     assert.equal(generalReads, 2, 'a changed snapshot requires fresh readback of every owned store')
     assert.equal(h.calls.filter(call => call === 'disk').length, 1)
   })

@@ -5,19 +5,22 @@ mod data_paths;
 mod distribution;
 mod native_operation;
 mod windows_process;
+#[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
+mod wix_local;
 mod asset_scope;
 mod broadcast;
 mod core;
 mod diagnostics;
 mod in_app_update;
-mod latest_version;
 mod minecraft_skin;
 mod performance;
 mod settings_defaults;
+#[cfg(test)]
+mod settings_float_roundtrip_tests;
 mod lighting_settings;
 mod skin_library;
 mod state_safety;
-#[cfg(any(feature = "channel-github", feature = "test-repository"))]
+#[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
 mod uninstall_cleanup;
 
 const RELEASE_MODE_MARKER: &str = "DMELoper_CHANNEL_BOUND_SHARED_DATA_V1";
@@ -56,7 +59,6 @@ use core::{
     restart::restart_application,
     setup,
 };
-use latest_version::{LatestVersionState, check_latest_version, latest_version_releases_url};
 use minecraft_skin::{MinecraftSkinState, fetch_minecraft_skin};
 use performance::{PerformanceMonitorState, prime_app_performance_sampler, sample_app_performance};
 use skin_library::{
@@ -71,7 +73,7 @@ use tauri_plugin_custom_window::{
 
 pub fn run() {
     std::hint::black_box(RELEASE_MODE_MARKER);
-    #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+    #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
     uninstall_cleanup::exit_if_requested();
     let (lifetime_lock, roots) = match bootstrap::prepare() {
         Ok(Some(ready)) => ready,
@@ -91,6 +93,12 @@ pub fn run() {
         .manage(StartupReady::new())
         .setup(|app| {
             data_paths::assert_store_root(app.handle())?;
+            state_safety::validate_startup_stores(app.handle()).map_err(|code| {
+                diagnostics::error("settings.initialize_stores", code);
+                // A frontend restoration failure would leave configured windows hidden.
+                // Reject unreadable state through the existing startup error dialog.
+                std::io::Error::other(code)
+            })?;
             state_safety::initialize_general_defaults(app.handle()).map_err(|code| {
                 diagnostics::error("settings.initialize_defaults", code);
                 // Setup failure terminates the app; never leave hidden webviews waiting
@@ -100,10 +108,9 @@ pub fn run() {
             app.manage(MinecraftSkinState::new(app.handle()));
             app.manage(SkinLibraryState::new(app.handle()));
             app.manage(BroadcastState::new(app.handle()));
-            app.manage(LatestVersionState::new(app.handle()));
-            #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+            #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
             in_app_update::enabled_profile::initialize(app.handle()).map_err(|error| {
-                diagnostics::error("updater.initialize", "UPDATE_PLUGIN_INITIALIZATION_FAILED");
+                diagnostics::error("updater.initialize", "UPDATE_INITIALIZATION_FAILED");
                 error
             })?;
             let app_handle = app.handle();
@@ -122,8 +129,6 @@ pub fn run() {
             cancel_screen_color_pick,
             configure_broadcast,
             get_broadcast_status,
-            check_latest_version,
-            latest_version_releases_url,
             in_app_update::in_app_updater_enabled,
             in_app_update::check_app_update,
             in_app_update::download_app_update,
@@ -132,6 +137,8 @@ pub fn run() {
             in_app_update::begin_app_update_save,
             in_app_update::abort_app_update,
             distribution::distribution_info,
+            diagnostics::support_system_info,
+            diagnostics::prepare_log_directory,
             autostart::autostart_status,
             autostart::set_autostart_enabled,
             start_device_listening,

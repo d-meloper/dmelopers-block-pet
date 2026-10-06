@@ -8,13 +8,16 @@ import * as Vue from 'vue'
 import { createI18n } from 'vue-i18n'
 import { compileScript, parse } from 'vue/compiler-sfc'
 
+import type { PerformanceUnavailableReasons } from '@/utils/performance'
+
+import { snapSliderValue } from '@/components/default-snap-slider/snapValue'
 import * as performanceConfig from '@/config/performance'
 import { WINDOW_LABEL } from '@/constants'
 import en from '@/locales/en-US.json'
 import ko from '@/locales/ko-KR.json'
 import * as languageBranch from '@/locales/languageBranch'
-import { useCatStore } from '@/stores/cat'
-import { ProgramSettingsResetError } from '@/utils/programSettingsReset'
+import { useBlockStore } from '@/stores/block'
+import { DEFAULT_PROGRAM_SETTINGS_RESET_OPTIONS, ProgramSettingsResetError } from '@/utils/programSettingsReset'
 
 function mainAntialiasHarness(readonlyModel = false) {
   const { descriptor } = parse(readFileSync(new URL('../../../main/index.vue', import.meta.url), 'utf8'))
@@ -37,7 +40,7 @@ function mainAntialiasHarness(readonlyModel = false) {
   // Run the actual desktop synchronization function; freeze its mirror to catch
   // accidental persistence writes outside the preference settings owner.
   // eslint-disable-next-line no-new-func
-  const actions = new Function('catStore', 'three3d', 'canvas', 'desktopPetVisible', 'emitTo', 'WINDOW_LABEL', 'ANTIALIAS_SETTING_RESPONSE', 'console', `
+  const actions = new Function('blockStore', 'three3d', 'canvas', 'desktopPetVisible', 'emitTo', 'WINDOW_LABEL', 'ANTIALIAS_SETTING_RESPONSE', 'console', `
     'use strict';
     let rendererReady = true;
     const rendererLifecycleGeneration = 1;
@@ -105,12 +108,13 @@ function harness(component: 'performance' | 'about', options: {
   withoutBroadcastController?: boolean
   resetFails?: boolean
   resetFailsAfterChange?: boolean
+  render?: boolean
 } = {}) {
   setActivePinia(createPinia())
-  const catStore = useCatStore()
-  catStore.model.antialiasEnabled = options.antialias ?? true
+  const blockStore = useBlockStore()
+  blockStore.model.antialiasEnabled = options.antialias ?? true
   const { descriptor } = parse(readFileSync(new URL(`../${component}/index.vue`, import.meta.url), 'utf8'))
-  const compiled = compileScript(descriptor, { id: `${component}-performance-test` })
+  const compiled = compileScript(descriptor, { id: `${component}-performance-test`, inlineTemplate: options.render })
   const transformed = ts.transpileModule(compiled.content, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   })
@@ -119,6 +123,7 @@ function harness(component: 'performance' | 'about', options: {
   const performanceState = Vue.reactive({
     currentMetrics: {} as { cpuPercent?: number, gpuPercent?: number, ramBytes?: number },
     averageMetrics: {} as { cpuPercent?: number, gpuPercent?: number, ramBytes?: number },
+    unavailableReasons: {} as PerformanceUnavailableReasons,
     hasSampled: false,
     isWarmingUp: false,
     elapsedSeconds: 0,
@@ -126,6 +131,7 @@ function harness(component: 'performance' | 'about', options: {
       measurementResets += 1
       performanceState.currentMetrics = {}
       performanceState.averageMetrics = {}
+      performanceState.unavailableReasons = {}
       performanceState.hasSampled = false
       performanceState.elapsedSeconds = 0
     },
@@ -138,9 +144,12 @@ function harness(component: 'performance' | 'about', options: {
   const module = { exports: {} as { default: { setup: (props: object, context: object) => {
     metrics: Vue.ComputedRef<Array<{ value: string, average?: string }>>
     samplingHint: Vue.ComputedRef<string>
+    unavailableHint: Vue.ComputedRef<string | undefined>
     broadcastHint: Vue.ComputedRef<string | undefined>
     confirmPerformanceReset: () => void
     confirmProgramReset: () => void
+    submitProgramReset: () => Promise<void>
+    resetOpen: Vue.Ref<boolean>
     updatePerformanceToggle: (key: 'antialiasEnabled' | 'pixelFilterEnabled' | 'idlePowerSavingEnabled', value: boolean) => void
     updateShadowQuality: (value: performanceConfig.ShadowQualitySelection) => void
     resetMeasurements: () => void
@@ -162,17 +171,30 @@ function harness(component: 'performance' | 'about', options: {
     if (id === 'vue-i18n') return { useI18n: () => ({ t: i18n.global.t }) }
     if (id === 'ant-design-vue') {
       return {
+        Button: 'button',
+        Flex: 'flex',
+        Select: { name: 'Select', Option: 'select-option' },
+        Switch: 'switch',
         Modal: { confirm: (dialog: ResetDialog) => dialogs.push(dialog) },
         message: { error: (key: string) => errors.push(key) },
       }
     }
     if (id === '@/config/performance') return performanceConfig
+    if (options.render && id.startsWith('@/components/')) {
+      return {
+        default: id.includes('default-snap-slider')
+          ? 'default-snap-slider'
+          : id.includes('/pro-list/') ? { name: 'ProList' } : 'section',
+      }
+    }
     if (id === '@/locales/languageBranch') return languageBranch
-    if (id === './AutomaticUpdates.vue') return { default: {} }
+    if (id === './AutomaticUpdates.vue' || id === './NotionIcon.vue') return { default: {} }
+    if (id === '@ant-design/icons-vue') return { GithubFilled: {} }
+    if (id === '@/services/environmentInfo') return { collectEnvironmentInfo: async () => '' }
     if (id === '@/services/diagnostics') return { reportDiagnostic: () => {} }
     if (id === '@/services/distribution') return { getDistributionInfo: async () => ({ dataRoot: '/data' }) }
-    if (id === '@/utils/programSettingsReset') return { ProgramSettingsResetError }
-    if (id === '@/stores/cat') return { useCatStore: () => catStore }
+    if (id === '@/utils/programSettingsReset') return { DEFAULT_PROGRAM_SETTINGS_RESET_OPTIONS, ProgramSettingsResetError }
+    if (id === '@/stores/block') return { useBlockStore: () => blockStore }
     if (id === '@/stores/app') return { useAppStore: () => ({ name: '', version: '' }) }
     if (id === '@/stores/performance') {
       return { usePerformanceStore: () => performanceState }
@@ -180,7 +202,7 @@ function harness(component: 'performance' | 'about', options: {
     if (id === '@/composables/useProgramSettingsReset') {
       return { useProgramSettingsReset: () => ({ resetProgramSettings: async () => {
         if (options.resetFails) throw new ProgramSettingsResetError('preflight', 'preflight', new Error('reset failed'))
-        catStore.resetAllSettings()
+        blockStore.resetAllSettings()
         if (options.resetFailsAfterChange) throw new ProgramSettingsResetError('partial', 'window', new Error('geometry reset failed'))
       } }) }
     }
@@ -190,13 +212,22 @@ function harness(component: 'performance' | 'about', options: {
     throw new Error(`Unexpected import: ${id}`)
   }, module, module.exports)
   const actions = module.exports.default.setup({}, { expose: () => {} })
+  const flatten = (node: Vue.VNode): Vue.VNode[] => {
+    const children = Array.isArray(node.children)
+      ? node.children
+      : node.children && typeof node.children === 'object'
+        ? Object.values(node.children).flatMap(slot => typeof slot === 'function' ? slot() : [])
+        : []
+    return [node, ...children.flatMap(child => Vue.isVNode(child) ? flatten(child) : [])]
+  }
   return {
     performanceState,
     broadcastStatus,
-    catStore,
+    blockStore,
     actions,
     dialogs,
     errors,
+    renderNodes: () => flatten((actions as unknown as (context: object, cache: unknown[]) => Vue.VNode)({ $t: i18n.global.t }, [])),
     get measurementResets() {
       return measurementResets
     },
@@ -205,17 +236,32 @@ function harness(component: 'performance' | 'about', options: {
 }
 
 describe('performance settings user actions', () => {
+  it('snaps performance sliders to the same authored values used by category reset', () => {
+    const h = harness('performance', { render: true })
+    h.blockStore.model.maxFPS = 75
+    h.blockStore.model.renderScalePercent = 50
+    h.blockStore.resetPerformanceSettings()
+    const sliders = h.renderNodes().filter(node => node.type === 'default-snap-slider')
+    assert.equal(sliders.length, 2)
+    for (const [index, key] of ['maxFPS', 'renderScalePercent'].entries()) {
+      const slider = sliders[index].props!
+      const defaultValue = slider['default-value']
+      assert.equal(defaultValue, h.blockStore.model[key as 'maxFPS' | 'renderScalePercent'])
+      assert.equal(snapSliderValue(defaultValue + 1, { min: slider.min, max: slider.max, defaultValue }), defaultValue)
+    }
+  })
+
   it('exposes independent live toggles without restart controls', () => {
     const h = harness('performance')
     h.actions.updatePerformanceToggle('antialiasEnabled', false)
     h.actions.updatePerformanceToggle('pixelFilterEnabled', false)
-    assert.equal(h.catStore.model.antialiasEnabled, false)
-    assert.equal(h.catStore.model.pixelFilterEnabled, false)
+    assert.equal(h.blockStore.model.antialiasEnabled, false)
+    assert.equal(h.blockStore.model.pixelFilterEnabled, false)
     assert.equal(h.measurementResets, 2)
     assert.equal(h.dialogs.length, 0)
     const source = readFileSync(new URL('./index.vue', import.meta.url), 'utf8')
-    assert.ok(source.includes(':checked="catStore.model.antialiasEnabled"'))
-    assert.ok(source.includes(':checked="catStore.model.pixelFilterEnabled"'))
+    assert.ok(source.includes(':checked="blockStore.model.antialiasEnabled"'))
+    assert.ok(source.includes(':checked="blockStore.model.pixelFilterEnabled"'))
     assert.ok(!/restart|RenderQualityLab/.test(source))
   })
 
@@ -223,7 +269,7 @@ describe('performance settings user actions', () => {
     const h = harness('performance')
     for (const key of ['antialiasEnabled', 'pixelFilterEnabled', 'idlePowerSavingEnabled'] as const) {
       const resets = h.measurementResets
-      const previous = h.catStore.model[key]
+      const previous = h.blockStore.model[key]
       h.actions.updatePerformanceToggle(key, previous)
       assert.equal(h.measurementResets, resets)
       h.performanceState.currentMetrics = { cpuPercent: 20, gpuPercent: 30, ramBytes: 512 }
@@ -231,7 +277,7 @@ describe('performance settings user actions', () => {
       h.performanceState.hasSampled = true
       h.performanceState.elapsedSeconds = 12
       h.actions.updatePerformanceToggle(key, !previous)
-      assert.equal(h.catStore.model[key], !previous)
+      assert.equal(h.blockStore.model[key], !previous)
       assert.equal(h.measurementResets, resets + 1)
       assert.deepEqual(h.performanceState.currentMetrics, {})
       assert.deepEqual(h.performanceState.averageMetrics, {})
@@ -241,7 +287,7 @@ describe('performance settings user actions', () => {
     for (const quality of ['off', 'low', 'medium', 'high'] as const) {
       const resets = h.measurementResets
       h.actions.updateShadowQuality(quality)
-      assert.equal(h.catStore.shadowQualitySelection, quality)
+      assert.equal(h.blockStore.shadowQualitySelection, quality)
       assert.equal(h.measurementResets, resets + 1)
       h.actions.updateShadowQuality(quality)
       assert.equal(h.measurementResets, resets + 1)
@@ -253,8 +299,8 @@ describe('performance settings user actions', () => {
     for (const key of ['maxFPS', 'renderScalePercent'] as const) {
       const resets = h.measurementResets
       for (const value of [60, 65, 70]) {
-        h.catStore.model[key] = value
-        assert.equal(h.catStore.model[key], value)
+        h.blockStore.model[key] = value
+        assert.equal(h.blockStore.model[key], value)
         assert.equal(h.measurementResets, resets)
       }
       h.actions.resetMeasurements()
@@ -263,6 +309,8 @@ describe('performance settings user actions', () => {
     const source = readFileSync(new URL('./index.vue', import.meta.url), 'utf8')
     const sliders = [...source.matchAll(/<DefaultSnapSlider\b[\s\S]*?\/>/g)].map(match => match[0])
     assert.equal(sliders.length, 2)
+    assert.ok(sliders[0]!.includes(':min="MIN_FPS"'))
+    assert.equal(performanceConfig.MIN_FPS, 15)
     for (const slider of sliders) {
       assert.ok(slider.includes('display-mode="raw"'))
       assert.ok(slider.includes('@after-change="resetMeasurements"'))
@@ -279,42 +327,46 @@ describe('performance settings user actions', () => {
     h.actions.updateShadowQuality('off')
     h.dialogs[0].onOk()
     assert.equal(h.measurementResets, 0)
-    assert.equal(h.catStore.model.antialiasEnabled, false)
-    assert.equal(h.catStore.shadowQualitySelection, 'high')
+    assert.equal(h.blockStore.model.antialiasEnabled, false)
+    assert.equal(h.blockStore.shadowQualitySelection, 'medium')
   })
 
   it('resets both options with only the ordinary reset confirmation', () => {
     const h = harness('performance', { antialias: false })
-    h.catStore.model.pixelFilterEnabled = true
-    h.catStore.model.maxFPS = 80
-    h.catStore.model.renderScalePercent = 50
-    h.catStore.shadowQualitySelection = 'off'
+    h.blockStore.model.pixelFilterEnabled = true
+    h.blockStore.model.maxFPS = 80
+    h.blockStore.model.renderScalePercent = 50
+    h.blockStore.shadowQualitySelection = 'off'
     h.actions.confirmPerformanceReset()
     h.dialogs[0].onOk()
-    assert.equal(h.catStore.model.antialiasEnabled, true)
-    assert.equal(h.catStore.model.pixelFilterEnabled, true)
-    assert.equal(h.catStore.model.maxFPS, 60)
-    assert.equal(h.catStore.model.renderScalePercent, 100)
-    assert.equal(h.catStore.shadowQualitySelection, 'high')
+    assert.equal(h.blockStore.model.antialiasEnabled, true)
+    assert.equal(h.blockStore.model.pixelFilterEnabled, true)
+    assert.equal(h.blockStore.model.maxFPS, 30)
+    assert.equal(h.blockStore.model.renderScalePercent, 100)
+    assert.equal(h.blockStore.shadowQualitySelection, 'medium')
     assert.equal(h.measurementResets, 1)
     assert.equal(h.dialogs.length, 1)
   })
 
-  it('resets the program without a second confirmation', async () => {
+  it('resets the program through its option dialog without a second confirmation', async () => {
     const h = harness('about', { antialias: false })
     h.actions.confirmProgramReset()
-    await h.dialogs[0].onOk()
-    assert.equal(h.catStore.model.antialiasEnabled, true)
-    assert.equal(h.dialogs.length, 1)
+    assert.equal(h.actions.resetOpen.value, true)
+    await h.actions.submitProgramReset()
+    assert.equal(h.blockStore.model.antialiasEnabled, true)
+    assert.equal(h.actions.resetOpen.value, false)
+    assert.equal(h.dialogs.length, 0)
+    assert.deepEqual(h.errors, [])
   })
 
   it('reports reset errors without prompting for a restart', async () => {
     for (const resetFailsAfterChange of [true, false]) {
       const h = harness('about', { antialias: false, resetFails: !resetFailsAfterChange, resetFailsAfterChange })
       h.actions.confirmProgramReset()
-      await assert.rejects(Promise.resolve().then(() => h.dialogs[0].onOk()), /reset failed/)
-      assert.equal(h.catStore.model.antialiasEnabled, resetFailsAfterChange)
-      assert.equal(h.dialogs.length, 1)
+      await h.actions.submitProgramReset()
+      assert.equal(h.blockStore.model.antialiasEnabled, resetFailsAfterChange)
+      assert.equal(h.actions.resetOpen.value, true)
+      assert.equal(h.dialogs.length, 0)
       assert.deepEqual(h.errors, [ko.pages.preference.about.errors[resetFailsAfterChange ? 'resetPartial' : 'resetPreflight']])
     }
   })
@@ -326,14 +378,72 @@ describe('performance settings user actions', () => {
     ] as const) {
       const h = harness('about', { locale, antialias: false, resetFailsAfterChange: true })
       h.actions.confirmProgramReset()
-      await assert.rejects(Promise.resolve().then(() => h.dialogs[0].onOk()), /geometry reset failed/)
-      assert.equal(h.catStore.model.antialiasEnabled, true)
+      await h.actions.submitProgramReset()
+      assert.equal(h.blockStore.model.antialiasEnabled, true)
+      assert.equal(h.actions.resetOpen.value, true)
       assert.deepEqual(h.errors, [expected])
     }
   })
 })
 
 describe('performance average display', () => {
+  it('shows localized current failure lines in the existing tooltip alongside sampling, average and OBS text', () => {
+    for (const locale of ['ko-KR', 'en-US'] as const) {
+      const h = harness('performance', { locale })
+      const messages = (locale === 'ko-KR' ? ko : en).pages.preference.performance
+      h.performanceState.hasSampled = true
+      h.performanceState.currentMetrics = { ramBytes: 512 }
+      h.performanceState.unavailableReasons = { cpu: 'accessDenied', gpu: 'counterReadFailed' }
+      const expected = [
+        `${messages.metrics.cpu}: ${messages.unavailableReasons.accessDenied}`,
+        `${messages.metrics.gpu}: ${messages.unavailableReasons.counterReadFailed}`,
+      ].join('\n')
+      assert.equal(h.actions.unavailableHint.value, expected)
+      assert.ok(h.actions.samplingHint.value.startsWith(messages.hints.sampling))
+      assert.ok(h.actions.samplingHint.value.includes(messages.hints.average.replace('{duration}', locale === 'ko-KR' ? '0초' : '0s')))
+      assert.ok(h.actions.samplingHint.value.endsWith(`\n\n${expected}`))
+      h.broadcastStatus.value = { enabled: true, clients: 1, error: undefined }
+      assert.equal(h.actions.broadcastHint.value, messages.hints.broadcastUsage)
+    }
+    const h = harness('performance', { render: true })
+    h.performanceState.hasSampled = true
+    h.performanceState.unavailableReasons = { gpu: 'counterUnavailable' }
+    h.broadcastStatus.value = { enabled: true, clients: 1, error: undefined }
+    const info = h.renderNodes().find(node => node.props?.label === ko.pages.preference.performance.buttons.measurementInfo)
+    assert.ok(info?.props?.text.includes(`${ko.pages.preference.performance.metrics.gpu}: ${ko.pages.preference.performance.unavailableReasons.counterUnavailable}`))
+    assert.equal(info?.props?.['emphasis-text'], ko.pages.preference.performance.hints.broadcastUsage)
+  })
+
+  it('includes the exact generic notice once for unknown resources and clears it on recovery and reset', () => {
+    assert.equal(ko.pages.preference.performance.hints.unavailableEnvironment, '일부 환경에서는 특정 리소스 사용량이 측정되지 않을 수 있습니다.')
+    for (const locale of ['ko-KR', 'en-US'] as const) {
+      const h = harness('performance', { locale })
+      const messages = (locale === 'ko-KR' ? ko : en).pages.preference.performance
+      h.performanceState.hasSampled = true
+      h.performanceState.unavailableReasons = { cpu: 'unknown', gpu: 'counterUnavailable', ram: 'unknown' }
+      assert.equal(h.actions.unavailableHint.value, `${messages.metrics.gpu}: ${messages.unavailableReasons.counterUnavailable}\n${messages.hints.unavailableEnvironment}`)
+      assert.equal(h.actions.samplingHint.value.split(messages.hints.unavailableEnvironment).length - 1, 1)
+      h.performanceState.currentMetrics = { cpuPercent: 0, gpuPercent: 0, ramBytes: 0 }
+      h.performanceState.unavailableReasons = {}
+      assert.equal(h.actions.unavailableHint.value, undefined)
+      assert.ok(!h.actions.samplingHint.value.includes(messages.hints.unavailableEnvironment))
+      h.performanceState.unavailableReasons = { gpu: 'accessDenied' }
+      h.actions.resetMeasurements()
+      assert.deepEqual(h.performanceState.unavailableReasons, {})
+      assert.equal(h.actions.unavailableHint.value, undefined)
+    }
+  })
+
+  it('does not treat the initial or bounded preparation display as a measurement failure', () => {
+    const h = harness('performance')
+    h.performanceState.unavailableReasons = { cpu: 'unknown', gpu: 'initializing', ram: 'unknown' }
+    assert.equal(h.actions.unavailableHint.value, undefined)
+    h.performanceState.hasSampled = true
+    h.performanceState.isWarmingUp = true
+    assert.equal(h.actions.unavailableHint.value, undefined)
+    assert.equal(h.actions.samplingHint.value, ko.pages.preference.performance.hints.warmup)
+  })
+
   it('shows preparation without current values, averages or a measurement duration', () => {
     for (const locale of ['ko-KR', 'en-US'] as const) {
       const h = harness('performance', { locale })
@@ -510,7 +620,7 @@ describe('broadcast performance scope notice', () => {
       assert.equal(h.actions.broadcastHint.value, undefined)
       h.broadcastStatus.value.clients = 1
       assert.equal(h.actions.broadcastHint.value, expected)
-      h.catStore.window.visible = false
+      h.blockStore.window.visible = false
       h.broadcastStatus.value.error = 'render_failed'
       assert.equal(h.actions.broadcastHint.value, expected)
       h.broadcastStatus.value.clients = 2

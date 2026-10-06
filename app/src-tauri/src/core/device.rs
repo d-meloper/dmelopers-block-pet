@@ -178,6 +178,8 @@ fn set_consumer_word(word: &AtomicU64, demand: Option<bool>) {
 fn accepts_captured_input(event: &EventType, captured: u64, current: u64) -> bool {
     if matches!(event, EventType::KeyPress(_) | EventType::KeyRelease(_)) {
         captured >> 32 == current >> 32 && consumer_demand(current).is_some()
+    } else if matches!(event, EventType::MouseMove { .. }) {
+        captured == current && consumer_demand(current).is_some()
     } else {
         captured == current && consumer_demand(current) == Some(true)
     }
@@ -719,6 +721,8 @@ fn emit_to_broadcast<R: Runtime>(app: &AppHandle<R>, event: SemanticInputEvent, 
 fn accepts_semantic_epoch(event: &SemanticInputEvent, captured: u64, current: u64) -> bool {
     if matches!(event, SemanticInputEvent::Typing { .. }) {
         captured >> 32 == current >> 32 && consumer_demand(current).is_some()
+    } else if matches!(event, SemanticInputEvent::PointerActivity { .. }) {
+        captured == current && consumer_demand(current).is_some()
     } else {
         captured == current && consumer_demand(current) == Some(true)
     }
@@ -740,6 +744,40 @@ fn typing_intensity(events: &VecDeque<Instant>) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pointer_observation_survives_mouse_off_without_forwarding_buttons() {
+        let off = next_consumer_word(0, Some(false));
+        let on = next_consumer_word(off, Some(true));
+        let pointer = EventType::MouseMove { x: 12.0, y: 24.0 };
+        assert!(accepts_captured_input(&pointer, off, off));
+        assert!(!accepts_captured_input(&pointer, off, on));
+        assert!(!accepts_captured_input(
+            &EventType::ButtonPress(Button::Left),
+            off,
+            off
+        ));
+        assert!(!accepts_captured_input(
+            &EventType::Wheel {
+                delta_x: 0,
+                delta_y: 1
+            },
+            off,
+            off
+        ));
+        assert!(accepts_semantic_epoch(
+            &SemanticInputEvent::PointerActivity { x: 0.2, y: 0.4 },
+            off,
+            off
+        ));
+        assert!(!accepts_semantic_epoch(
+            &SemanticInputEvent::MousePrimary { active: true },
+            off,
+            off
+        ));
+        let stopped = next_consumer_word(off, None);
+        assert!(!accepts_captured_input(&pointer, stopped, stopped));
+    }
 
     #[test]
     fn physical_hooks_follow_the_union_and_each_consumer_keeps_its_own_acknowledgement() {

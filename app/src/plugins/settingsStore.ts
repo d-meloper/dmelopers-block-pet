@@ -3,6 +3,8 @@ import type { PiniaPlugin } from 'pinia'
 
 import { createPlugin } from '@tauri-store/pinia'
 
+import { reconcileAppWindowState } from '@/stores/app'
+
 interface SettingsSyncPolicy {
   isSavingAllowed: () => boolean
   beforeBackendSync: NonNullable<StoreHooks['beforeBackendSync']>
@@ -22,6 +24,11 @@ export function createSettingsStorePlugin(policy: SettingsSyncPolicy): PiniaPlug
           ...options,
           hooks: {
             ...hooks,
+            beforeFrontendSync(state) {
+              const incoming = hooks?.beforeFrontendSync ? hooks.beforeFrontendSync(state) : state
+              if (incoming && context.store.$id === 'app') reconcileAppWindowState(context.store.$state, incoming)
+              return incoming
+            },
             beforeBackendSync(state) {
               const allowed = policy.beforeBackendSync(state)
               if (allowed == null) return allowed

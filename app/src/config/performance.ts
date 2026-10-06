@@ -13,6 +13,7 @@ export const DEFAULT_PERFORMANCE_SETTINGS = {
   pixelFilterEnabled: DEFAULT_MODEL_SETTINGS.pixelFilterEnabled,
 } as const
 
+export const MIN_FPS = 15
 export const MAX_FPS = 80
 
 export const ANTIALIAS_SETTING_REQUEST = 'antialias-setting-request'

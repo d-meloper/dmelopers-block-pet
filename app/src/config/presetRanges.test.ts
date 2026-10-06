@@ -7,7 +7,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { captureBroadcastScene } from '@/features/broadcast/scene'
 import { applyPresetSnapshot, capturePresetSnapshot, createDefaultPresetSnapshot } from '@/features/presets/model'
 import { parsePortablePreset, serializePortablePreset, validatePortablePreset } from '@/features/presets/transfer'
-import { createDefaultPet3dPreset, useCatStore } from '@/stores/cat'
+import { createDefaultPet3dPreset, useBlockStore } from '@/stores/block'
 
 import presetRanges from './presetRanges.json'
 
@@ -36,7 +36,7 @@ describe('shared actual preset ranges', () => {
     const defaults = createDefaultPet3dPreset()
     for (const edge of ['min', 'max'] as const) {
       setActivePinia(createPinia())
-      const store = useCatStore()
+      const store = useBlockStore()
       const snapshot = createDefaultPresetSnapshot()
       for (const [key, range] of Object.entries(presetRanges.preset)) {
         Object.assign(snapshot.preset, { [key]: range[edge] + (edge === 'min' ? -100 : 100) })
@@ -63,7 +63,7 @@ describe('shared actual preset ranges', () => {
 
   it('preserves actual fractional values through stored snapshots, portable files and OBS', () => {
     setActivePinia(createPinia())
-    const store = useCatStore()
+    const store = useBlockStore()
     store.init()
     const document = parsePortablePreset(fixture)
     document.settings.opacity = 10.9

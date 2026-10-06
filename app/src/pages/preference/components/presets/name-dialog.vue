@@ -14,6 +14,8 @@ const props = defineProps<{
   open: boolean
   mode: 'new' | 'rename'
   entry?: PresetEntry
+  initialName?: string
+  retryCreation?: boolean
 }>()
 const emit = defineEmits<{ close: [] }>()
 const { t, te } = useI18n()
@@ -30,7 +32,7 @@ watch(() => props.open, async (open) => {
   if (!open) return
   name.value = props.mode === 'rename'
     ? props.entry?.name ?? ''
-    : props.manager.getSuggestedName()
+    : props.initialName ?? props.manager.getSuggestedName()
   validationError.value = undefined
   operationError.value = undefined
   await nextTick()
@@ -55,16 +57,28 @@ async function submit() {
     return
   }
   if (props.manager.entries.value.some(entry => entry.id !== (props.mode === 'rename' ? props.entry?.id : undefined)
-    && (entry.builtin ? t('pages.preference.presets.builtinName') : entry.name) === trimmedName)) {
+    && entry.name === trimmedName)) {
     validationError.value = t('pages.preference.presets.errors.duplicateName')
+    return
+  }
+  if (props.mode === 'new') {
+    submitting.value = true
+    // The resident manager owns the captured request and any retry after unmount.
+    emit('close')
+    try {
+      if (props.retryCreation) await props.manager.retryCreate(trimmedName)
+      else await props.manager.create(trimmedName)
+    } catch (error) {
+      reportDiagnostic('error', 'presets.name_ui', error)
+    } finally {
+      submitting.value = false
+    }
     return
   }
   submitting.value = true
   operationError.value = undefined
   try {
-    const success = props.mode === 'new'
-      ? await props.manager.create(trimmedName)
-      : Boolean(props.entry && await props.manager.rename(props.entry.id, trimmedName))
+    const success = Boolean(props.entry && await props.manager.rename(props.entry.id, trimmedName))
     if (success) {
       emit('close')
     } else {

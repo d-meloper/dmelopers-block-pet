@@ -1,9 +1,10 @@
 /* eslint-disable test/no-import-node-test */
-import type { WebGLRenderer } from 'three'
+import type { TestContext } from 'node:test'
+import type { Color, WebGLRenderer } from 'three'
 
 import assert from 'node:assert/strict'
 import { describe, it, mock } from 'node:test'
-import { BoxGeometry, DirectionalLight, Group, Mesh, MeshStandardMaterial, Scene, Texture, WebGLRenderTarget } from 'three'
+import { BoxGeometry, DirectionalLight, Group, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, Texture, WebGLRenderTarget } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 
 import three3d, { Three3DRenderer } from '../three3d'
@@ -12,6 +13,7 @@ import {
   disposeRendererForReuse,
   restoreRendererCanvas,
 } from './rendererLifecycle'
+import { normalizeVoxelSkin } from './voxelSkin'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -307,6 +309,165 @@ describe('hidden renderer resource disposal', () => {
   })
 })
 
+describe('pet-only loading presentation', () => {
+  function fixture(t: TestContext) {
+    const engine = new Three3DRenderer()
+    const scene = new Scene()
+    const root = new Group()
+    const pet = new Group()
+    pet.name = 'petGroup'
+    const mesh = new Mesh(new BoxGeometry(), new MeshStandardMaterial())
+    mesh.name = 'pet'
+    pet.add(mesh)
+    const objects = ['desk', 'keyboard', 'mouse'].map((name, index) => {
+      const object = new Mesh(new BoxGeometry(), new MeshStandardMaterial())
+      object.name = name
+      object.position.x = index + 2
+      return object
+    })
+    root.add(pet, ...objects)
+    scene.add(root)
+    const camera = new PerspectiveCamera()
+    camera.position.z = 10
+    camera.updateMatrixWorld(true)
+    let target: WebGLRenderTarget | null = null
+    let failDraw = false
+    const draws: Array<{ measured: boolean, objects: string[] }> = []
+    const info = { render: { calls: 0 } }
+    const renderer = {
+      info,
+      capabilities: { maxTextureSize: 2048 },
+      autoClear: true,
+      shadowMap: { autoUpdate: true, needsUpdate: false },
+      getContext: () => ({ NO_ERROR: 0, isContextLost: () => false, getError: () => 0 }),
+      getRenderTarget: () => target,
+      setRenderTarget: (next: WebGLRenderTarget | null) => {
+        target = next
+      },
+      getClearColor: (color: Color) => color.set(0),
+      getClearAlpha: () => 0,
+      setClearColor: () => {},
+      setPixelRatio: () => {},
+      setSize: () => {},
+      clear: () => {},
+      readRenderTargetPixelsAsync: async (_target: unknown, _x: number, _y: number, _w: number, _h: number, pixels: Uint8Array) => {
+        pixels.fill(255)
+      },
+      render: (drawScene: Scene, drawCamera: PerspectiveCamera) => {
+        if (failDraw) throw new Error('presentation draw failed')
+        const names: string[] = []
+        info.render.calls = 0
+        drawScene.traverseVisible((object) => {
+          if (!(object instanceof Mesh)) return
+          const args = [renderer, drawScene, drawCamera, object.geometry, object.material, null] as unknown as Parameters<typeof object.onBeforeRender>
+          object.onBeforeRender(...args)
+          info.render.calls++
+          object.onAfterRender(...args)
+          names.push(object.name)
+        })
+        draws.push({ measured: !!target, objects: names })
+      },
+    } as unknown as WebGLRenderer
+    const state = engine as unknown as { renderer?: WebGLRenderer, scene: Scene, sceneRoot: Group, camera: PerspectiveCamera, petModel: Group, renderFrame: (time: number) => void }
+    Object.assign(state, { renderer, scene, sceneRoot: root, camera, petModel: pet })
+    t.after(() => {
+      state.renderer = undefined
+      engine.destroy()
+    })
+    return { engine, pet, objects, draws, state, fail: (value: boolean) => {
+      failDraw = value
+    } }
+  }
+
+  it('keeps surrounding draws while hiding the pet immediately, during resize and on subsequent frames', (t) => {
+    const h = fixture(t)
+    const before = h.engine.getConservativeContentRect()
+    h.engine.setPetPresentationVisible(false)
+    h.engine.resizeOutput(200, 180)
+    h.engine.renderStillFrame()
+    const previousRequest = globalThis.requestAnimationFrame
+    globalThis.requestAnimationFrame = () => 1
+    try {
+      h.state.renderFrame(1000)
+    } finally {
+      // Retire the fake RAF before the fixture's resource cleanup.
+      Object.assign(h.state, { frameId: undefined })
+      globalThis.requestAnimationFrame = previousRequest
+    }
+    assert.equal(h.draws.length, 4)
+    h.draws.forEach(draw => assert.deepEqual(draw.objects, ['desk', 'keyboard', 'mouse']))
+    assert.equal(h.pet.visible, true, 'presentation masking must not alter the scene used for fitting')
+    assert.deepEqual(h.engine.getConservativeContentRect(), before)
+    h.engine.setPetPresentationVisible(true)
+    assert.deepEqual(h.draws.at(-1)?.objects, ['pet', 'desk', 'keyboard', 'mouse'])
+  })
+
+  it('measures the complete returning pet and proves its healthy frame without releasing the loading mask', async (t) => {
+    const h = fixture(t)
+    h.engine.setPetPresentationVisible(false)
+    const measured = await h.engine.measureVisibleContentRect()
+    assert.equal(measured.status, 'success')
+    assert.deepEqual(h.draws.at(-1), { measured: true, objects: ['pet', 'desk', 'keyboard', 'mouse'] })
+    assert.equal(h.engine.renderHealthFrame(), true)
+    h.engine.renderStillFrame()
+    assert.deepEqual(h.draws.at(-1)?.objects, ['desk', 'keyboard', 'mouse'])
+    assert.equal(h.pet.visible, true)
+  })
+
+  it('keeps successful alpha readback tight without adding a head-motion envelope', async (t) => {
+    const h = fixture(t)
+    const spine = new Group()
+    spine.name = 'Spine02'
+    const head = new Group()
+    head.name = 'Head'
+    head.position.y = 1
+    spine.add(head)
+    h.pet.add(spine)
+    h.engine.setAutoViewportPadding(0)
+    const rect = { x: 0, y: 0, width: 100, height: 80 }
+    t.mock.method(h.engine, 'getConservativeContentRect', () => rect)
+    assert.deepEqual(await h.engine.measureVisibleContentRect(), { status: 'success', rect })
+  })
+
+  it('restores scene visibility on draw failure and preserves an independently hidden pet', (t) => {
+    const h = fixture(t)
+    h.fail(true)
+    assert.throws(() => h.engine.setPetPresentationVisible(false), /presentation draw failed/)
+    assert.equal(h.pet.visible, true)
+    h.fail(false)
+    h.engine.renderStillFrame()
+    assert.deepEqual(h.draws.at(-1)?.objects, ['desk', 'keyboard', 'mouse'])
+    h.pet.visible = false
+    h.engine.setPetPresentationVisible(true)
+    assert.equal(h.pet.visible, false)
+    assert.deepEqual(h.draws.at(-1)?.objects, ['desk', 'keyboard', 'mouse'])
+  })
+
+  it('keeps the current canvas and surroundings through a delayed skin-only replacement', async (t) => {
+    const h = fixture(t)
+    const skin = deferred<ReturnType<typeof normalizeVoxelSkin>>()
+    // The fixture keeps GPU drawing deterministic; actual Wide/Slim skin rig
+    // geometry is covered separately by voxelSkin and pet tests.
+    Object.assign(h.engine, { voxelSkinModelController: { setModel() {}, dispose() {} } })
+    const load = t.mock.method(h.engine as unknown as { loadSkin: () => Promise<ReturnType<typeof normalizeVoxelSkin>> }, 'loadSkin', () => skin.promise)
+    const canvasRenderer = h.state.renderer
+    h.engine.setPetPresentationVisible(false)
+    const replacement = h.engine.setDmeloperSkin('/new-skin.png', 'wide')
+    assert.equal(load.mock.callCount(), 1)
+    for (let frame = 0; frame < 3; frame++) h.engine.renderStillFrame()
+    assert.ok(h.draws.every(draw => draw.objects.join(',') === 'desk,keyboard,mouse'))
+    skin.resolve(normalizeVoxelSkin({ width: 64, height: 64, data: new Uint8Array(64 * 64 * 4).fill(255) }, 'wide'))
+    assert.equal(await replacement, 'wide')
+    assert.equal(h.state.renderer, canvasRenderer)
+    assert.equal(h.state.petModel, h.pet)
+    assert.equal(h.engine.getPendingPetAssetState(), undefined)
+    h.engine.renderStillFrame()
+    assert.deepEqual(h.draws.at(-1)?.objects, ['desk', 'keyboard', 'mouse'])
+    h.engine.setPetPresentationVisible(true)
+    assert.deepEqual(h.draws.at(-1)?.objects, ['pet', 'desk', 'keyboard', 'mouse'])
+  })
+})
+
 describe('renderer input wiring', () => {
   it('updates all four arm settings without loading assets and invalidates bounds only when changed', () => {
     three3d.destroy()
@@ -348,13 +509,14 @@ describe('renderer input wiring', () => {
     const scroll = mock.fn()
     const mouseReset = mock.fn()
     const petButton = mock.fn()
+    const petPointer = mock.fn()
     const petKey = mock.fn()
     const eyebrowKey = mock.fn()
     const eyebrowButton = mock.fn()
     const modes: boolean[] = []
     Object.assign(three3d, {
       mouse: { setMouseEnabled: (value: boolean) => modes.push(value), resetInput: mouseReset, setMouseButtonPressed: mouseButton, pulseWheelScroll: scroll, setMousePosition: mock.fn() },
-      petAnimator: { setMouseEnabled: mock.fn(), setMouseButtonPressed: petButton, setKeyPressed: petKey, dispose: mock.fn() },
+      petAnimator: { setMouseEnabled: mock.fn(), setMousePosition: petPointer, setMouseButtonPressed: petButton, setKeyPressed: petKey, resetMouseInput: mock.fn(), resetInput: mock.fn(), dispose: mock.fn() },
       dmeloperEyebrowController: { setMouseEnabled: mock.fn(), resetMouseInput: mock.fn(), setKeyPressed: eyebrowKey, setMouseButtonPressed: eyebrowButton, dispose: mock.fn() },
       keyboard: { getContactTarget: () => undefined, setContactPressed: mock.fn() },
     })
@@ -370,6 +532,9 @@ describe('renderer input wiring', () => {
       assert.equal(eyebrowButton.mock.callCount(), 0)
       assert.deepEqual(scroll.mock.calls[0].arguments, [0.01, -0.02])
       three3d.setMouseEnabled(false)
+      three3d.setMouseInputActive(false)
+      three3d.handleSemanticInput({ kind: 'pointer_activity', x: 0.25, y: 0.75 })
+      assert.deepEqual(petPointer.mock.calls.at(-1)?.arguments, [0.25, 0.75])
       three3d.handleSemanticInput({ kind: 'mouse_primary', active: true })
       three3d.handleSemanticInput({ kind: 'scroll', deltaX: 1, deltaY: 2 })
       three3d.handleSemanticInput({ kind: 'typing', active: true, intensity: 1, contact: { row: 2, column: 3, pressed: true } })
@@ -381,7 +546,7 @@ describe('renderer input wiring', () => {
       three3d.handleSemanticInput({ kind: 'typing', active: false, intensity: 0, contact: { row: 2, column: 3, pressed: false } })
       assert.deepEqual(petKey.mock.calls.map(call => call.arguments), [['2:3', true, undefined], ['2:3', false, undefined]])
       assert.deepEqual(eyebrowKey.mock.calls.map(call => call.arguments.slice(0, 2)), [['2:3', true], ['2:3', false]])
-      assert.equal(mouseReset.mock.callCount(), 1)
+      assert.equal(mouseReset.mock.callCount(), 2)
       three3d.setMouseEnabled(true)
       three3d.setInputActive(true)
       three3d.handleSemanticInput({ kind: 'scroll', deltaX: 1, deltaY: 2 })

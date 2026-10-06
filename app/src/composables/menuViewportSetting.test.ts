@@ -42,7 +42,7 @@ function appHarness(label = 'preference') {
       return Reflect.set(target, key, value)
     },
   })
-  const cat = {
+  const block = {
     window: { visible: true },
     $tauri: { start: () => restored.promise },
     init: () => {
@@ -80,7 +80,7 @@ function appHarness(label = 'preference') {
     './plugins/windowNavigation': windowNavigation,
     './constants': constants,
     './stores/app': { useAppStore: () => startedStore },
-    './stores/cat': { useCatStore: () => cat },
+    './stores/block': { useBlockStore: () => block },
     './stores/general': { useGeneralStore: () => general },
     './stores/shortcut.ts': { useShortcutStore: () => startedStore },
   }
@@ -102,7 +102,7 @@ function appHarness(label = 'preference') {
     preset,
     shown: () => shown,
     rendererShowRequests: () => rendererShowRequests,
-    cat,
+    block,
     general,
     requestShow: () => listeners.get(constants.LISTEN_KEY.SHOW_WINDOW)!({ payload: label }),
   }
@@ -119,7 +119,7 @@ describe('menu viewport requests through the App listener', () => {
         for (const showOnDesktop of [false, true]) {
           for (const visible of [false, true]) {
             Object.assign(h.general.broadcast, { enabled, showOnDesktop })
-            h.cat.window.visible = visible
+            h.block.window.visible = visible
             const previous = label === 'main' ? h.rendererShowRequests() : h.shown()
             h.requestShow()
             await flush()

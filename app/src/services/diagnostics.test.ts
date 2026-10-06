@@ -30,6 +30,9 @@ describe('failure diagnostics', () => {
     assert.equal(diagnosticCode('Command plugin:window|private_user not allowed by ACL'), 'permission_denied')
     assert.equal(diagnosticCode(new Error('QUIESCE_FAILED')), 'QUIESCE_FAILED')
     assert.equal(diagnosticCode(new Error('QUIESCE_TIMEOUT')), 'QUIESCE_TIMEOUT')
+    for (const code of ['LOG_DIRECTORY_FORBIDDEN', 'LOG_DIRECTORY_UNAVAILABLE', 'LOG_DIRECTORY_CREATE_FAILED']) {
+      assert.equal(diagnosticCode(code), code)
+    }
     assert.equal(diagnosticCode(new Error('C:\\Users\\QUIESCE_FAILED\\private.bin')), 'unclassified_failure')
     assert.equal(diagnosticCode(new TypeError('private field')), 'TypeError')
     assert.equal(diagnosticCode(new Error('Cannot read C:\\Users\\SKIN_PRIVATE_USER_TOKEN\\skin.png')), 'unclassified_failure')
@@ -58,6 +61,10 @@ describe('failure diagnostics', () => {
   })
 
   it('accepts only known console operation text and safe application locations', () => {
+    assert.equal(consoleOperation('warn', 'IPC custom protocol failed, Tauri will now use the postMessage interface instead'), 'ipc.protocol_fallback')
+    assert.equal(consoleOperation('warn', '[TAURI] Couldn\'t find callback id 1234. This might happen when the app is reloaded while Rust is running an asynchronous operation.'), 'ipc.callback_missing')
+    assert.equal(consoleOperation('warn', '[TAURI] Couldn\'t find callback id private-data. This might happen when the app is reloaded while Rust is running an asynchronous operation.'), 'console.warn')
+    assert.equal(consoleOperation('warn', '[TAURI] Couldn\'t find callback id 1234. This might happen when the app is reloaded while Rust is running an asynchronous operation. private-data'), 'console.warn')
     assert.equal(consoleOperation('warn', 'Failed to synchronize the broadcast scene.'), 'broadcast.synchronize')
     assert.equal(consoleOperation('warn', 'User private-name has private-data'), 'console.warn')
     assert.equal(diagnosticLocation({ stack: 'Error\n at C:\\Users\\private\\script.js:1:2' }), undefined)

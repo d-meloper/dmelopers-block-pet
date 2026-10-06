@@ -6,7 +6,7 @@ import {
   createSkinFaceThumbnailPngBase64,
   createSkinThumbnailDataUrl,
 } from '@/utils/skinThumbnail'
-import { decodeVoxelSkin } from '@/utils/three3d/voxelSkin'
+import { decodeVoxelSkin, suggestVoxelSkinHeadTopColor } from '@/utils/three3d/voxelSkin'
 
 export const DEFAULT_DMELOPER_SKIN_RESOURCE = 'assets/models/dmeloper/default.png'
 export { BUILTIN_DMELOPER_SKIN } from '@/config/skinIdentity'
@@ -49,11 +49,18 @@ export function resolveDmeloperSkinUrl(storedDataUrl?: string): Promise<string> 
 }
 
 /** Sample the bundled skin only when the user explicitly selects it. */
-export async function resolveDefaultDmeloperPalmColor(): Promise<string> {
+export async function resolveDefaultDmeloperColors(): Promise<{ palmColor: string, eyebrowColor: string }> {
   const response = await fetch(await resolveDmeloperSkinUrl())
   if (!response.ok) throw new Error('The bundled skin image could not be read.')
   const decoded = await decodeVoxelSkin(await response.blob(), BUILTIN_DMELOPER_SKIN.model)
-  return decoded.suggestedPalmColor
+  return {
+    palmColor: decoded.suggestedPalmColor,
+    eyebrowColor: suggestVoxelSkinHeadTopColor(decoded.data),
+  }
+}
+
+export async function resolveDefaultDmeloperPalmColor(): Promise<string> {
+  return (await resolveDefaultDmeloperColors()).palmColor
 }
 
 /** Build the same face/hat preview as imported skins from the bundled PNG only. */

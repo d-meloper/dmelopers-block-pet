@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { PhysicalPosition } from '@tauri-apps/api/dpi'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { cursorPosition } from '@tauri-apps/api/window'
 import { isNil } from 'es-toolkit'
 import { onMounted, onUnmounted, watch } from 'vue'
 
@@ -9,7 +10,7 @@ import type { DeviceInputState, SemanticInputEvent } from '@/features/input/type
 
 import { isCurrentSemanticInput, isDeviceInputState, isSemanticInputEvent } from '@/features/input/types'
 import { useAppStore } from '@/stores/app'
-import { useCatStore } from '@/stores/cat'
+import { useBlockStore } from '@/stores/block'
 import { inBetween } from '@/utils/is'
 import { getCursorMonitor } from '@/utils/monitor'
 import three3d from '@/utils/three3d'
@@ -140,7 +141,9 @@ export function createDeviceInputSession(deps: DeviceSessionDependencies) {
     status,
     accepts(event: SemanticInputEvent) {
       if (disposed || !active || !nativeActive || !nativeState) return false
-      return event.kind === 'typing' || (mouseActive() && isCurrentSemanticInput(event, nativeState))
+      return event.kind === 'typing'
+        || ((event.kind === 'pointer_activity' ? pending === 0 : mouseActive())
+          && isCurrentSemanticInput(event, nativeState))
     },
     start: () => enqueue(async () => {
       await ensureStarted()
@@ -187,13 +190,19 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
   let nativeClaimed = false
   const appWindow = getCurrentWebviewWindow()
   const appStore = useAppStore()
-  const catStore = useCatStore()
+  const blockStore = useBlockStore()
   let hideTimer: ReturnType<typeof setTimeout> | undefined
   let cursorFrameId: number | undefined
   let latestCursorPoint: (CursorPoint & { mouseGeneration?: number }) | undefined
   let pointerSequence = 0
   let disposed = false
   let wasInWindow = false
+  let hoverActive = false
+  let hoverPositionSequence = 0
+  let hoverActivityGeneration = 0
+  let hoverPollGeneration = 0
+  let hoverPollTimer: ReturnType<typeof setTimeout> | undefined
+  let hoverPollRunning = false
   let stopInputListener: (() => void) | undefined
   let listenerRegistration: Promise<void> | undefined
 
@@ -211,12 +220,15 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
   const restoreHoverState = () => {
     clearHideTimer()
     document.body.style.setProperty('opacity', 'unset')
-    void appWindow.setIgnoreCursorEvents(catStore.window.passThrough).catch(reportCursorEventsFailure)
+    void appWindow.setIgnoreCursorEvents(blockStore.window.passThrough).catch(reportCursorEventsFailure)
     wasInWindow = false
   }
 
+  const shouldTrackHover = () => !disposed && hoverActive && blockStore.window.visible
+    && blockStore.window.hideOnHover && !blockStore.window.passThrough
+
   const handleHoverPosition = (x: number, y: number) => {
-    if (!catStore.window.hideOnHover || catStore.window.passThrough) return
+    if (!shouldTrackHover()) return
 
     const { x: winX, y: winY, width, height } = appStore.windowState[WINDOW_LABEL.MAIN] ?? {}
 
@@ -231,20 +243,53 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
 
     if (isInWindow) {
       hideTimer = setTimeout(() => {
-        if (disposed || !latestCursorPoint || !session.accepts({ kind: 'pointer_activity', ...latestCursorPoint })) return
+        if (!shouldTrackHover()) return
         document.body.style.setProperty('opacity', '0')
         void appWindow.setIgnoreCursorEvents(true).catch(reportCursorEventsFailure)
-      }, catStore.window.hideOnHoverDelay * 1000)
+      }, blockStore.window.hideOnHoverDelay * 1000)
     } else {
       document.body.style.setProperty('opacity', 'unset')
-      void appWindow.setIgnoreCursorEvents(catStore.window.passThrough).catch(reportCursorEventsFailure)
+      void appWindow.setIgnoreCursorEvents(blockStore.window.passThrough).catch(reportCursorEventsFailure)
     }
 
     wasInWindow = isInWindow
   }
 
+  const stopHoverPolling = () => {
+    hoverPollGeneration++
+    clearTimeout(hoverPollTimer)
+    hoverPollTimer = undefined
+  }
+  const pollHoverPosition = async () => {
+    hoverPollTimer = undefined
+    if (!shouldTrackHover() || hoverPollRunning) return
+    hoverPollRunning = true
+    const generation = hoverPollGeneration
+    const sequence = hoverPositionSequence
+    try {
+      // Hover is a window behavior; it must not depend on the pet's mouse hooks.
+      const point = await cursorPosition()
+      if (generation === hoverPollGeneration && sequence === hoverPositionSequence && shouldTrackHover()) {
+        handleHoverPosition(point.x, point.y)
+      }
+    } catch {
+      if (generation === hoverPollGeneration && shouldTrackHover()) console.warn('Failed to read the hover cursor position.')
+    } finally {
+      hoverPollRunning = false
+      if (shouldTrackHover()) hoverPollTimer = setTimeout(() => void pollHoverPosition(), 100)
+    }
+  }
+  const synchronizeHoverTracking = () => {
+    if (!shouldTrackHover()) {
+      stopHoverPolling()
+      restoreHoverState()
+    } else if (hoverPollTimer === undefined && !hoverPollRunning) {
+      void pollHoverPosition()
+    }
+  }
+
   const session = createDeviceInputSession({
-    readSetting: () => catStore.activePet3dPreset.mouseEnabled,
+    readSetting: () => blockStore.activePet3dPreset.mouseEnabled,
     start: async (enabled) => {
       await listenerRegistration
       if (disposed) throw new Error('The input session has ended.')
@@ -275,7 +320,7 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
       nativeSessionOwner = undefined
     }),
     onConfirmed: (enabled) => {
-      catStore.activePet3dPreset.mouseEnabled = enabled
+      blockStore.activePet3dPreset.mouseEnabled = enabled
       three3d.setMouseEnabled(enabled)
     },
     onGate: (enabled) => {
@@ -286,16 +331,13 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
       latestCursorPoint = undefined
       if (cursorFrameId !== undefined) cancelAnimationFrame(cursorFrameId)
       cursorFrameId = undefined
-      restoreHoverState()
       options.onMouseReset?.()
     },
   })
 
   watch(
-    [() => catStore.window.hideOnHover, () => catStore.window.passThrough],
-    ([hideOnHover, passThrough]) => {
-      if (!hideOnHover || passThrough) restoreHoverState()
-    },
+    [() => blockStore.window.hideOnHover, () => blockStore.window.passThrough, () => blockStore.window.visible],
+    synchronizeHoverTracking,
   )
 
   const registerListeners = async () => {
@@ -304,6 +346,7 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
       if (payload.kind === 'pointer_activity') {
         latestCursorPoint = payload
         pointerSequence += 1
+        hoverPositionSequence += 1
         handleHoverPosition(payload.x, payload.y)
         scheduleMousePositionUpdate()
         return
@@ -356,6 +399,8 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
 
   onUnmounted(() => {
     disposed = true
+    hoverActivityGeneration++
+    stopHoverPolling()
     three3d.setInputActive(false)
     restoreHoverState()
     stopInputListener?.()
@@ -373,8 +418,17 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
     requestMouseSetting: session.request,
     setInputActive: (active: boolean, confirmNative = false) => {
       if (disposed) return confirmNative ? Promise.reject(new Error('The input session has ended.')) : Promise.resolve()
+      const generation = ++hoverActivityGeneration
+      if (!active) {
+        hoverActive = false
+        synchronizeHoverTracking()
+      }
       three3d.setInputActive(active)
-      return session.setActive(active, confirmNative)
+      return session.setActive(active, confirmNative).then(() => {
+        if (disposed || generation !== hoverActivityGeneration) return
+        hoverActive = active
+        synchronizeHoverTracking()
+      })
     },
     startListening: async () => {
       await session.start()

@@ -14,13 +14,13 @@ function otherShortcuts(key: keyof typeof shortcutStore.$state): string[] {
 <template>
   <ProList :title="$t('pages.preference.shortcut.title')">
     <ProListItem
-      :description="$t('pages.preference.shortcut.hints.toggleCat')"
-      :title="$t('pages.preference.shortcut.labels.toggleCat')"
+      :description="$t('pages.preference.shortcut.hints.toggleBlock')"
+      :title="$t('pages.preference.shortcut.labels.toggleBlock')"
     >
       <Shortcut
-        v-model="shortcutStore.visibleCat"
-        :label="$t('pages.preference.shortcut.labels.toggleCat')"
-        :reserved-shortcuts="otherShortcuts('visibleCat')"
+        v-model="shortcutStore.visibleBlock"
+        :label="$t('pages.preference.shortcut.labels.toggleBlock')"
+        :reserved-shortcuts="otherShortcuts('visibleBlock')"
       />
     </ProListItem>
 

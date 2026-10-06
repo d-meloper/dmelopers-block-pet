@@ -8,6 +8,7 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2_19,
 };
 use windows::Win32::Foundation::{GetLastError, HWND, SetLastError, WIN32_ERROR};
+use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_COLOR_DEFAULT};
 use windows::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, GetForegroundWindow, GetWindowLongW, HWND_NOTOPMOST, HWND_TOPMOST, IsIconic,
     IsWindowVisible, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos, WS_EX_NOACTIVATE, WS_EX_TOPMOST,
@@ -310,6 +311,43 @@ pub async fn set_always_on_top<R: Runtime>(
     }
 }
 
+fn preference_caption_color(label: &str, dark: bool) -> Result<u32, String> {
+    if label != PREFERENCE_WINDOW_LABEL {
+        return Err("Only the preference window can set its caption color.".into());
+    }
+    Ok(if dark {
+        0x00202020
+    } else {
+        DWMWA_COLOR_DEFAULT
+    })
+}
+
+#[command]
+pub async fn set_preference_caption_color<R: Runtime>(
+    window: WebviewWindow<R>,
+    dark: bool,
+) -> Result<(), String> {
+    let color = preference_caption_color(window.label(), dark)?;
+    let hwnd = window
+        .hwnd()
+        .map_err(|_| "WINDOW_HANDLE_UNAVAILABLE".to_owned())?;
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_CAPTION_COLOR,
+            (&color as *const u32).cast(),
+            std::mem::size_of::<u32>() as u32,
+        )
+    }
+    .map_err(|error| {
+        super::warn(
+            "window.preference_caption",
+            &format!("HRESULT_0x{:08X}", error.code().0 as u32),
+        );
+        "CAPTION_COLOR_UNAVAILABLE".to_owned()
+    })
+}
+
 #[command]
 pub async fn set_taskbar_visibility<R: Runtime>(window: WebviewWindow<R>, visible: bool) {
     if window.set_skip_taskbar(!visible).is_err() {
@@ -320,6 +358,20 @@ pub async fn set_taskbar_visibility<R: Runtime>(window: WebviewWindow<R>, visibl
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn caption_color_is_preference_only_and_light_restores_the_native_default() {
+        assert_eq!(
+            preference_caption_color(PREFERENCE_WINDOW_LABEL, true).unwrap(),
+            0x00202020
+        );
+        assert_eq!(
+            preference_caption_color(PREFERENCE_WINDOW_LABEL, false).unwrap(),
+            DWMWA_COLOR_DEFAULT
+        );
+        assert!(preference_caption_color(MAIN_WINDOW_LABEL, true).is_err());
+        assert!(preference_caption_color("remote", false).is_err());
+    }
 
     #[test]
     fn unfocused_presentation_restores_focusability_on_success_and_failure() {

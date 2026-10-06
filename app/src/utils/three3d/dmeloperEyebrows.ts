@@ -60,11 +60,9 @@ interface ExpressionPose {
 const TRANSITION_MS = 220
 const IDLE_MIN_MS = 4000
 const IDLE_MAX_MS = 7000
-const FOCUS_KEY_COUNT = 8
+const FOCUS_INPUT_COUNT = 15
 const FOCUS_WINDOW_MS = 1500
-const FOCUS_RELEASE_MS = 1000
-const MOUSE_FOCUS_CLICK_COUNT = 4
-const MOUSE_FOCUS_WINDOW_MS = 800
+const FOCUS_RELEASE_MS = 400
 const KEY_PULSE_MS = 120
 const KEY_PULSE_MERGE_MS = 90
 const BASE_SPACING_PIXELS = 1.5
@@ -211,9 +209,9 @@ export function createDmeloperEyebrowController(
   let mouseEnabled = true
   let disposed = false
   const heldKeys = new Set<string>()
-  const recentDistinctKeys = new Map<string, number>()
+  const recentKeyboardPresses: number[] = []
   const heldMouseButtons = new Set<'Left' | 'Right'>()
-  const recentClickTimes: number[] = []
+  const recentMousePresses: number[] = []
 
   const chooseNextIdleState = (): DmeloperEyebrowIdleState => {
     const candidates = IDLE_STATES.filter(state => state !== idleState)
@@ -242,8 +240,8 @@ export function createDmeloperEyebrowController(
     lastFocusInputAt = Number.NEGATIVE_INFINITY
     lastKeyboardFocusInputAt = Number.NEGATIVE_INFINITY
     keyPulseStartedAt = Number.NEGATIVE_INFINITY
-    recentDistinctKeys.clear()
-    recentClickTimes.length = 0
+    // Keep the rolling window for the next fresh input; only explicit resets
+    // discard history. A quiet return changes the expression, not press history.
     beginTransition(ZERO_POSE, timestamp)
     scheduleIdle(timestamp)
   }
@@ -259,9 +257,9 @@ export function createDmeloperEyebrowController(
     lastKeyboardFocusInputAt = Number.NEGATIVE_INFINITY
     keyPulseStartedAt = Number.NEGATIVE_INFINITY
     heldKeys.clear()
-    recentDistinctKeys.clear()
+    recentKeyboardPresses.length = 0
     heldMouseButtons.clear()
-    recentClickTimes.length = 0
+    recentMousePresses.length = 0
     scheduleIdle(timestamp)
   }
   const applyColor = (): void => {
@@ -347,6 +345,29 @@ export function createDmeloperEyebrowController(
     resetAnimation(timestamp)
     apply(timestamp)
   }
+  const prepareFocusInput = (timestamp: number): void => {
+    // An input callback can arrive before the frame that notices the silence.
+    // Expire the old focus first, matching the frame-before-input ordering.
+    if (focusActive && timestamp - lastFocusInputAt >= FOCUS_RELEASE_MS) {
+      returnToNeutral(timestamp)
+    }
+    for (const inputs of [recentKeyboardPresses, recentMousePresses]) {
+      while (inputs.length > 0 && timestamp - inputs[0] > FOCUS_WINDOW_MS) {
+        inputs.shift()
+      }
+    }
+  }
+  const recordPress = (inputs: number[], timestamp: number): void => {
+    inputs.push(timestamp)
+    // Only the latest threshold-sized window can affect qualification. Older
+    // presses expire first, so dropping them cannot lose a qualifying window.
+    if (inputs.length > FOCUS_INPUT_COUNT) inputs.shift()
+  }
+  const refreshFocus = (timestamp: number): void => {
+    if (focusActive || recentKeyboardPresses.length + recentMousePresses.length >= FOCUS_INPUT_COUNT) {
+      enterFocus(timestamp)
+    }
+  }
   const setKeyPressed: DmeloperEyebrowController['setKeyPressed'] = (
     key,
     pressed,
@@ -359,16 +380,14 @@ export function createDmeloperEyebrowController(
     }
     if (heldKeys.has(key)) return
     heldKeys.add(key)
+    prepareFocusInput(timestamp)
     lastFocusInputAt = timestamp
-    for (const [knownKey, pressedAt] of recentDistinctKeys) {
-      if (timestamp - pressedAt > FOCUS_WINDOW_MS) recentDistinctKeys.delete(knownKey)
-    }
-    recentDistinctKeys.set(key, timestamp)
-    // Track keyboard-qualified focus separately from a mouse-induced focus or
+    recordPress(recentKeyboardPresses, timestamp)
+    // Track keyboard-qualified focus separately from mixed-input focus or
     // its click extensions, so disabling the mouse preserves only keyboard input.
     if (
       timestamp - lastKeyboardFocusInputAt < FOCUS_RELEASE_MS
-      || recentDistinctKeys.size >= FOCUS_KEY_COUNT
+      || recentKeyboardPresses.length >= FOCUS_INPUT_COUNT
     ) {
       lastKeyboardFocusInputAt = timestamp
     }
@@ -377,9 +396,7 @@ export function createDmeloperEyebrowController(
     if (timestamp - keyPulseStartedAt >= KEY_PULSE_MERGE_MS) {
       keyPulseStartedAt = timestamp
     }
-    if (focusActive || recentDistinctKeys.size >= FOCUS_KEY_COUNT) {
-      enterFocus(timestamp)
-    }
+    refreshFocus(timestamp)
   }
   const setMouseButtonPressed: DmeloperEyebrowController['setMouseButtonPressed'] = (
     button,
@@ -393,23 +410,15 @@ export function createDmeloperEyebrowController(
     }
     if (heldMouseButtons.has(button)) return
     heldMouseButtons.add(button)
-    if (focusActive) lastFocusInputAt = timestamp
-    while (
-      recentClickTimes.length > 0
-      && timestamp - recentClickTimes[0] > MOUSE_FOCUS_WINDOW_MS
-    ) {
-      recentClickTimes.shift()
-    }
-    recentClickTimes.push(timestamp)
-    if (recentClickTimes.length >= MOUSE_FOCUS_CLICK_COUNT) {
-      recentClickTimes.length = 0
-      enterFocus(timestamp)
-    }
+    prepareFocusInput(timestamp)
+    lastFocusInputAt = timestamp
+    recordPress(recentMousePresses, timestamp)
+    refreshFocus(timestamp)
   }
   const resetMouseInput: DmeloperEyebrowController['resetMouseInput'] = (timestamp = now()) => {
     if (disposed) return
     heldMouseButtons.clear()
-    recentClickTimes.length = 0
+    recentMousePresses.length = 0
     if (focusActive) {
       if (timestamp - lastKeyboardFocusInputAt < FOCUS_RELEASE_MS) {
         lastFocusInputAt = lastKeyboardFocusInputAt

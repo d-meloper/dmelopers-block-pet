@@ -17,9 +17,10 @@ export interface GeneralStore {
   app: {
     autostart: boolean
     taskbarVisible: boolean
-    trayVisible: boolean
     autoUpdateCheck: boolean
     updateReminderHiddenUntil: number
+    broadcastRestorePromptDismissed: boolean
+    applyPresetSkin: boolean
   }
   appearance: {
     theme: 'auto' | Theme
@@ -65,6 +66,9 @@ export const useGeneralStore = defineStore('general', () => {
   const init = async () => {
     if (!Number.isFinite(app.updateReminderHiddenUntil) || app.updateReminderHiddenUntil < 0) {
       app.updateReminderHiddenUntil = DEFAULT_GENERAL_SETTINGS.app.updateReminderHiddenUntil
+    }
+    for (const key of ['broadcastRestorePromptDismissed', 'applyPresetSkin'] as const) {
+      if (typeof app[key] !== 'boolean') app[key] = DEFAULT_GENERAL_SETTINGS.app[key]
     }
     broadcast.enabled = broadcast.enabled === true
     broadcast.showOnDesktop = typeof broadcast.showOnDesktop === 'boolean' ? broadcast.showOnDesktop : DEFAULT_GENERAL_SETTINGS.broadcast.showOnDesktop

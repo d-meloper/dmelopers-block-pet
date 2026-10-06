@@ -1,8 +1,10 @@
 import type { Object3D, WebGLRenderer } from 'three'
 
-import { Box3, DirectionalLight, Group, HemisphereLight, MathUtils, Mesh, NoToneMapping, SkinnedMesh, Vector3 } from 'three'
+import { Box3, DirectionalLight, Group, HemisphereLight, MathUtils, Mesh, NoToneMapping, Vector3 } from 'three'
 
 import type { LightingSettings } from '@/config/lighting'
+
+import { forEachMeshWorldBounds } from './meshBounds'
 
 /** Original pre-pastel output, shared by desktop, OBS and thumbnails. */
 export function applyLightingOutput(renderer: WebGLRenderer): void {
@@ -45,10 +47,7 @@ export class SceneLighting {
     const world = new Box3()
     root.traverseVisible((object) => {
       if (!(object instanceof Mesh) || object.userData.excludeFromContentBounds) return
-      if (object instanceof SkinnedMesh) object.computeBoundingBox()
-      else if (!object.geometry.boundingBox) object.geometry.computeBoundingBox()
-      const box = object instanceof SkinnedMesh ? object.boundingBox : object.geometry.boundingBox
-      if (box && !box.isEmpty()) bounds.union(world.copy(box).applyMatrix4(object.matrixWorld))
+      forEachMeshWorldBounds(object, world, box => bounds.union(box))
     })
     if (bounds.isEmpty()) bounds.setFromCenterAndSize(new Vector3(), new Vector3(4, 4, 4))
     // Reserve animated hands/mouse/key travel without refitting on every frame.

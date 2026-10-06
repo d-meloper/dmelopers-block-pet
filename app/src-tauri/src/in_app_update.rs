@@ -1,7 +1,7 @@
 //! Channel-bound, user-initiated GitHub updates. Store builds cannot install them.
 use serde::{Deserialize, Serialize};
 
-#[cfg(any(feature = "channel-github", feature = "test-repository"))]
+#[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
 mod operation;
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -15,7 +15,7 @@ pub struct UpdateInfo {
 
 #[tauri::command]
 pub fn in_app_updater_enabled() -> bool {
-    cfg!(any(feature = "channel-github", feature = "test-repository"))
+    cfg!(any(feature = "wix-local-test", feature = "wix-github"))
         && !cfg!(debug_assertions)
         && crate::distribution::channel() != crate::distribution::Channel::Development
 }
@@ -26,9 +26,9 @@ pub async fn check_app_update(
     window: tauri::WebviewWindow,
     force: Option<bool>,
 ) -> Result<UpdateInfo, String> {
-    #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+    #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
     return enabled_profile::check(app, window, force.unwrap_or(false)).await;
-    #[cfg(not(any(feature = "channel-github", feature = "test-repository")))]
+    #[cfg(not(any(feature = "wix-local-test", feature = "wix-github")))]
     {
         let _ = (app, window, force);
         Err("UPDATER_DISABLED".into())
@@ -41,9 +41,9 @@ pub async fn download_app_update(
     window: tauri::WebviewWindow,
     request_id: String,
 ) -> Result<(), String> {
-    #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+    #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
     return enabled_profile::download(app, window, request_id).await;
-    #[cfg(not(any(feature = "channel-github", feature = "test-repository")))]
+    #[cfg(not(any(feature = "wix-local-test", feature = "wix-github")))]
     {
         let _ = (app, window, request_id);
         Err("UPDATER_DISABLED".into())
@@ -56,9 +56,9 @@ pub async fn install_app_update(
     window: tauri::WebviewWindow,
     request_id: String,
 ) -> Result<(), String> {
-    #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+    #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
     return enabled_profile::install(app, window, request_id).await;
-    #[cfg(not(any(feature = "channel-github", feature = "test-repository")))]
+    #[cfg(not(any(feature = "wix-local-test", feature = "wix-github")))]
     {
         let _ = (app, window, request_id);
         Err("UPDATER_DISABLED".into())
@@ -71,9 +71,9 @@ pub fn begin_app_update_save(
     window: tauri::WebviewWindow,
     request_id: String,
 ) -> Result<(), String> {
-    #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+    #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
     return enabled_profile::begin_save(app, window, request_id);
-    #[cfg(not(any(feature = "channel-github", feature = "test-repository")))]
+    #[cfg(not(any(feature = "wix-local-test", feature = "wix-github")))]
     {
         let _ = (app, window, request_id);
         Err("UPDATER_DISABLED".into())
@@ -86,9 +86,9 @@ pub fn cancel_app_update(
     window: tauri::WebviewWindow,
     request_id: String,
 ) -> Result<(), String> {
-    #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+    #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
     return enabled_profile::cancel(app, window, request_id);
-    #[cfg(not(any(feature = "channel-github", feature = "test-repository")))]
+    #[cfg(not(any(feature = "wix-local-test", feature = "wix-github")))]
     {
         let _ = (app, window, request_id);
         Err("UPDATER_DISABLED".into())
@@ -101,22 +101,22 @@ pub fn abort_app_update(
     window: tauri::WebviewWindow,
     request_id: String,
 ) -> Result<(), String> {
-    #[cfg(any(feature = "channel-github", feature = "test-repository"))]
+    #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
     return enabled_profile::abort(app, window, request_id);
-    #[cfg(not(any(feature = "channel-github", feature = "test-repository")))]
+    #[cfg(not(any(feature = "wix-local-test", feature = "wix-github")))]
     {
         let _ = (app, window, request_id);
         Err("UPDATER_DISABLED".into())
     }
 }
 
-#[cfg(any(feature = "channel-github", feature = "test-repository"))]
+#[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
 pub mod enabled_profile {
     use super::{
         UpdateInfo,
         operation::{Cancellation, Control, Phase},
     };
-    use crate::application_context::{initialize_updater, updater_public_key as public_key};
+    use crate::application_context::updater_public_key as public_key;
     use base64::{Engine, engine::general_purpose::STANDARD};
     use minisign_verify::{PublicKey, Signature};
     use reqwest::{Url, redirect::Policy};
@@ -124,33 +124,13 @@ pub mod enabled_profile {
     use sha2::{Digest, Sha256};
     use std::time::{Duration, Instant};
     use tauri::{Emitter, Manager};
-    use tauri_plugin_updater::{Update, UpdaterExt};
 
-    #[cfg(feature = "test-repository")]
-    const MARKER: &str = "DMELoper_TEST_TAURI_UPDATER_V1";
-    #[cfg(feature = "test-repository")]
-    const REPOSITORY: &str = "oup030416/dmelopers-block-pet-test";
-    #[cfg(feature = "test-repository")]
-    const ENDPOINT: &str = "https://raw.githubusercontent.com/oup030416/dmelopers-block-pet-test/updates/tauri-test.json";
-    #[cfg(feature = "test-repository")]
-    const REPOSITORY_ID: u64 = 1390032052;
-    #[cfg(feature = "test-repository")]
-    const CHANNEL: &str = "test";
-    #[cfg(feature = "test-repository")]
-    const INSTALLER_MODE: &str = "tauri-test-nsis-v1";
-    #[cfg(feature = "channel-github")]
-    const MARKER: &str = "DMELoper_GITHUB_TAURI_UPDATER_V1";
-    #[cfg(feature = "channel-github")]
-    const REPOSITORY: &str = "d-meloper/dmelopers-block-pet";
-    #[cfg(feature = "channel-github")]
-    const REPOSITORY_ID: u64 = 1390031914;
-    #[cfg(feature = "channel-github")]
-    const CHANNEL: &str = "stable";
-    #[cfg(feature = "channel-github")]
-    const INSTALLER_MODE: &str = "tauri-github-nsis-v1";
-    #[cfg(feature = "channel-github")]
-    const ENDPOINT: &str =
-        "https://raw.githubusercontent.com/d-meloper/dmelopers-block-pet/updates/tauri-stable.json";
+    const MARKER: &str = if cfg!(feature = "wix-github") { "DMELoper_WIX_OFFICIAL_UPDATER_V1" } else if cfg!(feature = "wix-github-test") { "DMELoper_WIX_GITHUB_TEST_UPDATER_V1" } else { "DMELoper_WIX_LOCAL_UPDATER_V1" };
+    const REPOSITORY: &str = crate::wix_local::REPOSITORY;
+    const REPOSITORY_ID: u64 = crate::wix_local::REPOSITORY_ID;
+    const CHANNEL: &str = crate::wix_local::CHANNEL;
+    const INSTALLER_MODE: &str = crate::wix_local::MODE;
+    const ENDPOINT: &str = crate::wix_local::ENDPOINT;
     const MAX_METADATA: usize = 64 * 1024;
     const MAX_DOWNLOAD: usize = 128 * 1024 * 1024;
     const TTL: Duration = Duration::from_secs(300);
@@ -168,8 +148,38 @@ pub mod enabled_profile {
         .expect("fixed endpoint")
     }
 
+    struct VerifiedUpdate {
+        version: String,
+        signature: String,
+        download_url: Url,
+        raw_json: serde_json::Value,
+    }
+
+    fn parse_update(raw: &[u8]) -> Result<VerifiedUpdate, String> {
+        if raw.len() > MAX_METADATA { return Err("UPDATE_METADATA_INVALID".into()); }
+        let value: serde_json::Value = serde_json::from_slice(raw).map_err(|_| "UPDATE_METADATA_INVALID")?;
+        let version = value["version"].as_str().ok_or("UPDATE_METADATA_INVALID")?.to_owned();
+        let platform = &value["platforms"]["windows-x86_64"];
+        let signature = platform["signature"].as_str().filter(|s| !s.is_empty() && s.len() <= 8192)
+            .ok_or("UPDATE_METADATA_INVALID")?.to_owned();
+        let download_url = platform["url"].as_str().ok_or("UPDATE_METADATA_INVALID")?
+            .parse().map_err(|_| "UPDATE_METADATA_INVALID")?;
+        Ok(VerifiedUpdate { version, signature, download_url, raw_json: value })
+    }
+
+    async fn fetch_update() -> Result<VerifiedUpdate, String> {
+        let cancel = Cancellation::default();
+        let raw = bounded_get(endpoint(false), MAX_METADATA, None, &cancel).await?;
+        let update = parse_update(&raw)?;
+        let canonical = serde_json::to_vec(&update.raw_json).map_err(|_| "UPDATE_METADATA_INVALID")?;
+        if canonical.len() > MAX_METADATA { return Err("UPDATE_METADATA_INVALID".into()); }
+        let signature = bounded_get(endpoint(true), 8192, None, &cancel).await?;
+        verify_signature(&canonical, std::str::from_utf8(&signature).map_err(|_| "UPDATE_SIGNATURE_INVALID")?)?;
+        Ok(update)
+    }
+
     struct Selected {
-        update: Update,
+        update: VerifiedUpdate,
         metadata: Metadata,
         selected_at: Instant,
         downloaded: Option<Vec<u8>>,
@@ -194,11 +204,16 @@ pub mod enabled_profile {
         version: String,
         size: usize,
         sha256: String,
+        #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
+        bundle_upgrade_code: String,
+        #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
+        msi_upgrade_code: String,
+        #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
+        msi_product_code: String,
     }
 
     pub fn initialize<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
         std::hint::black_box(MARKER);
-        initialize_updater(app)?;
         app.manage(State::default());
         Ok(())
     }
@@ -278,11 +293,20 @@ pub mod enabled_profile {
         cancel: &Cancellation,
     ) -> Result<Vec<u8>, String> {
         cancel.check()?;
-        let request = reqwest::Client::builder()
+        #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
+        if !crate::wix_local::allowed_request(&url) { return Err("UPDATE_IDENTITY_INVALID".into()); }
+        let client = reqwest::Client::builder();
+        #[cfg(all(feature = "wix-local-test", not(any(feature = "wix-github-test", feature = "wix-github"))))]
+        let client = client.no_proxy();
+        #[cfg(all(feature = "wix-local-test", not(any(feature = "wix-github-test", feature = "wix-github"))))]
+        let redirects = Policy::none();
+        #[cfg(any(feature = "wix-github", not(feature = "wix-local-test"), feature = "wix-github-test"))]
+        let redirects = redirect_policy();
+        let request = client
             .user_agent("DMeloper-BlockPet-Updater/1")
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(120))
-            .redirect(redirect_policy())
+            .redirect(redirects)
             .build()
             .map_err(|_| "UPDATE_NETWORK_FAILED")?
             .get(url)
@@ -337,8 +361,6 @@ pub mod enabled_profile {
         if metadata.schema_version != 1
             || metadata.repository != REPOSITORY
             || metadata.repository_id != REPOSITORY_ID
-            || (cfg!(feature = "channel-github")
-                && metadata.product.as_deref() != Some("dmelopers-block-pet"))
             || metadata.channel != CHANNEL
             || metadata.installer_mode != INSTALLER_MODE
             || metadata.version != selected
@@ -353,11 +375,17 @@ pub mod enabled_profile {
         {
             return Err("UPDATE_IDENTITY_INVALID".into());
         }
-        let expected = format!(
-            "https://github.com/{REPOSITORY}/releases/download/v{selected}/dmelopers-block-pet_{selected}_x64-setup.exe?sha256={}",
-            metadata.sha256
-        );
-        if url.as_str() != expected {
+        #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
+        {
+            if metadata.product.as_deref() != Some(crate::wix_local::PRODUCT)
+                || metadata.bundle_upgrade_code != crate::wix_local::BUNDLE_UPGRADE
+                || metadata.msi_upgrade_code != crate::wix_local::MSI_UPGRADE
+                || !crate::wix_local::guid(&metadata.msi_product_code)
+                || url.as_str() != crate::wix_local::artifact_url(selected, &metadata.sha256)
+            { return Err("UPDATE_IDENTITY_INVALID".into()); }
+        }
+        #[cfg(feature = "wix-github")]
+        if metadata.msi_product_code != crate::wix_local::product_code(selected) {
             return Err("UPDATE_IDENTITY_INVALID".into());
         }
         Ok(())
@@ -471,36 +499,7 @@ pub mod enabled_profile {
         let mut selected = state.selected.try_lock().map_err(|_| "UPDATE_BUSY")?;
         *selected = None;
         let current = app.package_info().version.to_string();
-        let updater = app
-            .updater_builder()
-            .endpoints(vec![endpoint(false)])
-            .map_err(|_| "UPDATE_CONFIG_INVALID")?
-            .version_comparator(|_, _| true)
-            .timeout(Duration::from_secs(15))
-            .configure_client(|client| {
-                client
-                    .connect_timeout(Duration::from_secs(5))
-                    .redirect(Policy::none())
-            })
-            .build()
-            .map_err(|_| "UPDATE_CONFIG_INVALID")?;
-        let update = updater
-            .check()
-            .await
-            .map_err(|_| "UPDATE_CHECK_FAILED")?
-            .ok_or("UPDATE_CHECK_FAILED")?;
-        // The pinned vendor patch already bounds the raw body before parsing.
-        // Bound canonicalization separately before signature verification.
-        let canonical =
-            serde_json::to_vec(&update.raw_json).map_err(|_| "UPDATE_METADATA_INVALID")?;
-        if canonical.len() > MAX_METADATA || update.signature.len() > 8192 {
-            return Err("UPDATE_METADATA_INVALID".into());
-        }
-        let signature = bounded_get(endpoint(true), 8192, None, &Cancellation::default()).await?;
-        verify_signature(
-            &canonical,
-            std::str::from_utf8(&signature).map_err(|_| "UPDATE_SIGNATURE_INVALID")?,
-        )?;
+        let update = fetch_update().await?;
         let metadata: Metadata = serde_json::from_value(update.raw_json.clone())
             .map_err(|_| "UPDATE_METADATA_INVALID")?;
         // Validate the complete signed identity even for an up-to-date installation.
@@ -609,61 +608,6 @@ pub mod enabled_profile {
         Ok(())
     }
 
-    fn verify_registration(app: &tauri::AppHandle, parent: &std::path::Path) -> Result<(), String> {
-        use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::System::Registry::{
-            HKEY_CURRENT_USER, RRF_RT_REG_SZ, RRF_SUBKEY_WOW6464KEY, RegGetValueW,
-        };
-        let name = app
-            .config()
-            .product_name
-            .as_deref()
-            .ok_or("UPDATE_INSTALL_LOCATION_INVALID")?;
-        let key: Vec<u16> =
-            format!("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{name}")
-                .encode_utf16()
-                .chain(Some(0))
-                .collect();
-        let value: Vec<u16> = "InstallLocation".encode_utf16().chain(Some(0)).collect();
-        let mut buffer = [0u16; 32768];
-        let mut size = std::mem::size_of_val(&buffer) as u32;
-        let status = unsafe {
-            RegGetValueW(
-                HKEY_CURRENT_USER,
-                key.as_ptr(),
-                value.as_ptr(),
-                RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY,
-                std::ptr::null_mut(),
-                buffer.as_mut_ptr().cast(),
-                &mut size,
-            )
-        };
-        if status != 0 || size < 2 || size as usize > std::mem::size_of_val(&buffer) {
-            return Err("UPDATE_INSTALLED_APP_REQUIRED".into());
-        }
-        let end = buffer
-            .iter()
-            .position(|c| *c == 0)
-            .ok_or("UPDATE_INSTALL_LOCATION_INVALID")?;
-        let registered = std::path::PathBuf::from(
-            String::from_utf16(&buffer[..end]).map_err(|_| "UPDATE_INSTALL_LOCATION_INVALID")?,
-        );
-        crate::state_safety::check_path(&registered)?;
-        let canonical =
-            std::fs::canonicalize(parent).map_err(|_| "UPDATE_INSTALL_LOCATION_INVALID")?;
-        if std::fs::canonicalize(registered).map_err(|_| "UPDATE_INSTALL_LOCATION_INVALID")?
-            != canonical
-            || parent
-                .as_os_str()
-                .encode_wide()
-                .any(|c| matches!(c, 10 | 13 | 34))
-        {
-            return Err("UPDATE_INSTALL_LOCATION_INVALID".into());
-        }
-        crate::state_safety::check_path(&parent.join("uninstall.exe"))?;
-        Ok(())
-    }
-
     pub async fn install(
         app: tauri::AppHandle,
         window: tauri::WebviewWindow,
@@ -706,52 +650,54 @@ pub mod enabled_profile {
             .parent()
             .ok_or("UPDATE_INSTALL_LOCATION_INVALID")?;
         crate::state_safety::check_path(parent)?;
-        if !parent.join("uninstall.exe").is_file() {
-            return Err("UPDATE_INSTALLED_APP_REQUIRED".into());
-        }
-        verify_registration(&app, parent)?;
-        // Install into this running program's exact directory, including Unicode
-        // and spaces. NSIS /D is the final unquoted command-line remainder.
-        // Reuse the checked Update while changing only locally owned installer args.
-        let mut install_update = selection.update;
-        let installer = app
-            .updater_builder()
-            .endpoints(vec![endpoint(false)])
-            .map_err(|_| "UPDATE_CONFIG_INVALID")?
-            .clear_installer_args()
-            .installer_arg(format!("/D={}", parent.display()))
-            .timeout(Duration::from_secs(15))
-            .configure_client(|client| client.redirect(Policy::none()))
-            .build()
-            .map_err(|_| "UPDATE_CONFIG_INVALID")?;
-        // Refetch at the apply boundary; changed selections require a fresh user
-        // operation. Feed bytes and installer signature must be identical.
-        let fresh = installer
-            .check()
-            .await
-            .map_err(|_| "UPDATE_CHECK_FAILED")?
-            .ok_or("UPDATE_CHANGED")?;
+        crate::wix_local::registration(parent)?;
+        let install_update = selection.update;
+        // Reverify bounded, signed metadata immediately before handing off to Burn.
+        let fresh = fetch_update().await?;
+        let metadata: Metadata = serde_json::from_value(fresh.raw_json.clone()).map_err(|_| "UPDATE_METADATA_INVALID")?;
+        validate(&metadata, &app.package_info().version.to_string(), &fresh.version, &fresh.download_url)?;
         if fresh.raw_json != install_update.raw_json
             || fresh.signature != install_update.signature
             || fresh.download_url != install_update.download_url
         {
             return Err("UPDATE_CHANGED".into());
         }
-        install_update = fresh;
-        verify_signature(&bytes, &install_update.signature)?;
+        verify_signature(&bytes, &fresh.signature)?;
         crate::state_safety::verify_state_quiescence(
             app.clone(),
             native_window.clone(),
             request_id,
         )?;
-        install_update
-            .install(bytes)
-            .map_err(|_| "UPDATE_INSTALL_FAILED".into())
+        crate::wix_local::handoff(&app, parent, &bytes, &selection.metadata.sha256)
     }
 
     #[cfg(test)]
     mod tests {
         use super::*;
+        #[test]
+        #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
+        fn local_feed_cannot_cross_package_or_transport_identity() {
+            let mut metadata = Metadata {
+                product: Some(crate::wix_local::PRODUCT.into()), schema_version: 1,
+                repository: REPOSITORY.into(), repository_id: REPOSITORY_ID, channel: CHANNEL.into(),
+                installer_mode: INSTALLER_MODE.into(), version: "1.0.1".into(), size: 1234,
+                sha256: "a".repeat(64), bundle_upgrade_code: crate::wix_local::BUNDLE_UPGRADE.into(),
+                msi_upgrade_code: crate::wix_local::MSI_UPGRADE.into(), msi_product_code: "{11111111-1111-1111-1111-111111111111}".into(),
+            };
+            #[cfg(feature = "wix-github")]
+            { metadata.msi_product_code = crate::wix_local::product_code("1.0.1"); }
+            let url = crate::wix_local::artifact_url("1.0.1", &metadata.sha256).parse().unwrap();
+            assert!(validate(&metadata, "1.0.0", "1.0.1", &url).is_ok());
+            assert!(validate(&metadata, "1.0.1", "1.0.1", &url).is_err());
+            let foreign = if cfg!(any(feature = "wix-github", feature = "wix-github-test")) { url.as_str().replace(REPOSITORY, "evil/repo") } else { url.as_str().replace("127.0.0.1", "localhost") };
+            assert!(validate(&metadata, "1.0.0", "1.0.1", &foreign.parse().unwrap()).is_err());
+            metadata.installer_mode = "retired-installer-mode".into();
+            assert!(validate(&metadata, "1.0.0", "1.0.1", &url).is_err());
+            metadata.installer_mode = INSTALLER_MODE.into();
+            metadata.bundle_upgrade_code = crate::wix_local::MSI_UPGRADE.into();
+            assert!(validate(&metadata, "1.0.0", "1.0.1", &url).is_err());
+            assert!(verify_signature(b"tampered", "not a signature").is_err());
+        }
         #[test]
         fn display_cache_obeys_success_error_and_clock_boundaries() {
             let mut cache = DisplayCache {
@@ -776,37 +722,20 @@ pub mod enabled_profile {
             assert!(!cache_current(&cache, "1.0.0", 1000));
         }
         #[test]
-        fn canonical_forward_versions_and_exact_asset_identity() {
-            let metadata = Metadata {
-                product: Some("dmelopers-block-pet".into()),
-                schema_version: 1,
-                repository: REPOSITORY.into(),
-                repository_id: REPOSITORY_ID,
-                channel: CHANNEL.into(),
-                installer_mode: INSTALLER_MODE.into(),
-                version: "1.0.2".into(),
-                size: 1024,
-                sha256: "a".repeat(64),
-            };
-            let url: Url = format!("https://github.com/{REPOSITORY}/releases/download/v1.0.2/dmelopers-block-pet_1.0.2_x64-setup.exe?sha256={}", metadata.sha256).parse().unwrap();
-            assert!(validate(&metadata, "1.0.1", "1.0.2", &url).is_ok());
-            assert!(validate(&metadata, "1.0.2", "1.0.2", &url).is_err());
-            for input in ["01.0.2", "1.0.2-beta", "1.0.65536", "1.0.2+test", "1.2"] {
-                assert!(version(input).is_err());
+        fn feed_parser_bounds_and_requires_the_exact_platform_fields() {
+            let data = serde_json::json!({"version":"1.0.1","platforms":{"windows-x86_64":{
+                "url":crate::wix_local::artifact_url("1.0.1", &"a".repeat(64)), "signature":"signature"}}});
+            let parsed = parse_update(&serde_json::to_vec(&data).unwrap()).unwrap();
+            assert_eq!(parsed.version,"1.0.1");
+            assert!(crate::wix_local::allowed_request(&parsed.download_url));
+            for invalid in [serde_json::json!({}), serde_json::json!({"version":"1.0.1","platforms":{"other":{}}}),
+                            serde_json::json!({"version":"1.0.1","platforms":{"windows-x86_64":{"url":"invalid","signature":""}}})] {
+                assert!(parse_update(&serde_json::to_vec(&invalid).unwrap()).is_err());
             }
-            assert!(
-                validate(
-                    &metadata,
-                    "1.0.1",
-                    "1.0.2",
-                    &url.as_str()
-                        .replace(REPOSITORY, "evil/repo")
-                        .parse()
-                        .unwrap()
-                )
-                .is_err()
-            );
+            assert!(parse_update(&vec![b' '; MAX_METADATA+1]).is_err());
+            for v in ["01.0.1","1.0.1-test","1.0.65536","1.0.1+test","1.0"] { assert!(version(v).is_err()); }
         }
+
         #[test]
         fn redirects_cannot_escape_the_download_provider() {
             assert!(allowed_redirect(

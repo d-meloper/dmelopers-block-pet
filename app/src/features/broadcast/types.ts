@@ -1,5 +1,5 @@
 import type { ShadowQuality } from '@/config/performance'
-import type { Pet3dPreset } from '@/stores/cat'
+import type { Pet3dPreset } from '@/stores/block'
 
 export interface BroadcastScene {
   schemaVersion: 1

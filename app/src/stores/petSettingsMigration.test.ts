@@ -6,7 +6,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { DMELOPER_EYEBROW_LIMITS } from '@/config/dmeloperEyebrows'
 import { createPresetCollection } from '@/features/presets/model'
 
-import { createDefaultPet3dPreset, preparePetStateForSync, useCatStore } from './cat'
+import { createDefaultPet3dPreset, preparePetStateForSync, useBlockStore } from './block'
 import { migrateLegacySkinAppearanceState, migratePetCharacterState, splitLegacySkinAppearance } from './petSettingsMigration'
 
 const ENTRY_ID = 'a'.repeat(64)
@@ -14,7 +14,7 @@ const DATA_URL = 'data:image/png;base64,preserved'
 
 function restoredStore(state: Record<string, unknown>) {
   setActivePinia(createPinia())
-  const store = useCatStore()
+  const store = useBlockStore()
   store.$patch(preparePetStateForSync(state))
   store.init()
   return store

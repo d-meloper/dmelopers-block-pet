@@ -1,4 +1,4 @@
-import type { CatStore } from '@/stores/cat'
+import type { BlockStore } from '@/stores/block'
 
 import { normalizeLightingSettings } from '@/config/lighting'
 import { PRESET_SETTING_KEYS } from '@/features/presets/types'
@@ -6,7 +6,7 @@ import { PRESET_SETTING_KEYS } from '@/features/presets/types'
 import type { BroadcastScene } from './types'
 
 /** Project only the active visual state; never send the skin library or names. */
-export function captureBroadcastScene(store: CatStore): BroadcastScene {
+export function captureBroadcastScene(store: BlockStore): BroadcastScene {
   const dataUrl = store.customization3d.dmeloperSkinDataUrl
   const prefix = 'data:image/png;base64,'
   if (dataUrl && !dataUrl.startsWith(prefix)) throw new Error('Invalid broadcast skin.')

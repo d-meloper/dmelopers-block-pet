@@ -2,7 +2,7 @@
 import { emitTo, listen } from '@tauri-apps/api/event'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { useEventListener } from '@vueuse/core'
-import { ConfigProvider, Flex, message, Modal } from 'ant-design-vue'
+import { Button, ConfigProvider, Flex, message, Modal } from 'ant-design-vue'
 import { storeToRefs } from 'pinia'
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -30,14 +30,14 @@ import { getAntdLocale } from '@/locales/antd'
 import { APP_PROCESS_FAILED } from '@/plugins/process'
 import { toggleWindowVisible } from '@/plugins/window'
 import { reportDiagnostic } from '@/services/diagnostics'
-import { useCatStore } from '@/stores/cat'
+import { useBlockStore } from '@/stores/block'
 import { useGeneralStore } from '@/stores/general'
 import { usePerformanceStore } from '@/stores/performance'
 import { useShortcutStore } from '@/stores/shortcut'
 import { captureViewportPointer } from '@/utils/viewportInteraction'
 
 import About from './components/about/index.vue'
-import Cat from './components/cat/index.vue'
+import Block from './components/block/index.vue'
 import Environment from './components/environment/index.vue'
 import General from './components/general/index.vue'
 import Performance from './components/performance/index.vue'
@@ -75,8 +75,8 @@ useTauriListen<{ action: 'quit' | 'restart' }>(APP_PROCESS_FAILED, ({ payload })
   const action = payload?.action === 'restart' ? 'restart' : 'quit'
   message.error(t(`composables.useAppMenu.errors.${action}`), 8)
 })
-const catStore = useCatStore()
-const { visibleCat, visiblePreference, mirrorMode, cycleZoom, cycleRotation, penetrable, alwaysOnTop, toggleBroadcast, showDisplayArea, mouseEnabled, keepInScreen, hideOnHover } = storeToRefs(useShortcutStore())
+const blockStore = useBlockStore()
+const { visibleBlock, visiblePreference, mirrorMode, cycleZoom, cycleRotation, penetrable, alwaysOnTop, toggleBroadcast, showDisplayArea, mouseEnabled, keepInScreen, hideOnHover } = storeToRefs(useShortcutStore())
 const generalStore = useGeneralStore()
 const performanceStore = usePerformanceStore()
 const appWindow = getCurrentWebviewWindow()
@@ -94,14 +94,14 @@ const presetManager = usePresetManager(emitMainEvent)
 const tray = useTray(() => presetManager.ready.value && !presetManager.busy.value)
 provide(BROADCAST_CONTROLLER, useBroadcast(presetManager.ready, presetManager.busy))
 // Global shortcuts belong to the window, which stays mounted across tabs and hide/show.
-useKeyPress(visibleCat, () => {
-  void emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { visible: !catStore.window.visible })
+useKeyPress(visibleBlock, () => {
+  void emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { visible: !blockStore.window.visible })
 })
 useKeyPress(visiblePreference, () => {
   void toggleWindowVisible(WINDOW_LABEL.PREFERENCE)
 })
 useKeyPress(mirrorMode, () => {
-  void emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { mirror: !catStore.model.mirror })
+  void emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { mirror: !blockStore.model.mirror })
 })
 useKeyPress(cycleZoom, () => {
   void emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { cycle: 'cameraZoomPercent' })
@@ -110,27 +110,27 @@ useKeyPress(cycleRotation, () => {
   void emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { cycle: 'sceneRotationOffsetDegrees' })
 })
 useKeyPress(penetrable, () => {
-  catStore.window.passThrough = !catStore.window.passThrough
+  blockStore.window.passThrough = !blockStore.window.passThrough
 })
 useKeyPress(alwaysOnTop, () => {
-  catStore.window.alwaysOnTop = !catStore.window.alwaysOnTop
+  blockStore.window.alwaysOnTop = !blockStore.window.alwaysOnTop
 })
 useKeyPress(toggleBroadcast, () => {
   generalStore.broadcast.enabled = !generalStore.broadcast.enabled
 })
 useKeyPress(showDisplayArea, () => {
-  void emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { showDisplayArea: !catStore.activePet3dPreset.showDisplayArea })
+  void emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { showDisplayArea: !blockStore.activePet3dPreset.showDisplayArea })
 })
 useKeyPress(mouseEnabled, async () => {
   if (mousePending.value) return
   if (!mouseReady.value && !await requestMouseEnabled(undefined, true)) return
-  await requestMouseEnabled(!catStore.activePet3dPreset.mouseEnabled, true)
+  await requestMouseEnabled(!blockStore.activePet3dPreset.mouseEnabled, true)
 })
 useKeyPress(keepInScreen, () => {
-  catStore.window.keepInScreen = !catStore.window.keepInScreen
+  blockStore.window.keepInScreen = !blockStore.window.keepInScreen
 })
 useKeyPress(hideOnHover, () => {
-  catStore.window.hideOnHover = !catStore.window.hideOnHover
+  blockStore.window.hideOnHover = !blockStore.window.hideOnHover
 })
 const { busy: presetBusy, ready: presetReady } = presetManager
 const mousePending = ref(false)
@@ -227,7 +227,7 @@ async function listenForMouseResponses() {
         // This write is backed by the main window's native acknowledgement.
         const userEdit = success && mouseRequest.desired !== undefined && !mouseRequest.querying
         if (userEdit) presetManager.markUserEdit()
-        catStore.activePet3dPreset.mouseEnabled = payload.state.mouseEnabled
+        blockStore.activePet3dPreset.mouseEnabled = payload.state.mouseEnabled
         if (userEdit) confirmPresetUserEdit()
       }
       mouseReady.value = true
@@ -265,6 +265,15 @@ function markPresetUserEdit(event: Event) {
 useEventListener(window, ['pointerdown', 'pointermove', 'pointerup', 'mousedown', 'mouseup'], trackInteraction, { capture: true })
 useEventListener(window, 'pointerdown', captureViewportPointer, { capture: true })
 useEventListener(window, ['blur', 'pointercancel'], cancelInteraction, { capture: true })
+// Tauri's bubble listener maximizes on the second mousedown, before dblclick.
+// Keep the existing ACL denial and intercept only direct bare drag-region clicks.
+useEventListener(document, 'mousedown', (event) => {
+  if (event.button !== 0 || event.detail !== 2 || !(event.target instanceof HTMLElement)) return
+  const region = event.target.getAttribute('data-tauri-drag-region')
+  if (region !== '' && region !== 'true') return
+  event.preventDefault()
+  event.stopPropagation()
+}, { capture: true })
 useEventListener(document, 'visibilitychange', () => {
   if (document.hidden) cancelInteraction()
   void reconcilePerformanceMonitoring()
@@ -319,12 +328,12 @@ async function reconcilePerformanceMonitoring() {
 function emitPet3dPresetSelection() {
   if (presetManager.busy.value) return
   emitMainEvent(LISTEN_KEY.PET_PRESET_CHANGED, () => {
-    const preset = catStore.activePet3dPreset
+    const preset = blockStore.activePet3dPreset
     return {
-      modelId: catStore.customization3d.selectedModelId,
-      dmeloperSkinDataUrl: catStore.customization3d.dmeloperSkinDataUrl,
-      dmeloperSkinModel: catStore.customization3d.dmeloperSkinModel,
-      useDefaultDmeloperSkin: catStore.customization3d.useDefaultDmeloperSkin,
+      modelId: blockStore.customization3d.selectedModelId,
+      dmeloperSkinDataUrl: blockStore.customization3d.dmeloperSkinDataUrl,
+      dmeloperSkinModel: blockStore.customization3d.dmeloperSkinModel,
+      useDefaultDmeloperSkin: blockStore.customization3d.useDefaultDmeloperSkin,
       preset: {
         ...preset,
         manualViewportRect: { ...preset.manualViewportRect },
@@ -334,36 +343,58 @@ function emitPet3dPresetSelection() {
   })
 }
 
+async function retainPerformanceLifecycleListener(registration: Promise<() => void>): Promise<boolean> {
+  const unlisten = await registration
+  if (preferenceDisposed) {
+    await releasePerformanceLifecycleListener(unlisten)
+    return false
+  }
+  performanceLifecycleUnlisteners.push(unlisten)
+  return true
+}
+
+async function releasePerformanceLifecycleListener(unlisten: () => void): Promise<void> {
+  try {
+    await unlisten()
+  } catch (error) {
+    reportDiagnostic('warn', 'preference.lifecycle_unsubscribe', error)
+  }
+}
+
 onMounted(async () => {
   generateColorVars()
   await listenForMouseResponses()
   if (preferenceDisposed) return
   refreshMouseSetting()
-  performanceLifecycleUnlisteners.push(
-    await appWindow.onResized(() => void reconcilePerformanceMonitoring()),
-  )
-  performanceLifecycleUnlisteners.push(
-    await appWindow.onFocusChanged(({ payload: focused }) => {
-      if (!focused) cancelInteraction()
-      if (focused) {
-        closing.value = false
-        refreshMouseSetting()
-      }
-      void reconcilePerformanceMonitoring()
-    }),
-  )
-  performanceLifecycleUnlisteners.push(
-    await appWindow.onCloseRequested((event) => {
-      // Rust hides this persistent window. Tauri's JS default would destroy it.
-      event.preventDefault()
-      cancelInteraction()
-      closing.value = true
-      mouseReady.value = false
-      // This persistent window still owns requests accepted before hiding.
-      // Keep their save lease until native acknowledgement or timeout.
-      void reconcilePerformanceMonitoring()
-    }),
-  )
+  if (!await retainPerformanceLifecycleListener(appWindow.onResized(() => {
+    if (!preferenceDisposed) void reconcilePerformanceMonitoring()
+  }))) {
+    return
+  }
+  if (!await retainPerformanceLifecycleListener(appWindow.onFocusChanged(({ payload: focused }) => {
+    if (preferenceDisposed) return
+    if (!focused) cancelInteraction()
+    if (focused) {
+      closing.value = false
+      refreshMouseSetting()
+    }
+    void reconcilePerformanceMonitoring()
+  }))) {
+    return
+  }
+  if (!await retainPerformanceLifecycleListener(appWindow.onCloseRequested((event) => {
+    // Rust hides this persistent window. Tauri's JS default would destroy it.
+    event.preventDefault()
+    if (preferenceDisposed) return
+    cancelInteraction()
+    closing.value = true
+    mouseReady.value = false
+    // This persistent window still owns requests accepted before hiding.
+    // Keep their save lease until native acknowledgement or timeout.
+    void reconcilePerformanceMonitoring()
+  }))) {
+    return
+  }
   await reconcilePerformanceMonitoring()
 })
 
@@ -374,7 +405,7 @@ onBeforeUnmount(() => {
   finishMouseRequest(false)
   cancelInteraction()
   performanceLifecycleGeneration += 1
-  performanceLifecycleUnlisteners.splice(0).forEach(unlisten => unlisten())
+  performanceLifecycleUnlisteners.splice(0).forEach(unlisten => void releasePerformanceLifecycleListener(unlisten))
   presetManager.setListVisible(false)
   void performanceStore.stop()
 })
@@ -388,12 +419,12 @@ watch(() => generalStore.appearance.language, () => {
 watch(
   [
     () => presetManager.busy.value,
-    () => catStore.customization3d.selectedModelId,
-    () => catStore.customization3d.dmeloperSkinDataUrl,
-    () => catStore.customization3d.dmeloperSkinModel,
-    () => catStore.customization3d.useDefaultDmeloperSkin,
-    () => catStore.activePet3dPreset,
-    () => catStore.model.mirror,
+    () => blockStore.customization3d.selectedModelId,
+    () => blockStore.customization3d.dmeloperSkinDataUrl,
+    () => blockStore.customization3d.dmeloperSkinModel,
+    () => blockStore.customization3d.useDefaultDmeloperSkin,
+    () => blockStore.activePet3dPreset,
+    () => blockStore.model.mirror,
   ],
   emitPet3dPresetSelection,
   { deep: true, immediate: true },
@@ -401,51 +432,51 @@ watch(
 
 const menus = computed(() => [
   {
-    id: 0,
-    label: t('pages.preference.presets.title'),
-    icon: 'i-solar:layers-bold',
-    component: Presets,
-  },
-  {
     id: 1,
-    label: t('pages.preference.cat.title'),
-    icon: 'i-solar:user-hands-bold',
-    component: Cat,
-  },
-  {
-    id: 3,
-    label: t('pages.preference.environment.title'),
-    icon: 'i-solar:box-minimalistic-bold-duotone',
-    component: Environment,
+    label: t('pages.preference.block.title'),
+    icon: 'i-solar:user-hands-linear',
+    component: Block,
   },
   {
     id: 2,
     label: t('pages.preference.scene.title'),
-    icon: 'i-solar:videocamera-bold-duotone',
+    icon: 'i-solar:display-outline',
     component: Scene,
+  },
+  {
+    id: 3,
+    label: t('pages.preference.environment.title'),
+    icon: 'i-solar:mouse-minimalistic-outline',
+    component: Environment,
+  },
+  {
+    id: 0,
+    label: t('pages.preference.presets.title'),
+    icon: 'i-solar:layers-linear',
+    component: Presets,
   },
   {
     id: 4,
     label: t('pages.preference.performance.title'),
-    icon: 'i-solar:chart-square-bold',
+    icon: 'i-solar:chart-square-linear',
     component: Performance,
-  },
-  {
-    id: 5,
-    label: t('pages.preference.shortcut.title'),
-    icon: 'i-solar:keyboard-bold',
-    component: Shortcut,
   },
   {
     id: 6,
     label: t('pages.preference.general.title'),
-    icon: 'i-solar:settings-bold',
+    icon: 'i-solar:settings-linear',
     component: General,
+  },
+  {
+    id: 5,
+    label: t('pages.preference.shortcut.title'),
+    icon: 'i-solar:keyboard-linear',
+    component: Shortcut,
   },
   {
     id: 7,
     label: t('pages.preference.about.title'),
-    icon: 'i-solar:info-circle-bold',
+    icon: 'i-solar:info-circle-linear',
     component: About,
   },
 ])
@@ -476,6 +507,30 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
       @ok="tray.confirmBroadcastRestore"
     >
       {{ t('pages.preference.broadcastRestore.body') }}
+      <template #footer>
+        <Flex
+          :gap="8"
+          justify="end"
+          wrap="wrap"
+        >
+          <Button
+            :disabled="tray.broadcastRestoreDisabled.value"
+            @click="tray.dismissBroadcastRestore"
+          >
+            {{ t('pages.preference.broadcastRestore.dismiss') }}
+          </Button>
+          <Button @click="tray.cancelBroadcastRestore">
+            {{ t('pages.preference.broadcastRestore.cancel') }}
+          </Button>
+          <Button
+            :disabled="tray.broadcastRestoreDisabled.value"
+            type="primary"
+            @click="tray.confirmBroadcastRestore"
+          >
+            {{ t('pages.preference.broadcastRestore.enable') }}
+          </Button>
+        </Flex>
+      </template>
     </Modal>
     <UpdateReminder
       :busy="updates.busy.value"
@@ -498,30 +553,32 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
       class="h-screen"
     >
       <div
-        class="preference-sidebar h-full w-40 flex flex-shrink-0 flex-col items-center bg-gradient-from-primary-1 bg-gradient-to-black/1 bg-gradient-linear px-3 dark:(bg-color-2 bg-none)"
+        class="preference-sidebar"
         data-tauri-drag-region
       >
         <div
-          class="preference-tabs w-full flex flex-col"
+          aria-orientation="vertical"
+          class="preference-tabs"
           role="tablist"
         >
           <button
             v-for="item in menus"
             :key="item.id"
+            :aria-label="item.label"
             :aria-selected="current === item.id"
-            class="preference-tab w-full flex flex-col cursor-pointer items-center justify-center gap-1 rounded-lg border-none bg-transparent text-color-3 transition hover:bg-color-7 dark:text-color-2"
-            :class="{ 'bg-color-2! text-primary-7 font-bold dark:(bg-primary-3! text-primary-8)': current === item.id }"
+            class="preference-tab"
             role="tab"
+            :title="item.label"
             type="button"
             @click="current = item.id"
           >
             <div
               aria-hidden="true"
-              class="preference-tab-icon size-7"
+              class="preference-tab-icon"
               :class="item.icon"
             />
 
-            <span class="text-sm">{{ item.label }}</span>
+            <span class="preference-tab-label">{{ item.label }}</span>
           </button>
         </div>
       </div>
@@ -543,11 +600,19 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
           <component
             :is="activeMenu?.component"
             v-bind="activeMenu?.component === Environment ? {
-              mousePending, mouseReady, mouseError, requestMouseEnabled, refreshMouseSetting,
+              mousePending,
+              mouseReady,
+              mouseError,
+              requestMouseEnabled,
+              refreshMouseSetting,
             } : activeMenu?.component === Scene ? {
-              viewportState, viewportPending, viewportError, requestViewportMode, refreshViewport,
+              viewportState,
+              viewportPending,
+              viewportError,
+              requestViewportMode,
+              refreshViewport,
             } : activeMenu?.component === Presets ? { manager: presetManager } : {}"
-            @open-skin-library="openSkinLibrary"
+            v-on="activeMenu?.component === Block ? { openSkinLibrary } : {}"
           />
         </div>
       </div>
@@ -557,49 +622,138 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
 
 <style scoped>
 .preference-sidebar {
+  background: var(--ant-color-bg-layout);
+  box-sizing: border-box;
+  display: flex;
+  flex: 0 0 64px;
+  flex-direction: column;
+  height: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
-  padding-bottom: 12px;
-  padding-top: 16px;
+  padding: 16px 10px 12px;
+  transition:
+    flex-basis 220ms cubic-bezier(0.2, 0, 0, 1),
+    width 220ms cubic-bezier(0.2, 0, 0, 1);
+  width: 64px;
 }
 
 .preference-tabs {
-  flex: 1;
-  gap: 8px;
-  min-height: 0;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 7px;
+  width: 100%;
 }
 
 .preference-tab {
-  flex: 1 1 72px;
-  max-height: 72px;
-  min-height: 42px;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  box-sizing: border-box;
+  color: var(--ant-color-text);
+  cursor: pointer;
+  display: flex;
+  flex: 0 0 40px;
+  font-family: inherit;
+  font-size: 13.2px;
+  font-weight: 400;
+  gap: 0;
+  height: 40px;
+  justify-content: flex-start;
+  line-height: 20px;
+  padding: 0 11px;
+  position: relative;
+  text-align: left;
+  transition:
+    background-color 150ms,
+    color 150ms,
+    gap 220ms cubic-bezier(0.2, 0, 0, 1),
+    padding 220ms cubic-bezier(0.2, 0, 0, 1);
+  width: 100%;
+}
+
+.preference-tab:hover {
+  background: var(--ant-color-fill-tertiary);
+}
+
+.preference-tab[aria-selected='true'] {
+  background: var(--ant-color-fill);
+}
+
+.preference-tab[aria-selected='true']::before {
+  background: var(--app-primary);
+  border-radius: 2px;
+  content: '';
+  height: 24px;
+  left: 0;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
 }
 
 .preference-tab:focus-visible {
-  outline: 2px solid var(--ant-color-primary, #1677ff);
-  outline-offset: -2px;
+  /* Global button styles suppress outlines; keep focus visible locally. */
+  box-shadow: inset 0 0 0 2px var(--app-primary);
 }
 
-@media (max-height: 650px) {
+.preference-tab-icon {
+  flex: 0 0 22px;
+  height: 22px;
+  width: 22px;
+}
+
+.preference-tab-label {
+  display: block;
+  max-width: 0;
+  min-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateX(-6px);
+  transition:
+    max-width 220ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 150ms,
+    transform 220ms cubic-bezier(0.2, 0, 0, 1),
+    visibility 0s 220ms;
+  visibility: hidden;
+  white-space: nowrap;
+}
+
+/* The owner-selected breakpoint leaves 500 px for the content pane. */
+@media (min-width: 700px) {
   .preference-sidebar {
-    padding-bottom: 8px;
-    padding-top: 8px;
+    flex-basis: 200px;
+    width: 200px;
   }
 
-  .preference-tabs {
-    gap: 4px;
+  .preference-tab {
+    gap: 12px;
+    padding: 0 14px;
   }
 
-  .preference-tab-icon {
-    height: 24px;
-    width: 24px;
+  .preference-tab-label {
+    max-width: 140px;
+    opacity: 1;
+    transform: translateX(0);
+    transition:
+      max-width 220ms cubic-bezier(0.2, 0, 0, 1),
+      opacity 150ms 60ms,
+      transform 220ms cubic-bezier(0.2, 0, 0, 1),
+      visibility 0s;
+    visibility: visible;
   }
 }
 
-@media (max-height: 480px) {
-  .preference-tab {
-    flex-direction: row;
-    gap: 8px;
-    min-height: 32px;
+@media (prefers-reduced-motion: reduce) {
+  .preference-sidebar,
+  .preference-tab,
+  .preference-tab-label {
+    transition: none;
+  }
+
+  .preference-tab-label {
+    transform: none;
   }
 }
 </style>

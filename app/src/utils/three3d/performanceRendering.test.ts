@@ -40,7 +40,7 @@ describe('performance options in the renderer', () => {
       state.renderer = { render: () => counts.draw++ } as unknown as WebGLRenderer
       state.keyboard = { update: () => counts.keyboard++ }
       state.mouse = { update: () => counts.mouse++, setMousePosition: () => {}, resetInput: () => {} }
-      state.petAnimator = { update: () => counts.pet++, setMousePosition: () => {}, setMouseEnabled: () => {} }
+      state.petAnimator = { update: () => counts.pet++, setMousePosition: () => {}, setMouseEnabled: () => {}, resetMouseInput: () => {}, resetInput: () => {} }
       state.dmeloperEyebrowController = { update: () => counts.eyebrows++, resetMouseInput: () => {} }
       const run = (start: number, seconds: number) => {
         for (let i = 0; i < 60 * seconds; i++) {
@@ -66,6 +66,16 @@ describe('performance options in the renderer', () => {
       three3d.setInputActive(false)
       three3d.handleSemanticInput({ kind: 'typing', active: true, intensity: 1 })
       assert.equal(state.renderCadence.getFrameLimit(29000, 60), 15)
+      three3d.setIdlePowerSavingEnabled(false)
+      for (const [index, fps] of [15, 14].entries()) {
+        const before = { ...counts }
+        now = 30000 + index * 4000
+        three3d.setMaxFPS(fps)
+        run(now, 4)
+        for (const key of Object.keys(counts) as Array<keyof typeof counts>) {
+          assert.equal(counts[key] - before[key], 60, `${key}: ${fps} FPS uses the 15 FPS minimum`)
+        }
+      }
     } finally {
       state.renderer = undefined
       state.keyboard = undefined

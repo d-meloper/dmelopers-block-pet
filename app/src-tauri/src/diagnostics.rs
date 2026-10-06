@@ -9,13 +9,129 @@ use std::{
 };
 
 use log::{Level, LevelFilter, Log, Metadata, Record};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{Manager, Runtime, plugin::TauriPlugin};
 
 const LOG_FILE: &str = "DMeloper's Block Pet.log";
 const REPEAT_INTERVAL: Duration = Duration::from_secs(60);
 const MAX_KEYS: usize = 128;
 const MAX_PER_MINUTE: usize = 60;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupportSystemInfo {
+    windows_edition: Option<String>,
+    windows_release: Option<String>,
+    windows_build: String,
+    webview2_version: Option<String>,
+}
+
+fn support_registry_string(name: &str) -> Option<String> {
+    use windows_sys::Win32::System::Registry::{
+        HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RRF_SUBKEY_WOW6464KEY, RegGetValueW,
+    };
+    let key = crate::windows_process::wide("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
+    let name = crate::windows_process::wide(name);
+    let mut buffer = [0u16; 128];
+    let mut bytes = std::mem::size_of_val(&buffer) as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            key.as_ptr(),
+            name.as_ptr(),
+            RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY,
+            std::ptr::null_mut(),
+            buffer.as_mut_ptr().cast(),
+            &mut bytes,
+        )
+    };
+    if status != 0 {
+        return None;
+    }
+    support_decode_string(&buffer, bytes)
+}
+
+fn support_decode_string(buffer: &[u16], bytes: u32) -> Option<String> {
+    let length = bytes as usize / 2;
+    if bytes % 2 != 0 || length == 0 || length > buffer.len() {
+        return None;
+    }
+    let value = &buffer[..length];
+    let end = value.iter().position(|unit| *unit == 0)?;
+    let text = String::from_utf16(&value[..end]).ok()?;
+    // Only OS release/edition labels, never arbitrary registry text or identifiers.
+    if text.is_empty()
+        || !text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b" ._-".contains(&byte))
+    {
+        return None;
+    }
+    Some(text)
+}
+
+fn support_build(version: String, revision: Option<u32>) -> String {
+    match revision {
+        Some(revision)
+            if version.split('.').count() == 3
+                && version.split('.').all(|part| part.parse::<u32>().is_ok()) =>
+        {
+            format!("{version}.{revision}")
+        }
+        _ => version,
+    }
+}
+
+fn support_authorize(label: &str) -> Result<(), String> {
+    if label == "preference" {
+        Ok(())
+    } else {
+        Err("SUPPORT_INFO_FORBIDDEN".into())
+    }
+}
+
+fn log_directory_authorize(label: &str) -> Result<(), String> {
+    if label == "preference" {
+        Ok(())
+    } else {
+        Err("LOG_DIRECTORY_FORBIDDEN".into())
+    }
+}
+
+fn ensure_log_directory(directory: PathBuf) -> Result<PathBuf, String> {
+    crate::state_safety::check_path(&directory)?;
+    fs::create_dir_all(&directory).map_err(|_| "LOG_DIRECTORY_CREATE_FAILED".to_string())?;
+    Ok(directory)
+}
+
+/// Explicit Open Logs creates only the fixed log directory, never an empty log.
+#[tauri::command]
+pub fn prepare_log_directory(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<PathBuf, String> {
+    log_directory_authorize(window.label())?;
+    let directory = app
+        .path()
+        .app_log_dir()
+        .map_err(|_| "LOG_DIRECTORY_UNAVAILABLE".to_string())?;
+    ensure_log_directory(directory)
+}
+
+/// On-demand, fixed-field reads only; no log writes, shell, network or caller-supplied paths.
+#[tauri::command]
+pub fn support_system_info(window: tauri::WebviewWindow) -> Result<SupportSystemInfo, String> {
+    support_authorize(window.label())?;
+    Ok(SupportSystemInfo {
+        windows_edition: support_registry_string("EditionID"),
+        windows_release: support_registry_string("DisplayVersion"),
+        windows_build: support_build(
+            tauri_plugin_os::version().to_string(),
+            crate::windows_process::windows_revision(),
+        ),
+        webview2_version: tauri::webview_version().ok(),
+    })
+}
 
 pub fn warn(operation: &'static str, code: &str) {
     log::warn!(target: "diagnostics", "{operation} code={}", safe_code(code));
@@ -287,6 +403,107 @@ mod tests {
     use super::*;
 
     #[test]
+    fn support_build_keeps_revision_and_does_not_invent_missing_information() {
+        assert_eq!(
+            support_build("10.0.26100".into(), Some(1234)),
+            "10.0.26100.1234"
+        );
+        assert_eq!(support_build("10.0.26100".into(), None), "10.0.26100");
+        assert_eq!(support_build("Unknown".into(), Some(1234)), "Unknown");
+        assert_eq!(support_build("10.0.26100".into(), Some(0)), "10.0.26100.0");
+    }
+
+    #[test]
+    fn support_registry_decoding_is_bounded_and_rejects_malformed_text() {
+        let value: Vec<u16> = "24H2\0".encode_utf16().collect();
+        assert_eq!(support_decode_string(&value, 10).as_deref(), Some("24H2"));
+        assert!(support_decode_string(&value, 11).is_none());
+        assert!(support_decode_string(&value, 12).is_none());
+        assert!(support_decode_string(&value, 8).is_none());
+        assert!(support_decode_string(&[0xd800, 0], 4).is_none());
+        let path: Vec<u16> = "C:\\Users\\private\0".encode_utf16().collect();
+        assert!(support_decode_string(&path, (path.len() * 2) as u32).is_none());
+    }
+
+    #[test]
+    fn support_info_is_preference_only() {
+        assert!(support_authorize("preference").is_ok());
+        for label in ["main", "broadcast", "", "preference-other"] {
+            assert!(support_authorize(label).is_err());
+        }
+    }
+
+    #[test]
+    fn log_directory_preparation_is_preference_only() {
+        assert!(log_directory_authorize("preference").is_ok());
+        for label in ["main", "broadcast", "", "preference-other"] {
+            assert_eq!(
+                log_directory_authorize(label).unwrap_err(),
+                "LOG_DIRECTORY_FORBIDDEN"
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_log_open_creates_only_directory_and_preserves_existing_history() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("한글 😶 profile").join("logs");
+        assert!(!directory.exists());
+        assert_eq!(ensure_log_directory(directory.clone()).unwrap(), directory);
+        assert!(directory.is_dir());
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+        let retained = b"retained diagnostic evidence\n";
+        fs::write(directory.join(LOG_FILE), retained).unwrap();
+        ensure_log_directory(directory.clone()).unwrap();
+        assert_eq!(fs::read(directory.join(LOG_FILE)).unwrap(), retained);
+        assert_eq!(fs::read_dir(directory).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn log_directory_creation_failure_preserves_the_blocking_file() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("logs");
+        fs::write(&directory, b"unrelated existing file").unwrap();
+        assert_eq!(
+            ensure_log_directory(directory.clone()).unwrap_err(),
+            "LOG_DIRECTORY_CREATE_FAILED"
+        );
+        assert_eq!(fs::read(directory).unwrap(), b"unrelated existing file");
+    }
+
+    #[test]
+    fn first_log_open_can_precede_directory_creation() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("new-profile").join("logs");
+        let logger = FailureLogger::new(&directory);
+        logger
+            .record_at(
+                &Record::builder()
+                    .level(Level::Info)
+                    .args(format_args!("normal activity"))
+                    .build(),
+                Instant::now(),
+            )
+            .unwrap();
+        assert_eq!(
+            fs::read_dir(&directory).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        logger
+            .record_at(
+                &Record::builder()
+                    .level(Level::Error)
+                    .target("diagnostics")
+                    .args(format_args!("about.open_logs code=unclassified_failure"))
+                    .build(),
+                Instant::now(),
+            )
+            .unwrap();
+        assert!(directory.is_dir());
+        assert!(directory.join(LOG_FILE).is_file());
+    }
+
+    #[test]
     fn success_is_silent_and_existing_large_file_survives_restart_without_rotation() {
         let root = tempfile::tempdir().unwrap();
         let now = Instant::now();
@@ -319,6 +536,10 @@ mod tests {
         }
         let contents = fs::read_to_string(root.path().join(LOG_FILE)).unwrap();
         assert!(contents.starts_with(&retained));
+        let profile = if tauri::is_dev() { "development" } else { "packaged" };
+        assert_eq!(contents.matches(&format!("[{profile}][pid=")).count(), 2);
+        let other_profile = if tauri::is_dev() { "packaged" } else { "development" };
+        assert!(!contents.contains(&format!("[{other_profile}][pid=")));
         assert_eq!(contents.matches("skin.fetch").count(), 2);
         assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
     }

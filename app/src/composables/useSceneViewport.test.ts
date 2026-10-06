@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { runInNewContext } from 'node:vm'
+import { createPinia } from 'pinia'
 import ts from 'typescript'
 import { ref, watch } from 'vue'
 
@@ -14,6 +15,8 @@ import * as presetOperations from '@/features/presets/operations'
 import * as sceneTypes from '@/features/scene/types'
 import * as viewportSettings from '@/features/scene/viewportSettings'
 import { editorsLocked } from '@/features/stateSafety/bridge'
+import { diagnosticCode } from '@/services/diagnosticsCore'
+import { useBlockStore } from '@/stores/block'
 
 import type { useSceneViewport } from './useSceneViewport'
 
@@ -40,13 +43,14 @@ function state(automatic = true): SceneViewportState {
   }
 }
 
-function viewportHarness(emitRequest?: Parameters<typeof useSceneViewport>[0]) {
+function viewportHarness(emitRequest?: Parameters<typeof useSceneViewport>[0], storeOverride?: Pick<ReturnType<typeof useBlockStore>, 'activePet3dPreset'>) {
   const listeners = new Map<string, (event: { payload: unknown }) => void>()
   const mounted: Array<() => void> = []
   const unmounted: Array<() => void> = []
   const timers = new Map<number, () => void>()
   const events: Array<{ target: string, name: string, payload: { requestId: string, automatic?: boolean } }> = []
-  const store = {
+  const warnings: unknown[][] = []
+  const store = storeOverride ?? {
     activePet3dPreset: {
       autoViewportEnabled: true,
       viewportModeRevision: 0,
@@ -64,6 +68,7 @@ function viewportHarness(emitRequest?: Parameters<typeof useSceneViewport>[0]) {
   const source = readFileSync(new URL('./useSceneViewport.ts', import.meta.url), 'utf8')
   const context = {
     exports: {} as { useSceneViewport: typeof useSceneViewport },
+    console: { warn: (...args: unknown[]) => warnings.push(args) },
     crypto: { randomUUID: () => `viewport-${++nextId}` },
     setTimeout: (callback: () => void) => {
       timers.set(++nextTimer, callback)
@@ -79,7 +84,7 @@ function viewportHarness(emitRequest?: Parameters<typeof useSceneViewport>[0]) {
       if (name === '@/features/stateSafety/bridge') return { editorsLocked }
       if (name === '@/features/presets/editIntent') return presetEditIntent
       if (name === '@/features/presets/operations') return presetOperations
-      if (name === '@/stores/cat') return { useCatStore: () => store }
+      if (name === '@/stores/block') return { useBlockStore: () => store }
       if (name === '@tauri-apps/api/event') {
         return {
           emitTo: async (target: string, event: string, payload: typeof events[number]['payload']) => {
@@ -123,6 +128,7 @@ function viewportHarness(emitRequest?: Parameters<typeof useSceneViewport>[0]) {
     api,
     store,
     events,
+    warnings,
     listeners,
     timers,
     ack,
@@ -157,6 +163,65 @@ function viewportHarness(emitRequest?: Parameters<typeof useSceneViewport>[0]) {
 }
 
 describe('scene viewport request acknowledgements', () => {
+  it('ignores equal-valued manual corrections without retriggering reactive preset edits', async () => {
+    const store = useBlockStore(createPinia())
+    Object.assign(store.activePet3dPreset, { autoViewportEnabled: false, manualViewportRect: { ...state(false).rect } })
+    const h = viewportHarness(undefined, store)
+    let replacements = 0
+    const stop = watch(() => store.activePet3dPreset.manualViewportRect, () => replacements++, { flush: 'sync' })
+    try {
+      await h.mount()
+      const requested = { ...store.activePet3dPreset.manualViewportRect }
+      // serde_json::Value changes key order without changing the requested bounds.
+      const same = { height: requested.height, width: requested.width, x: requested.x, y: requested.y }
+      const original = store.activePet3dPreset.manualViewportRect
+      for (let delivery = 0; delivery < 3; delivery++) {
+        h.publish({ ...state(false), manualCorrection: { requested, applied: same } })
+      }
+      assert.equal(replacements, 0)
+      assert.equal(store.activePet3dPreset.manualViewportRect, original)
+
+      const clamped = { ...same, width: same.width - 100 }
+      h.publish({ ...state(false), rect: clamped, manualCorrection: { requested, applied: clamped } })
+      assert.equal(replacements, 1, 'a real current-request clamp must still update the preset')
+      assert.deepEqual(JSON.parse(JSON.stringify(store.activePet3dPreset.manualViewportRect)), clamped)
+      h.publish({ ...state(false), rect: clamped, manualCorrection: { requested: clamped, applied: { ...clamped } } })
+      assert.equal(replacements, 1, 'repeated acknowledgement of the clamp is idempotent')
+    } finally {
+      stop()
+      h.unmount()
+      store.$dispose()
+    }
+  })
+
+  it('accepts repeated refreshes after a whole-program reset and rejects pre-reset state', async () => {
+    const store = useBlockStore(createPinia())
+    const h = viewportHarness(undefined, store)
+    try {
+      await h.mount()
+      h.ack({ ...state(false), revision: 7 })
+      await presetOperations.withPresetReset(async () => store.resetAllSettings())
+      await flush()
+      // The real reset creates the mode that main captures when centering its
+      // viewport. Its acknowledgement must remain newer than the cached mode.
+      const resetState = { ...state(), revision: store.activePet3dPreset.viewportModeRevision }
+      h.ack(resetState)
+      assert.equal(h.api.viewportError.value, undefined)
+      assert.ok(resetState.revision > 7)
+      assert.equal(h.store.activePet3dPreset.autoViewportEnabled, true)
+      h.publish({ ...state(false), revision: 7 })
+      assert.deepEqual(h.api.viewportState.value, resetState)
+      for (let index = 0; index < 3; index++) {
+        await h.focus()
+        h.ack(resetState)
+        assert.equal(h.api.viewportError.value, undefined)
+      }
+      assert.equal(presetOperations.presetNativeEditPending.value, 0)
+    } finally {
+      h.unmount()
+    }
+  })
+
   it('adopts a native manual clamp only for the exact current request outside a save freeze', async () => {
     const h = viewportHarness()
     try {
@@ -394,6 +459,34 @@ describe('scene viewport request acknowledgements', () => {
     }
     h.unmount()
   })
+
+  for (const failure of [
+    { success: false, state: state(false), code: 'NATIVE_OPERATION_FAILED' },
+    { success: true, state: undefined, code: 'INVALID_RESPONSE' },
+    { success: true, state: { ...state(false), revision: 4 }, code: 'STATE_CHANGED' },
+    { success: true, state: { ...state(true), revision: 5 }, code: 'STATE_MISMATCH' },
+  ]) {
+    it(`reports a fixed rejection reason without logging native state (${failure.code})`, async () => {
+      const h = viewportHarness()
+      try {
+        await h.mount()
+        h.ack({ ...state(), revision: 5 })
+        const request = h.api.requestViewportMode(false)
+        await flush()
+        h.reply({ requestId: h.events.at(-1)!.payload.requestId, success: failure.success, state: failure.state })
+        assert.equal(await request, false)
+        assert.deepEqual(JSON.parse(JSON.stringify(h.warnings.at(-1))), [
+          'The scene viewport acknowledgement was rejected.',
+          { code: failure.code },
+        ])
+        assert.equal(diagnosticCode(h.warnings.at(-1)![1]), failure.code)
+        assert.equal(h.store.activePet3dPreset.autoViewportEnabled, true)
+        assert.equal(presetOperations.presetNativeEditPending.value, 0)
+      } finally {
+        h.unmount()
+      }
+    })
+  }
 
   it('does not let a delayed old delivery failure cancel a newer request', async () => {
     const h = viewportHarness()

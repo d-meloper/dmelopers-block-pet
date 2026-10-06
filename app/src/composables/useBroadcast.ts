@@ -9,14 +9,14 @@ import type { BroadcastStatus } from '@/features/broadcast/types'
 import { captureBroadcastScene } from '@/features/broadcast/scene'
 import { createBroadcastSynchronizer } from '@/features/broadcast/synchronizer'
 import { BROADCAST_STATUS_EVENT, isBroadcastStatus } from '@/features/broadcast/types'
-import { useCatStore } from '@/stores/cat'
+import { useBlockStore } from '@/stores/block'
 import { useGeneralStore } from '@/stores/general'
 
 export const BROADCAST_CONTROLLER: InjectionKey<ReturnType<typeof useBroadcast>> = Symbol('broadcast-controller')
 
 /** Owned by the mounted preference page, not its currently selected tab. */
 export function useBroadcast(ready: Ref<boolean>, busy: Ref<boolean>) {
-  const cat = useCatStore()
+  const block = useBlockStore()
   const general = useGeneralStore()
   const status = ref<BroadcastStatus>({ enabled: false, clients: 0 })
   const pending = ref(false)
@@ -53,7 +53,7 @@ export function useBroadcast(ready: Ref<boolean>, busy: Ref<boolean>) {
     if (!general.broadcast.enabled) return { enabled: false }
     if (!ready.value || busy.value) return undefined
     try {
-      return { enabled: true, scene: captureBroadcastScene(cat) }
+      return { enabled: true, scene: captureBroadcastScene(block) }
     } catch {
       console.warn('Failed to capture a valid broadcast scene.')
       return null

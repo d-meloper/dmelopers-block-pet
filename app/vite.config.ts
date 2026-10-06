@@ -51,8 +51,8 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell vite to ignore watching `src-tauri`
-      ignored: ['**/src-tauri/**'],
+      // Cargo owns native sources and build output; frontend HMR needs neither.
+      ignored: ['**/src-tauri/**', '**/target/**'],
     },
   },
 }))

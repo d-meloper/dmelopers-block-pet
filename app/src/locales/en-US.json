@@ -17,7 +17,8 @@
         "title": "Show pet",
         "body": "Broadcast output is enabled, and your pet is currently hidden from your desktop. Would you like to show your pet on your desktop now?",
         "enable": "Turn on now",
-        "cancel": "Cancel"
+        "cancel": "Cancel",
+        "dismiss": "Don't show again"
       },
       "petRuntimeRecovery": {
         "title": "Unable to display your pet",
@@ -37,18 +38,18 @@
       },
       "presets": {
         "title": "Presets",
-        "builtinName": "App Defaults",
-        "initialName": "Preset 1",
-        "defaultCopyName": "Default Copy",
         "newName": "New Preset",
         "labels": {
           "name": "Preset name",
           "favorites": "Favorites",
+          "list": "Preset list",
           "apply": "Apply the {name} preset",
           "reorder": "Reorder the {name} preset",
           "favorite": "Add the {name} preset to favorites",
           "unfavorite": "Remove the {name} preset from favorites",
-          "more": "Manage the {name} preset"
+          "more": "Manage the {name} preset",
+          "userList": "User presets",
+          "builtinList": "Default presets"
         },
         "buttons": {
           "new": "New Preset",
@@ -60,10 +61,12 @@
           "unfavorite": "Remove from Favorites",
           "more": "More",
           "cancel": "Cancel",
+          "apply": "Apply",
           "retry": "Try Again"
         },
         "hints": {
-          "scope": "Save your settings (pet, scene, and objects) as a single preset.\n(Drag a .petpreset file here to import it.)",
+          "empty": "No presets yet. Try creating a new preset to save your current skin and settings.",
+          "scope": "Save or load your settings (skin, Pet, Objects, and Scene) as presets. Performance, Shortcuts, and Preferences are not saved in presets.\n\n(Drag a .petpreset file here to import it.)",
           "reorder": "Drag a handle, or focus it and press Alt + ← / → (↑ / ↓) to reorder within the same group.",
           "moveToEnd": "Move to the end of this group"
         },
@@ -71,18 +74,20 @@
           "loading": "Loading presets…",
           "saving": "Saving…",
           "thumbnail": "Updating preview…",
-          "active": "Active",
           "moved": "{name}: moved to position {position} of {count} in {group}."
         },
         "dialog": {
+          "applyTitle": "Apply the \"{name}\" preset?",
+          "applySkin": "Use this pet skin",
+          "applySkinHint": "Turn this option off to apply the preset while keeping your current skin.",
+          "applyWarning": "Warning: This preset will overwrite all current Pet, Objects, and Scene settings. To preserve your current state, click '+New Preset' to save it as a preset.",
           "newTitle": "New Preset",
           "renameTitle": "Rename Preset",
-          "newHint": "Create and apply a new preset using the app defaults.",
+          "newHint": "Save the currently applied skin and settings as a new preset.",
           "renameHint": "Enter a name that is easy to recognize in the list.",
           "nameHint": "Use 1–255 characters after trimming and a name that is not already in use.",
           "deleteTitle": "Delete the “{name}” preset?",
-          "deleteHint": "This deletes the preset. This cannot be undone.",
-          "deleteActiveHint": "Deleting this preset automatically switches to the ‘{name}’ preset."
+          "deleteHint": "This deletes the preset and cannot be undone. Your current skin and settings are kept."
         },
         "transfer": {
           "buttons": {
@@ -94,13 +99,15 @@
             "skinMode": "Choose how to share this preset’s skin.",
             "image": "Skin image",
             "nickname": "Java username",
+            "default": "Do not share skin",
+            "defaultHint": "Exports the preset with the default pet skin. Choose this option to export settings such as surrounding object placement, lighting, and pet appearance without sharing the skin.",
             "imageHint": "Includes the PNG skin image in the exported preset.\nShare it externally only if you have the skin image creator's permission or the right to share it. Unauthorized sharing may infringe copyright.",
-            "nicknameHint": "Exports the skin's username in the preset.\nImporting this preset fetches and applies the latest skin associated with that username.",
+            "nicknameHint": "Exports the skin's username in the preset.\nImporting this preset fetches the latest skin associated with that username. The skin is applied to your pet only after you confirm.\nSharing a username does not grant permission to use or redistribute its associated skin.",
             "username": "Linked username",
             "noNickname": "This preset has no linked Java username. Apply a skin by username in the Pet tab to use this option."
           },
           "hints": {
-            "drop": "Drop one .petpreset file here to import and apply it."
+            "drop": "Drop .petpreset files here to add them to the list. You can import several files at once."
           },
           "phases": {
             "reading": "Reading preset…",
@@ -110,11 +117,10 @@
             "exporting": "Exporting preset…"
           },
           "success": {
-            "import": "Preset imported and applied.",
+            "import": "Preset imported.",
             "export": "Preset exported."
           },
           "errors": {
-            "multipleFiles": "Import one preset file at a time.",
             "import": "The preset could not be imported. Please try again.",
             "export": "The preset file could not be saved. Please try again.",
             "read": "The preset file could not be read. Select it again and retry.",
@@ -129,20 +135,51 @@
             "apply": "The imported preset could not be applied. Please try again.",
             "save": "The imported preset could not be saved. Please try again.",
             "recovery": "The previous import needs recovery. Retry to restore your settings before importing again."
+          },
+          "batch": {
+            "progress": "{current}/{total}: Importing {file}…",
+            "summary": "Imported {saved} · Failed {failed} · Not processed {pending}",
+            "saved": "Imported",
+            "failed": "Failed",
+            "pending": "Waiting",
+            "stopped": "Importing the remaining files stopped. Resolve the issue and try again.",
+            "retry": "Retry failed and unprocessed files"
           }
         },
         "errors": {
           "invalidName": "Use 1–255 characters after trimming and do not include control characters.",
           "duplicateName": "A preset with this name already exists. Enter a different name.",
-          "save": "Your changes could not be saved. The current settings are preserved so you can try again.",
+          "save": "Settings could not be saved automatically. Your current settings are preserved. Please try again.",
+          "create": "The preset could not be created. You can retry with the settings captured when you selected Create.",
           "apply": "The preset could not be applied. Retry to restore the previous settings.",
           "manage": "The preset change could not be completed. Please try again.",
           "preview": "Could not create this preview.",
           "load": "Presets could not be loaded. Please try again."
+        },
+        "builtinNames": {
+          "default": "Default",
+          "sunset": "Default (Sunset)",
+          "front": "Front",
+          "bigHeadKeyboard": "Big Head Keyboard"
         }
       },
-      "cat": {
+      "block": {
         "title": "Pet",
+        "detailTabs": {
+          "body": "Head & Body",
+          "arms": "Arms & Palms",
+          "eyebrows": "Eyebrows"
+        },
+        "detailReset": {
+          "body": "Reset Head & Body Settings",
+          "arms": "Reset Arms & Palms Settings",
+          "eyebrows": "Reset Eyebrow Settings"
+        },
+        "detailResetConfirm": {
+          "body": "Reset head and body settings to their defaults?",
+          "arms": "Reset both arms and the palm color to their defaults?",
+          "eyebrows": "Reset eyebrow settings to their defaults?"
+        },
         "labels": {
           "modelSettings": "Scene Settings",
           "mirrorMode": "Mirror Mode",
@@ -159,9 +196,6 @@
           "windowSize": "Window Size",
           "windowRadius": "Window Radius",
           "opacity": "Opacity",
-          "motionSound": "Motion Sound",
-          "behavior": "Motions and Expressions",
-          "autoReleaseDelay": "Auto Release Delay",
           "hideOnHover": "Hide on Hover",
           "maxFPS": "Max Frame Rate",
           "petModel": "Pet Model",
@@ -169,7 +203,7 @@
           "applyMinecraftSkin": "Apply",
           "dmeloperSkinModel": "Skin Type",
           "petHeadScale": "Head Size",
-          "petBehaviorSettings": "Pet Advanced Settings",
+          "petBehaviorSettings": "Pet Appearance",
           "petRightArmBend": "Right Arm Bend",
           "petRightArmSpread": "Right Arm Spread",
           "petLeftArmBend": "Left Arm Bend",
@@ -187,17 +221,19 @@
           "dmeloperEyebrowSettings": "Pet Eyebrow Settings",
           "dmeloperEyebrowsEnabled": "Show Pet Eyebrows",
           "dmeloperEyebrowColor": "Pet Eyebrow Color",
+          "setDmeloperEyebrowColorAutomatically": "Set Eyebrow Color Automatically",
           "dmeloperEyebrowCustomColor": "Custom eyebrow color",
-          "dmeloperEyebrowCenter": "Eyebrow Horizontal Position",
-          "dmeloperEyebrowHeight": "Eyebrow Height",
-          "dmeloperEyebrowSpacing": "Eyebrow Spacing",
-          "dmeloperEyebrowWidth": "Eyebrow Length",
-          "dmeloperEyebrowDepth": "Eyebrow Depth",
-          "dmeloperEyebrowThickness": "Eyebrow Thickness",
+          "dmeloperEyebrowCenter": "Horizontal Position",
+          "dmeloperEyebrowHeight": "Height",
+          "dmeloperEyebrowSpacing": "Spacing",
+          "dmeloperEyebrowWidth": "Length",
+          "dmeloperEyebrowDepth": "Depth",
+          "dmeloperEyebrowThickness": "Thickness",
           "resetDmeloperEyebrows": "Reset Eyebrow Settings",
           "dmeloperPalmSettings": "Pet Palm Settings",
           "dmeloperPalmColor": "Pet Palm Color",
           "resetDmeloperPalmColor": "Set Palm Color Automatically",
+          "setAutomatically": "Set Automatically",
           "reset3d": "Reset Settings",
           "eyebrowAnimation": "Use Eyebrow Animation"
         },
@@ -209,17 +245,14 @@
           "visible": "Show or hide the pet.",
           "mouseMirror": "When enabled, the mouse will mirror the hand movement.",
           "ignoreMouse": "When enabled, the model will not respond to mouse events. Useful for keyboard mode.",
-          "motionSound": "When enabled, the model will play corresponding sound effects when performing actions (if they exist).",
-          "behavior": "When enabled, motions and expressions can be configured and triggered.",
           "passThrough": "When enabled, clicks pass through the window without affecting it.",
           "alwaysOnTop": "When enabled, the window stays above all other windows.",
           "keepInScreen": "When enabled, the window automatically stays within the screen boundaries.",
           "windowSize": "Scale the pet window from 10% to 100% while preserving its composition and aspect ratio.",
-          "autoReleaseDelay": "On Windows, some system keys cannot capture release events and will auto-release after timeout.",
           "hideOnHover": "When enabled, the window hides automatically on mouse hover. You can set a delay; 0 means hide immediately.",
           "maxFPS": "Limit the maximum frame rate for model rendering. Lowering the frame rate can reduce CPU/GPU usage.",
           "petModel": "Select the pet model.",
-          "minecraftSkinUsername": "Apply the public skin associated with a Java Edition username.",
+          "minecraftSkinUsername": "Look up the skin associated with a Minecraft: Java Edition username and apply it to this app’s pet. An internet connection is required. Being able to look up a skin does not automatically grant permission to use or share it.",
           "dmeloperSkinModel": "Wide is available only when it is supported by the loaded skin.",
           "petHeadScale": "Adjust the pet's head size.",
           "petRightArmBend": "Adjust the right elbow bend.",
@@ -228,13 +261,13 @@
           "petLeftArmSpread": "Rotate the left arm horizontally.",
           "keyboardLanguage": "Change only character key labels between Korean and English; special and arrow keys stay the same.",
           "petRotation": "Rotate the pet around its own Y axis.",
-          "deskDistance": "Positive values move the pet toward the desk; negative values move it backward.",
+          "deskDistance": "Higher values move the pet farther from the desk; lower values move it closer.",
           "keyboardX": "Move the keyboard reference position left or right without changing its size or rotation.",
           "keyboardZ": "Move the keyboard reference position forward or backward without changing its size or rotation.",
           "mouseX": "Move the mouse reference position left or right without changing its motion range.",
           "mouseZ": "Move the mouse reference position forward or backward without changing its motion range.",
           "dmeloperEyebrowsEnabled": "Show the pet’s eyebrows",
-          "dmeloperEyebrowColor": "Set the pet's eyebrow color.",
+          "dmeloperEyebrowColor": "Set the pet's eyebrow color. Automatic setting uses the average color of the skin’s head top.",
           "dmeloperPalmColor": "Set the pet's palm color.",
           "eyebrowAnimation": "Animate the pet’s eyebrows."
         },
@@ -245,7 +278,7 @@
           "defaultSkin": "Current source: dmeloper (Default)",
           "localSkin": "Current source: Local PNG",
           "minecraftSkinApplied": "Applied: {name} · {model}",
-          "minecraftSkinLoading": "Checking the official Minecraft services for this skin…"
+          "minecraftSkinLoading": "Looking up the skin through Minecraft services…"
         },
         "options": {
           "dmeloperSkinModel": {
@@ -348,15 +381,20 @@
         "builtinName": "dmeloper (Default)"
       },
       "scene": {
+        "detailTabs": {
+          "view": "View",
+          "viewport": "Display Area",
+          "lighting": "Lighting"
+        },
         "lighting": {
           "title": "Lighting Settings",
           "reset": "Reset Lighting Settings",
           "confirmReset": "Reset lighting settings to their defaults?",
           "labels": {
             "color": "Light Color",
-            "strengthPercent": "Light Intensity",
-            "azimuthDegrees": "Light Horizontal Angle",
-            "elevationDegrees": "Light Vertical Angle"
+            "strengthPercent": "Intensity",
+            "azimuthDegrees": "Horizontal Angle",
+            "elevationDegrees": "Vertical Angle"
           },
           "hints": {
             "color": "Set the light color.",
@@ -365,8 +403,12 @@
             "elevationDegrees": "Adjust the vertical light angle."
           }
         },
-        "title": "Scene",
+        "title": "Display",
         "labels": {
+          "widthShort": "Width",
+          "heightShort": "Height",
+          "resetView": "Reset View Settings",
+          "resetViewport": "Reset Display Area Settings",
           "zoom": "Zoom",
           "rotation": "Rotation",
           "opacity": "Opacity",
@@ -399,22 +441,32 @@
           "timeout": "The skin display area has not responded yet. Please check again."
         },
         "confirm": {
+          "resetView": "Reset view settings to their defaults?",
+          "resetViewport": "Reset display area settings to their defaults?",
           "reset": "Reset the scene settings to their defaults?"
         }
       },
       "environment": {
+        "detailTabs": {
+          "desk": "Desk",
+          "keyboard": "Keyboard",
+          "mouse": "Mouse"
+        },
         "title": "Objects",
         "labels": {
+          "objectSettings": "Objects",
           "deskSettings": "Desk Settings",
           "deskTransparent": "Transparent Desk",
-          "deskHeightOffset": "Desk Height",
+          "deskHeightOffset": "Height",
+          "deskWidthOffset": "Width",
+          "deskDepthOffset": "Depth",
           "deskColor": "Desk Color",
           "keyboardColor": "Keyboard Color",
           "keyboardKeycapColor": "Keycap Color",
           "keyboardLegendColor": "Keycap Text Color",
-          "keyboardPressedColor": "Keyboard Input Highlight Color",
+          "keyboardPressedColor": "Input Highlight Color",
           "mouseColor": "Mouse Color",
-          "mousePressedColor": "Mouse Input Highlight Color",
+          "mousePressedColor": "Input Highlight Color",
           "windowSize": "Window Size",
           "opacity": "Opacity",
           "mirrorMode": "Mirror",
@@ -430,15 +482,19 @@
           "mouseSettings": "Mouse Settings",
           "mouseEnabled": "Use Mouse",
           "refreshMouse": "Check Again",
-          "keyboardX": "Keyboard Horizontal Position",
-          "keyboardZ": "Keyboard Depth Position",
-          "keyboardScale": "Keyboard Size",
-          "mouseX": "Mouse Horizontal Position",
-          "mouseZ": "Mouse Depth Position",
-          "mouseScale": "Mouse Size",
+          "keyboardX": "Horizontal Position",
+          "keyboardZ": "Depth Position",
+          "keyboardScale": "Size",
+          "mouseX": "Horizontal Position",
+          "mouseZ": "Depth Position",
+          "mouseScale": "Size",
           "resetDesk": "Reset Desk Settings",
           "resetKeyboard": "Reset Keyboard Settings",
           "resetMouse": "Reset Mouse Settings"
+        },
+        "options": {
+          "keyboardKorean": "Korean",
+          "keyboardEnglish": "English"
         },
         "hints": {
           "deskTransparent": "Display the desk transparently.",
@@ -452,14 +508,14 @@
           "cameraVertical": "Move the scene up or down in the viewport.",
           "cameraZoom": "Adjust the magnification of the scene.",
           "petRotation": "Rotate the pet's body left or right.",
-          "deskDistance": "Move the pet forward or backward relative to the desk.",
+          "deskDistance": "Higher values move the pet farther from the desk; lower values move it closer.",
           "keyboardX": "Move the keyboard left or right.",
           "keyboardZ": "Move the keyboard forward or backward.",
           "keyboardScale": "Adjust the size of the keyboard.",
           "mouseX": "Move the mouse left or right.",
           "mouseZ": "Move the mouse forward or backward.",
           "mouseScale": "Adjust the size of the mouse.",
-          "mouseEnabled": "Use mouse input. Turning this off hides the mouse and stops tracking mouse input.",
+          "mouseEnabled": "Turning this off hides the mouse object and stops click and scroll reactions. The pet still follows your cursor with its gaze.",
           "keyboardColor": "Change the color of the keyboard body.",
           "keyboardKeycapColor": "Change the color of the keycaps.",
           "keyboardLegendColor": "Change the color of the text on the keycaps.",
@@ -489,7 +545,6 @@
           "hideOnHover": "Hide on Hover",
           "keepInScreen": "Keep on Screen",
           "showTaskbarIcon": "Show Taskbar Icon",
-          "showTrayIcon": "Show Tray Icon",
           "appearanceSettings": "Appearance Settings",
           "themeMode": "Theme Mode",
           "language": "Language",
@@ -508,7 +563,6 @@
           "hideOnHover": "Hide the pet window after the selected delay when the pointer moves over it.",
           "keepInScreen": "Keep the pet window within the visible screen area.",
           "showTaskbarIcon": "Show the pet as a taskbar icon.",
-          "showTrayIcon": "When enabled, the app icon is displayed in the system tray.",
           "launchOnStartup": "Automatically run the program when Windows starts."
         },
         "confirm": {
@@ -558,7 +612,21 @@
           "renderScale": "Adjust the rendering resolution. Lower settings improve performance.",
           "antialias": "Smooth jagged edges on rendered models. Turning this off improves performance.",
           "pixelFilter": "Soften the pet’s pixel color boundaries. Turning this off improves performance.",
-          "warmup": "Preparing measurements."
+          "warmup": "Preparing measurements.",
+          "resourceUnavailable": "{resource}: {reason}",
+          "unavailableEnvironment": "Some resource usage may not be measurable in certain environments."
+        },
+        "unavailableReasons": {
+          "unsupported": "Not supported in this environment.",
+          "accessDenied": "Performance information could not be accessed.",
+          "processUnavailable": "The app process could not be found.",
+          "processSnapshotFailed": "The process list could not be retrieved.",
+          "counterUnavailable": "The performance counter is unavailable.",
+          "counterReadFailed": "The performance counter could not be read.",
+          "initializing": "Measurements are being prepared.",
+          "intervalTooShort": "The measurement interval is too short.",
+          "invalidSample": "A valid measurement could not be obtained.",
+          "samplingFailed": "The performance measurement request could not be completed."
         },
         "status": {
           "unavailable": "Unavailable",
@@ -575,37 +643,10 @@
           "antialiasUnconfirmed": "The antialiasing result could not be confirmed. Please try again."
         }
       },
-      "model": {
-        "title": "Model",
-        "labels": {
-          "deleteModel": "Delete Model"
-        },
-        "hints": {
-          "deleteSuccess": "Deleted Successfully",
-          "deleteModel": "Are you sure you want to delete this model?",
-          "importSuccess": "Imported Successfully",
-          "clickOrDragToImport": "Click or drag here to import"
-        },
-        "tooltips": {
-          "createModel": "Create Model",
-          "convertModel": "Convert Model",
-          "moreModels": "More Models"
-        },
-        "behaviorModal": {
-          "title": "Motions and Expressions",
-          "labels": {
-            "motion": "Motion",
-            "expression": "Expression",
-            "motionIndex": "Motion {index}",
-            "motionGroupIndex": "Motion Group {index}",
-            "expressionIndex": "Expression {index}"
-          }
-        }
-      },
       "shortcut": {
         "title": "Shortcuts",
         "labels": {
-          "toggleCat": "Toggle Pet",
+          "toggleBlock": "Toggle Pet",
           "toggleBroadcast": "Toggle Broadcast Output",
           "toggleMouse": "Toggle Mouse Input",
           "hideOnHover": "Hide on Hover",
@@ -617,7 +658,7 @@
           "cycleRotation": "Cycle Rotation"
         },
         "hints": {
-          "toggleCat": "Toggle the visibility of the pet window.",
+          "toggleBlock": "Toggle the visibility of the pet window.",
           "toggleBroadcast": "Turn broadcast output on or off.",
           "togglePreferences": "Toggle the visibility of the preferences window.",
           "mirrorMode": "Toggle the pet's mirror mode.",
@@ -631,39 +672,45 @@
         "title": "About",
         "labels": {
           "aboutApp": "About App",
+          "troubleshootingSupport": "Troubleshooting and Support",
           "appLog": "App Logs",
           "appInfo": "App Info",
+          "contactUs": "Contact Us",
           "iconCredits": "Icon Credits",
           "legalNotices": "Third-party Licenses",
           "resetAll": "Reset All Program Settings",
           "introduction": "Introduction",
-          "developerInfo": "Developer Information",
+          "releaseNotes": "Release Notes",
           "developer": "Developer",
           "developerName": "DMeloper",
           "developerEmail": "Developer Email Address",
-          "releaseNotes": "Release Notes Page",
-          "dataNotice": "Data and Permissions"
+          "dataNotice": "Data and Permissions",
+          "resetDeleteSkins": "Delete all pet skins",
+          "resetPresets": "Delete all user presets"
         },
         "hints": {
-          "appInfo": "Copy app information and provide it to bug issue.",
+          "appInfo": "Copy the Windows version, graphics, and key environment information, excluding personal paths, usernames, skins, and the broadcast address.",
           "copySuccess": "Copied Successfully",
           "solarIcons": "Solar Icons by 480 Design are used under CC BY 4.0.",
           "lucideIcons": "Lucide ISC notices and the MIT notices for Feather-derived icons by Cole Bemis are provided together.",
+          "antDesignIcons": "The filled GitHub icon is from Ant Design Icons under the MIT License. Its original copyright and license are included in Third-party Licenses.",
+          "notionIcon": "The Notion link uses a local vector drawn to match a supplied reference image. Notion's name and mark belong to their rights holder.",
           "legalNotices": "Read third-party licenses and credits.",
-          "dataNotice": "Read about the data, permissions and network connections the app uses."
+          "dataNotice": "Read about the data, permissions and network connections the app uses.",
+          "unofficialProduct": "This is not an official Minecraft product. It is not approved by, affiliated with, or endorsed by Mojang Studios or Microsoft."
         },
         "buttons": {
           "copy": "Copy",
-          "viewLog": "View Logs",
+          "viewLog": "Open",
+          "fillSurvey": "Open Contact Survey",
           "viewLegalNotices": "Read Notices",
-          "checkUpdate": "Check for Updates",
           "github": "GitHub",
           "notion": "Notion",
           "openLinktree": "Open Linktree"
         },
         "confirm": {
           "resetAll": "Reset all program settings?",
-          "resetAllWarning": "All settings, window positions, and performance metrics will return to their defaults. The skin library, user presets, and their saved appearances will be permanently deleted. Only the App Defaults preset will remain."
+          "resetAllWarning": "Reset all program settings and window positions to their defaults. This action cannot be undone."
         },
         "errors": {
           "resetAll": "The program reset could not be completed.",
@@ -737,8 +784,8 @@
       },
       "labels": {
         "preference": "Preferences",
-        "hideCat": "Hide Pet",
-        "showCat": "Show Pet",
+        "hideBlock": "Hide Pet",
+        "showBlock": "Show Pet",
         "passThrough": "Pass Through",
         "windowSize": "Zoom",
         "opacity": "Opacity",
@@ -768,18 +815,6 @@
       }
     }
   },
-  "manualUpdates": {
-    "title": "Program version management",
-    "latest": "Latest version page",
-    "download": "GitHub",
-    "hint": "Opens the official latest version page in your browser.",
-    "checking": "Checking the latest version.",
-    "upToDate": "The program is up to date.",
-    "available": "The program is not up to date. (Latest version: v{version}) Click [Notion] or [GitHub] above to download and install the latest version. Your existing settings and data will be preserved.",
-    "localNewer": "This program is newer than the latest public version (v{version}).",
-    "unknown": "Could not check the latest version. Use the link above to check the official release.",
-    "openFailed": "Could not open the releases page. Check your default browser settings."
-  },
   "updateReminder": {
     "title": "Update available",
     "message": "A new version (v{version}) is available. Would you like to install it now?",
@@ -788,24 +823,20 @@
     "close": "Close"
   },
   "inAppUpdates": {
-    "title": "Application update",
-    "latest": "Check for the Latest Version",
-    "hint": "Check for the latest version of this program.",
     "check": "Check for updates",
     "install": "Install update",
     "checking": "Checking for updates…",
     "unknown": "Could not check for updates. Please try again.",
     "available": "An update to the latest version (v{version}) is available.",
-    "upToDate": "You are up to date.",
+    "upToDate": "The current program is up to date.",
     "downloading": "Downloading and verifying the update…",
     "saving": "Saving settings, presets and skins…",
-    "installing": "Handing off to the installer. The app will reopen after installation completes.",
+    "installing": "Starting the installer. The app will reopen after installation completes.",
     "failed": "The update could not be completed. If the app is open, check again. If installation was interrupted, use the installer from the GitHub releases page to repair it.",
     "verifying": "Verifying the downloaded file and its signature.",
     "cancel": "Cancel update"
   },
   "storeUpdates": {
-    "title": "Microsoft Store updates",
     "hint": "Microsoft Store manages updates. Quit the app completely from its tray menu to allow an update. Restarting the app alone may not apply it.",
     "open": "Open Microsoft Store",
     "openFailed": "Could not open the Store page. Check for updates in Microsoft Store."

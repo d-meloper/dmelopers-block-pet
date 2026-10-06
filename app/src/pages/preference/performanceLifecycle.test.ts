@@ -124,6 +124,97 @@ function windowLifecycleHarness() {
 }
 
 describe('preference performance lifecycle', () => {
+  for (const { pendingEvent, outcome } of ['resize', 'focus', 'close'].flatMap(pendingEvent => ['registered', 'registration failed', 'release failed'].map(outcome => ({ pendingEvent, outcome })))) {
+    it(`retires a pending ${pendingEvent} listener after unmount when ${outcome}`, async () => {
+      const { descriptor } = parse(readFileSync(new URL('./index.vue', import.meta.url), 'utf8'))
+      const source = ts.createSourceFile('preference-mount.ts', descriptor.scriptSetup!.content, ts.ScriptTarget.Latest, true)
+      const names = new Set(['performanceLifecycleUnlisteners', 'preferenceDisposed'])
+      const selected = source.statements.filter((statement) => {
+        if (ts.isFunctionDeclaration(statement)) return statement.name?.text === 'retainPerformanceLifecycleListener' || statement.name?.text === 'releasePerformanceLifecycleListener'
+        if (ts.isVariableStatement(statement)) return statement.declarationList.declarations.some(declaration => ts.isIdentifier(declaration.name) && names.has(declaration.name.text))
+        if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression)) return false
+        return ts.isIdentifier(statement.expression.expression) && ['onMounted', 'onBeforeUnmount'].includes(statement.expression.expression.text)
+      }).map(statement => statement.getText(source)).join('\n')
+      const delayed = deferred<() => void>()
+      const reached = deferred<void>()
+      const subscribed: string[] = []
+      const released: string[] = []
+      const callbacks = new Map<string, (event: { payload?: boolean, preventDefault: () => void }) => void>()
+      const work: string[] = []
+      const diagnostics: string[] = []
+      const closing = Vue.ref(false)
+      const mouseReady = Vue.ref(true)
+      let mount!: () => Promise<void>
+      let unmount!: () => void
+      const release = (event: string) => async () => {
+        released.push(event)
+        if (outcome === 'release failed') throw new Error('Native listener removal failed.')
+      }
+      const subscribe = (event: string, callback: (event: { payload?: boolean, preventDefault: () => void }) => void) => {
+        subscribed.push(event)
+        callbacks.set(event, callback)
+        if (event === pendingEvent) {
+          reached.resolve()
+          return delayed.promise
+        }
+        return Promise.resolve(release(event))
+      }
+      runInNewContext(ts.transpileModule(selected, {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      }).outputText, {
+        onMounted: (callback: () => Promise<void>) => {
+          mount = callback
+        },
+        onBeforeUnmount: (callback: () => void) => {
+          unmount = callback
+        },
+        generateColorVars: () => {},
+        listenForMouseResponses: async () => {},
+        refreshMouseSetting: () => work.push('mouse'),
+        stopMouseSelectionListener: () => {},
+        mouseResponseUnlisten: undefined,
+        finishMouseRequest: () => {},
+        cancelInteraction: () => work.push('cancel'),
+        closing,
+        mouseReady,
+        performanceLifecycleGeneration: 0,
+        presetManager: { setListVisible: () => {} },
+        performanceStore: { stop: async () => {} },
+        reconcilePerformanceMonitoring: async () => {
+          work.push('performance')
+        },
+        reportDiagnostic: (_level: string, operation: string) => diagnostics.push(operation),
+        appWindow: {
+          onResized: (callback: (event: { payload?: boolean, preventDefault: () => void }) => void) => subscribe('resize', callback),
+          onFocusChanged: (callback: (event: { payload?: boolean, preventDefault: () => void }) => void) => subscribe('focus', callback),
+          onCloseRequested: (callback: (event: { payload?: boolean, preventDefault: () => void }) => void) => subscribe('close', callback),
+        },
+      })
+      const mounting = mount()
+      await reached.promise
+      assert.equal(subscribed[subscribed.length - 1], pendingEvent)
+      unmount()
+      const retiredWork = [...work]
+      // A queued callback can run before or after its late removal completes.
+      for (const callback of callbacks.values()) callback({ payload: true, preventDefault: () => {} })
+      if (outcome === 'registration failed') {
+        delayed.reject(new Error('Native listener registration failed.'))
+        await assert.rejects(mounting, /Native listener registration failed/)
+      } else {
+        delayed.resolve(release(pendingEvent))
+        await mounting
+      }
+      for (const callback of callbacks.values()) callback({ payload: false, preventDefault: () => {} })
+      assert.deepEqual(work, retiredWork, 'queued native events must not act for the retired owner')
+      assert.equal(closing.value, false)
+      assert.equal(mouseReady.value, true)
+      const registered = outcome === 'registration failed' ? subscribed.filter(event => event !== pendingEvent) : subscribed
+      assert.deepEqual([...released].sort(), [...registered].sort(), 'every completed registration must be released')
+      assert.equal(subscribed[subscribed.length - 1], pendingEvent, 'a retired owner must not register subsequent listeners')
+      assert.deepEqual(diagnostics, outcome === 'release failed' ? registered.map(() => 'preference.lifecycle_unsubscribe') : [])
+    })
+  }
+
   it('measures only while the visible performance tab is active', () => {
     assert.equal(shouldMonitorPreferencePerformance(activeState), true)
     assert.equal(shouldMonitorPreferencePerformance({ ...activeState, activeTab: 2 }), false)

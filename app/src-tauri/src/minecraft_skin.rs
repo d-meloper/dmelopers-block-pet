@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 use tauri::Manager;
 use tokio::{
     fs,
-    io::AsyncWriteExt,
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
     sync::{Mutex as AsyncMutex, Notify},
     time::{Instant as TokioInstant, timeout},
 };
@@ -856,7 +856,9 @@ async fn read_raw_cache(root: &Path, texture_key: &str) -> Option<ValidatedPng> 
         let _ = fs::remove_file(&raw_path).await;
         return None;
     }
-    let bytes = match fs::read(&raw_path).await {
+    #[cfg(test)]
+    tests::pause_cache_io(tests::CacheIoPhase::Read).await;
+    let bytes = match read_raw_cache_file(&raw_path).await {
         Ok(bytes) => bytes,
         Err(error) => {
             log_cache_io_warning("read", &error);
@@ -897,6 +899,19 @@ async fn read_raw_cache(root: &Path, texture_key: &str) -> Option<ValidatedPng> 
         log_cache_io_warning("update index", &error);
     }
     Some(validated)
+}
+
+async fn read_raw_cache_file(path: &Path) -> io::Result<Vec<u8>> {
+    read_raw_cache_bytes(fs::File::open(path).await?).await
+}
+
+async fn read_raw_cache_bytes(reader: impl AsyncRead + Unpin) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader
+        .take(PNG_LIMIT as u64 + 1)
+        .read_to_end(&mut bytes)
+        .await?;
+    Ok(bytes)
 }
 
 #[derive(Deserialize)]
@@ -1491,6 +1506,7 @@ mod tests {
 
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub(super) enum CacheIoPhase {
+        Read,
         Raw,
         Index,
     }
@@ -2230,6 +2246,85 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn raw_cache_reader_accepts_bytes_through_the_exact_limit() {
+        for size in [0, 64, PNG_LIMIT] {
+            let expected = vec![0x55; size];
+            let mut reader = Cursor::new(expected.clone());
+            assert_eq!(read_raw_cache_bytes(&mut reader).await.unwrap(), expected);
+            assert_eq!(reader.position(), size as u64);
+        }
+    }
+
+    #[tokio::test]
+    async fn raw_cache_reader_never_consumes_beyond_the_limit_sentinel() {
+        let mut reader = Cursor::new(vec![0x55; PNG_LIMIT + 1024]);
+        let bytes = read_raw_cache_bytes(&mut reader).await.unwrap();
+        assert_eq!(bytes.len(), PNG_LIMIT + 1);
+        assert_eq!(reader.position(), PNG_LIMIT as u64 + 1);
+        assert_public_code(validate_png(bytes, "unused").unwrap_err(), "TOO_LARGE");
+    }
+
+    #[tokio::test]
+    async fn raw_cache_reader_preserves_io_errors() {
+        struct FailingReader;
+        impl AsyncRead for FailingReader {
+            fn poll_read(
+                self: Pin<&mut Self>,
+                _cx: &mut std::task::Context<'_>,
+                _buf: &mut tokio::io::ReadBuf<'_>,
+            ) -> std::task::Poll<io::Result<()>> {
+                std::task::Poll::Ready(Err(io::Error::from(io::ErrorKind::PermissionDenied)))
+            }
+        }
+        assert_eq!(
+            read_raw_cache_bytes(FailingReader).await.unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+    }
+
+    #[tokio::test]
+    async fn growing_raw_cache_is_removed_and_recovered_from_verified_network_bytes() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().join("minecraft-skins");
+        let png = make_png(64, 64);
+        let (key, outcomes) = success_outcomes(&png, None, Some("max-age=600"));
+        write_raw_atomic(&root, &key, &png).await.unwrap();
+        maintain_cache_index(&root, Some((&key, png.len() as u64, &key)))
+            .await
+            .unwrap();
+        let raw_path = root.join("raw").join(format!("{key}.png"));
+        let transport = FakeTransport::new(outcomes);
+        let (gate, release) = CacheIoGate::new(CacheIoPhase::Read, false);
+        let mut configured = service(transport.clone(), Some(root));
+        configured.cache_io_gate = Some(Arc::clone(&gate));
+        let service = Arc::new(configured);
+        let cache_service = Arc::clone(&service);
+        let cache_key = key.clone();
+        let cache_read =
+            tokio::spawn(async move { cache_service.try_read_raw_cache(&cache_key).await });
+        timeout(Duration::from_secs(5), gate.reached.notified())
+            .await
+            .unwrap();
+        fs::write(&raw_path, vec![0x55; PNG_LIMIT + 1024])
+            .await
+            .unwrap();
+        release.send(()).unwrap();
+        assert!(
+            timeout(Duration::from_secs(5), cache_read)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_none()
+        );
+        assert!(!raw_path.exists());
+
+        let result = service.fetch("jeb_").await.unwrap();
+        assert!(!result.cache_hit);
+        assert_eq!(fs::read(raw_path).await.unwrap(), png);
+        assert_eq!(transport.call_count(), 3);
+    }
+
+    #[tokio::test]
     async fn corrupt_cache_is_removed_and_recovered_from_verified_network_bytes() {
         let temp = TempDir::new().unwrap();
         let root = temp.path().join("minecraft-skins");
@@ -2505,6 +2600,7 @@ mod tests {
                 .unwrap();
             if !panic_worker {
                 let destination = match phase {
+                    CacheIoPhase::Read => unreachable!("read is not a write transaction"),
                     CacheIoPhase::Raw => root.join("raw").join(format!("{key}.png")),
                     CacheIoPhase::Index => root.join("index.json"),
                 };

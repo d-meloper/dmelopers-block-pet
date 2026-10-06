@@ -12,6 +12,9 @@ const WINDOW_COMMANDS = ['destroy', 'hide', 'show', 'close', 'center', 'set_focu
 
 // Exact emitted codes only: a path/username can itself look like an error namespace.
 const KNOWN_CODES = new Set([
+  'LOG_DIRECTORY_FORBIDDEN',
+  'LOG_DIRECTORY_UNAVAILABLE',
+  'LOG_DIRECTORY_CREATE_FAILED',
   'AUTOSTART_APPROVAL_UNKNOWN',
   'AUTOSTART_BUSY',
   'AUTOSTART_IMAGE_PATH_TOO_LONG',
@@ -90,32 +93,17 @@ const KNOWN_CODES = new Set([
   'export',
   'import',
   'library',
-  'currentVersionInvalid',
-  'invalidFeed',
-  'staleFeed',
-  'futureFeed',
   'network',
   'timeout',
-  'httpStatus',
-  'responseTooLarge',
-  'noStableRelease',
   'read',
-  'ANTIALIAS_CHANGE_FAILED',
   'PROCESS_BUSY',
   'PROCESS_CANCELLED',
   'PROCESS_FAILED',
-  'PROCESS_STATE_UNKNOWN',
   'PROCESS_TIMEOUT',
-  'QUIESCENCE_RELEASE_DEFERRED',
   'QUIESCE_FAILED',
   'QUIESCE_TIMEOUT',
-  'SKIN_LOAD_FAILED',
   'STATE_UNKNOWN',
-  'UPDATE_SOURCE_INVALID',
-  'UPDATE_STATUS_TIMEOUT',
   'VIEWPORT_INTERACTION_CHANGED',
-  'WINDOW_NATIVE_MISMATCH',
-  'LATEST_VERSION_FORBIDDEN',
   'NATIVE_DRAG_FAILED',
   'NATIVE_OPERATION_FAILED',
   'PRESET_INVALID',
@@ -165,6 +153,7 @@ export function diagnosticCode(error: unknown, depth = 0): string {
 }
 
 const CONSOLE_OPERATIONS = new Map<string, string>([
+  ['IPC custom protocol failed, Tauri will now use the postMessage interface instead', 'ipc.protocol_fallback'],
   ['The scene viewport acknowledgement timed out.', 'viewport.acknowledgement_timeout'],
   ['Failed to send the scene viewport request.', 'viewport.request'],
   ['Failed to show the broadcast visibility prompt.', 'tray.broadcast_prompt'],
@@ -252,6 +241,10 @@ const CONSOLE_OPERATIONS = new Map<string, string>([
 ])
 
 export function consoleOperation(level: DiagnosticLevel, message: unknown): string {
+  if (level === 'warn' && typeof message === 'string'
+    && /^\[TAURI\] Couldn't find callback id \d+\. This might happen when the app is reloaded while Rust is running an asynchronous operation\.$/.test(message)) {
+    return 'ipc.callback_missing'
+  }
   return typeof message === 'string' ? CONSOLE_OPERATIONS.get(message) ?? `console.${level}` : `console.${level}`
 }
 

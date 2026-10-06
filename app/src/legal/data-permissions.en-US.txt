@@ -15,7 +15,8 @@ The app temporarily tracks pressed keys and uses contact positions and typing
 intensity to animate the pet. Typed text and an
 input-history log are not saved or sent to a server by this feature. Pointer
 coordinates and button state are processed locally. Quit the application to
-stop input monitoring; optional mouse interaction can also be disabled in settings.
+stop input monitoring. Settings can disable the mouse object and its click and
+scroll reactions; the pet still tracks the pointer with its gaze.
 
 ■ Optional OBS browser output
 
@@ -38,7 +39,8 @@ source keeps the same address. Reset turns broadcast output off.
 
 A local PNG is read only after selection. The app stores a copy and thumbnail
 in its local skin library, together with its display name, original filename
-where available, arm model, and appearance settings. Selecting a local skin
+where available, and arm model. Eyebrow and palm colors belong to presets,
+not to individual library entries. Selecting a local skin
 does not upload it to the developer or a skin service.
 
 Applying a Java Edition nickname sends it to api.minecraftservices.com (with
@@ -47,7 +49,9 @@ used at sessionserver.mojang.com, and the skin is downloaded over HTTPS from
 textures.minecraft.net. Those services necessarily receive the request and
 the network address used to reach them, which can be a proxy address. Their
 own privacy policies apply. No Microsoft/Xbox login token or password is
-requested. Bedrock identities and Marketplace content are not supported.
+requested. Bedrock identities and Marketplace content are not supported. Being
+able to look up a skin does not automatically grant permission to use or share
+it. Check the skin creator's rights.
 
 Verified skin bytes and the canonical nickname are kept locally for restoration.
 The library can retain skins beyond the currently selected one. Raw downloaded
@@ -56,12 +60,17 @@ it does not automatically refresh a saved nickname from the network.
 
 You can export one preset to a .petpreset file. Image mode includes the PNG,
 its arm model, and any linked nickname; nickname mode includes the linked
-nickname without a PNG or skin thumbnail. Both include the preset name and
-pet, scene and object settings. Common settings, desktop position and internal
+nickname without a PNG or skin thumbnail. The option to exclude the user skin
+uses the bundled default PNG and default eyebrow/palm colors, omitting the user's
+PNG and nickname. All three options include the preset name and pet, scene and
+object settings. Common settings, desktop position and internal
 library IDs are excluded. Exporting does not contact the skin service. Importing
 a nickname file performs the lookup described above once, then stores the PNG
 locally for future use. Files are saved locally; the app does not upload them.
-Review included images and nicknames before sharing a file yourself.
+Review included images and nicknames before sharing a file yourself. Sharing a
+file that includes a skin image requires its creator's permission or the right
+to share it. Sharing a nickname does not transfer permission to use or
+redistribute its associated skin.
 
 ■ Local data and removal
 
@@ -72,16 +81,22 @@ WebView data use each installation's separate AppData location.
 Skin images, thumbnails, filenames, nicknames and
 settings are personal data.
 
-A normal GitHub uninstall preserves shared Saved Games and installation-specific data.
-The GitHub uninstaller offers an unchecked “Remove all personal settings and files”
-option. Selecting and confirming it removes Saved Games\DMeloper's Block Pet,
-the GitHub edition's %LOCALAPPDATA% data (logs, caches and WebView data), and its
-%APPDATA% data (configuration and update recovery records). It also removes the
-shared settings, presets and skins used by an installed Store edition. If either
-official edition is running, cleanup does not start; if a path or file cannot be
-handled safely, uninstall stops. Windows
-manages Store removal and removes its package-scoped data; the external Saved Games
-data remains. Selecting the default skin alone does not erase the library.
+Normal removal preserves personal data. The official GitHub uninstaller offers
+an unchecked “Remove all personal settings and files” option. Selecting and
+confirming it removes the shared Saved Games settings, presets and skins, plus
+the GitHub installation's local and roaming AppData, including logs, caches
+and WebView data. The Store edition also loses those shared settings, presets
+and skins because it uses the same Saved Games data.
+
+Development and test installations use separate AppData directories and do not
+share the official Saved Games data. The same option in the WiX test uninstaller
+removes only that test installation's local and roaming AppData; it does not
+delete the official Saved Games folder. Cleanup requires the running app to be
+closed and the removal request to be verified. If cleanup fails, app removal
+stops; some selected files may already have been deleted.
+
+Windows manages Store removal and its package-scoped data; the external Saved
+Games data remains. Selecting the default skin alone does not erase the library.
 
 ■ Logs, clipboard, and system integration
 
@@ -96,32 +111,55 @@ not automatically upload, rotate or delete that file, including on exit or reset
 Earlier entries can remain. Review any log excerpt before sharing it, and keep
 personal paths, local data, skins, nicknames and credentials out of public issues.
 
-Copying app information writes app/runtime versions and OS details to the
-clipboard after a button click. The app also uses window management, configured
+The screen eyedropper temporarily captures the desktop across connected displays
+in memory while you select a color. The image is not saved or transmitted and is
+released when selection ends. Only the selected RGB color is applied to appearance
+settings.
+
+Copying app information writes app/runtime and WebView2 versions, the distribution
+channel, Windows edition/release/build, graphics renderer, display sizes/scales,
+rendering options, and pet/broadcast visibility to the clipboard after a button
+click. It excludes personal paths, skin/preset content, nicknames and broadcast
+connection addresses. Review this environment information before sharing it. The app also uses window management, configured
 global shortcuts, and optional start-at-login integration for its desktop
 features. Start-at-login can be disabled in settings.
 
-The Windows installer checks for Microsoft WebView2 and asks you to install it
-manually if it is absent. It does not download or run a WebView2 installer. Opening
-an external link launches the user's browser and is subject to that site's
-privacy practices. GitHub downloads, issues, and vulnerability reporting are
-GitHub services, separate from the running application.
+If Microsoft WebView2 is absent, the GitHub installer runs its included
+Microsoft-signed setup tool. That tool downloads and installs the runtime from
+Microsoft services, which receive the request and network address. The app itself
+does not download or run a WebView2 installer. If the runtime is missing in the
+Store edition or remains unavailable after installation, the app provides
+manual installation guidance. Opening an external link launches the user's
+browser and is subject to that site's privacy practices. GitHub downloads,
+issues, and vulnerability reporting are GitHub services, separate from the
+running application.
 
+For data and privacy questions, contact dmeloper@gmail.com.
 For confidential security reports, follow the Security policy (https://github.com/d-meloper/dmelopers-block-pet/blob/main/docs/SECURITY.md).
 For general questions, see Support (https://github.com/d-meloper/dmelopers-block-pet/blob/main/docs/SUPPORT.md).
 
 ■ Updates
 
-In the official GitHub channel, opening Settings checks signed update metadata at
+In the official GitHub edition, opening Settings checks
 raw.githubusercontent.com/d-meloper/dmelopers-block-pet/updates/tauri-stable.json
-and its detached signature. A successful check is cached for six hours and an error
-for ten minutes; the manual check button requests a fresh check. GitHub receives the
-request and network address. The request includes no settings, skins, input history,
-broadcast address or device identifier. Version metadata and error timing are cached
-locally. Installing starts only after your click and downloads the verified installer
-from the fixed official GitHub release. Cancellation is available until settings saving
-begins. The app does not back up program files for updates or automatically return to the previous version. After an
-interruption, close the app and run the same installer again to repair program files.
+and its detached signature. A successful check is cached for six hours and an
+error for ten minutes; the manual check button requests a fresh check. GitHub
+receives the request and network address. Requests include no settings, skins,
+input history, broadcast address or device identifier. Version information and
+check/error timing are cached locally. Opening the Releases link connects to
+GitHub through your browser.
+
+A GitHub update-test installation uses the separate
+raw.githubusercontent.com/oup030416/dmelopers-block-pet-test/updates/wix-test.json
+and its detached signature. A local update-test installation uses only
+127.0.0.1:17831 for its update information and installer download.
+
+Clicking Install Update downloads and verifies the installer from that
+installation's fixed update source, saves settings, and starts installation.
+Cancellation is available until settings saving begins. The app does not restore
+personal data from an earlier backup automatically. If installation is
+interrupted, close the app and run the same installer again to repair program
+files.
 
 The Microsoft Store edition uses Windows-managed updates. Its Open Store button
 contacts Microsoft through the Store app. It does not request either the GitHub

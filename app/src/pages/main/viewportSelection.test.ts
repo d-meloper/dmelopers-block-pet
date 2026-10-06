@@ -2,9 +2,9 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import type { Pet3dPresetSelectionPayload } from '@/stores/cat'
+import type { Pet3dPresetSelectionPayload } from '@/stores/block'
 
-import { createDefaultPet3dPreset } from '@/stores/cat'
+import { createDefaultPet3dPreset } from '@/stores/block'
 
 import {
   createVisibleBoundsSelectionSignature,
@@ -43,6 +43,8 @@ describe('visible bounds selection signatures', () => {
       selection => void (selection.preset.petRotationDegrees += 1),
       selection => void (selection.preset.petDeskOffset += 0.25),
       selection => void (selection.preset.deskHeightOffset += 0.25),
+      selection => void (selection.preset.deskWidthOffset += 0.25),
+      selection => void (selection.preset.deskDepthOffset += 0.25),
       selection => void (selection.preset.petRightArmBendPercent += 10),
       selection => void (selection.preset.petRightArmSpreadDegrees += 10),
       selection => void (selection.preset.petLeftArmBendPercent += 10),

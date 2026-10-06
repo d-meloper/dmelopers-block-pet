@@ -1,23 +1,23 @@
-import type { Material } from 'three'
+import type { BufferGeometry, Material } from 'three'
 
 import {
-  BufferGeometry,
-  CanvasTexture,
+  BoxGeometry,
   Color,
-  Float32BufferAttribute,
+  DynamicDrawUsage,
   Group,
-  LinearFilter,
-  LinearMipmapLinearFilter,
+  InstancedMesh,
   Mesh,
-  MeshBasicMaterial,
   MeshStandardMaterial,
-  SRGBColorSpace,
+  PlaneGeometry,
+  Sphere,
 } from 'three'
 
 import type { DeviceColorSettings } from '@/config/deviceColors'
 
 import { normalizeDeviceColors } from '@/config/deviceColors'
 import { MODEL_3D_CONFIG } from '@/config/model3d'
+
+import { createLegendBatch } from './legendBatch'
 
 interface KeyDefinition {
   legend: string
@@ -46,11 +46,14 @@ export interface KeyboardGroupResult {
 
 export interface KeyboardKeyTarget {
   position: [number, number, number]
+  typingSide?: 'Left' | 'Right'
 }
 
 interface KeyAnimationState {
   group: Group
-  material: MeshStandardMaterial
+  batch: InstancedMesh<BufferGeometry, MeshStandardMaterial>
+  legendBatch: ReturnType<typeof createLegendBatch>['mesh']
+  instanceIndex: number
   baseY: number
   held: boolean
   minimumPressUntil: number
@@ -64,123 +67,24 @@ const INNER_WIDTH = 3.08
 const MAX_ROW_UNITS = 16
 const UNIT_PITCH = INNER_WIDTH / MAX_ROW_UNITS
 const KEY_GAP = 0.014
+const KEY_EDGE_INSET = 0.01
 const KEY_DEPTH = 0.18
 const KEY_HEIGHT = 0.105
 const ROW_PITCH = 0.205
 const LEGEND_WIDTH_RATIO = 0.82
 const LEGEND_DEPTH_RATIO = 0.8
-const LEGEND_TEXTURE_HEIGHT = 512
+const LEGEND_TEXTURE_HEIGHT = 256
 const LEGEND_MAX_ANISOTROPY = 8
-const KEY_DISH_DEPTH = 0.0055
 const LEGEND_SURFACE_OFFSET = 0.0006
+// Vite removes inspection metadata from production; direct Node tests have no env.
+const EXPOSE_INSPECTION = import.meta.env?.DEV !== false
 
-type RoundedProfile = readonly [height: number, width: number, depth: number, radius: number]
-
-function roundedOutline(width: number, depth: number, radius: number): Array<[number, number]> {
-  const points: Array<[number, number]> = []
-  const corners = [
-    [width / 2 - radius, depth / 2 - radius],
-    [-width / 2 + radius, depth / 2 - radius],
-    [-width / 2 + radius, -depth / 2 + radius],
-    [width / 2 - radius, -depth / 2 + radius],
-  ]
-  corners.forEach(([x, z], corner) => {
-    for (let step = 0; step <= 6; step += 1) {
-      const angle = (corner + step / 6) * Math.PI / 2
-      // Positive winding around the existing +Y up axis.
-      points.push([x + radius * Math.cos(angle), -(z + radius * Math.sin(angle))])
-    }
-  })
-  return points
-}
-
-function geometryFromSurface(positions: number[], indices: number[]): BufferGeometry {
-  const geometry = new BufferGeometry()
-  geometry.setAttribute('position', new Float32BufferAttribute(positions, 3))
-  geometry.setIndex(indices)
-  geometry.computeVertexNormals()
-  geometry.computeBoundingBox()
-  geometry.computeBoundingSphere()
-  return geometry
-}
-
-// Ring profiles are the selected rounded-sculpt preview's authored dimensions.
-// Keep the original centered mesh origins so press animation and hand targets
-// remain independent of the new shell and its shallow dish.
-function createRoundedShell(profiles: readonly RoundedProfile[], dishDepth = 0) {
-  const positions: number[] = []
-  const indices: number[] = []
-  for (const [y, width, depth, radius] of profiles) {
-    for (const [x, z] of roundedOutline(width, depth, radius)) positions.push(x, y, z)
-  }
-  const ringSize = positions.length / 3 / profiles.length
-  const connectRings = (first: number, second: number) => {
-    for (let index = 0; index < ringSize; index += 1) {
-      const next = (index + 1) % ringSize
-      indices.push(first + index, first + next, second + next, first + index, second + next, second + index)
-    }
-  }
-  for (let ring = 0; ring < profiles.length - 1; ring += 1) connectRings(ring * ringSize, (ring + 1) * ringSize)
-
-  const topStart = (profiles.length - 1) * ringSize
-  const topIndexStart = indices.length
-  const [topY, topWidth, topDepth, topRadius] = profiles[profiles.length - 1]
-  let lastRing = topStart
-  if (dishDepth > 0) {
-    const outline = roundedOutline(topWidth, topDepth, topRadius)
-    for (const [fraction, drop] of [[0.8, 0.35], [0.47, 0.84], [0.13, 1]]) {
-      const nextRing = positions.length / 3
-      for (const [x, z] of outline) positions.push(x * fraction, topY - dishDepth * drop, z * fraction)
-      connectRings(lastRing, nextRing)
-      lastRing = nextRing
-    }
-  }
-  const center = positions.length / 3
-  positions.push(0, topY - dishDepth, 0)
-  for (let index = 0; index < ringSize; index += 1) indices.push(center, lastRing + index, lastRing + (index + 1) % ringSize)
-  // Reuse this exact triangulation for lettering; a flat decal would float over
-  // the center or disappear into the rim when viewed from a low angle.
-  const topPositions = positions.slice(topStart * 3)
-  const topIndices = indices.slice(topIndexStart).map(index => index - topStart)
-
-  // Split underside normals from the rounded walls without opening the shell.
-  const bottomStart = positions.length / 3
-  positions.push(...positions.slice(0, ringSize * 3))
-  const bottomCenter = positions.length / 3
-  positions.push(0, profiles[0][0], 0)
-  for (let index = 0; index < ringSize; index += 1) indices.push(bottomCenter, bottomStart + (index + 1) % ringSize, bottomStart + index)
-  return { geometry: geometryFromSurface(positions, indices), topPositions, topIndices }
-}
-
-function createKeyboardHousingGeometry(): BufferGeometry {
-  return createRoundedShell([
-    [-BOARD_HEIGHT / 2, BOARD_WIDTH - 0.038, BOARD_DEPTH - 0.038, 0.055],
-    [0.018 - BOARD_HEIGHT / 2, BOARD_WIDTH, BOARD_DEPTH, 0.065],
-    [0.073 - BOARD_HEIGHT / 2, BOARD_WIDTH, BOARD_DEPTH, 0.065],
-    [0.092 - BOARD_HEIGHT / 2, BOARD_WIDTH - 0.008, BOARD_DEPTH - 0.008, 0.067],
-    [BOARD_HEIGHT / 2, BOARD_WIDTH - 0.028, BOARD_DEPTH - 0.028, 0.062],
-  ]).geometry
-}
-
-function createSculptedKeyGeometry(width: number) {
-  const { geometry, topPositions, topIndices } = createRoundedShell([
-    [-KEY_HEIGHT / 2, width, KEY_DEPTH, 0.026],
-    [0.016 - KEY_HEIGHT / 2, width, KEY_DEPTH, 0.027],
-    [0.066 - KEY_HEIGHT / 2, width - 0.016, KEY_DEPTH - 0.018, 0.032],
-    [0.091 - KEY_HEIGHT / 2, width - 0.020, KEY_DEPTH - 0.025, 0.032],
-    [KEY_HEIGHT / 2, width - 0.029, KEY_DEPTH - 0.032, 0.029],
-  ], KEY_DISH_DEPTH)
-  const uv: number[] = []
-  for (let index = 0; index < topPositions.length; index += 3) {
-    uv.push(
-      topPositions[index] / (width * LEGEND_WIDTH_RATIO) + 0.5,
-      0.5 - topPositions[index + 2] / (KEY_DEPTH * LEGEND_DEPTH_RATIO),
-    )
-    topPositions[index + 1] += LEGEND_SURFACE_OFFSET
-  }
-  const legend = geometryFromSurface(topPositions, topIndices)
-  legend.setAttribute('uv', new Float32BufferAttribute(uv, 2))
-  return { keycap: geometry, legend }
+function createKeyGeometry(width: number) {
+  const keycap = new BoxGeometry(width - KEY_EDGE_INSET * 2, KEY_HEIGHT, KEY_DEPTH - KEY_EDGE_INSET * 2)
+  const legend = new PlaneGeometry(width * LEGEND_WIDTH_RATIO, KEY_DEPTH * LEGEND_DEPTH_RATIO)
+  legend.rotateX(-Math.PI / 2)
+  legend.translate(0, KEY_HEIGHT / 2 + LEGEND_SURFACE_OFFSET, 0)
+  return { keycap, legend }
 }
 
 const ENGLISH_LEGENDS_BY_INPUT: Readonly<Record<string, string>> = {
@@ -292,14 +196,14 @@ const KEYBOARD_ROWS: readonly (readonly KeyDefinition[])[] = [
   ],
 ]
 
-function createLegendTexture(
+function createLegendCanvas(
   legend: string,
   physicalWidth: number,
-): CanvasTexture {
+): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.height = LEGEND_TEXTURE_HEIGHT
   canvas.width = Math.min(
-    2048,
+    1024,
     Math.max(
       LEGEND_TEXTURE_HEIGHT,
       Math.round(LEGEND_TEXTURE_HEIGHT * physicalWidth / KEY_DEPTH),
@@ -326,19 +230,11 @@ function createLegendTexture(
       : '"Arial Black", "Segoe UI", sans-serif'
     context.font = `900 ${fontSize}px ${fontFamily}`
     if (context.measureText(legend).width <= maximumTextWidth) break
-    fontSize -= 8
-  } while (fontSize > 64)
+    fontSize -= 4
+  } while (fontSize > 32)
   context.fillText(legend, canvas.width / 2, canvas.height / 2)
 
-  const texture = new CanvasTexture(canvas)
-  texture.name = `keyboard-legend-${legend.replace(/\s+/g, '-')}`
-  texture.colorSpace = SRGBColorSpace
-  texture.minFilter = LinearMipmapLinearFilter
-  texture.magFilter = LinearFilter
-  texture.generateMipmaps = true
-  texture.anisotropy = LEGEND_MAX_ANISOTROPY
-  texture.needsUpdate = true
-  return texture
+  return canvas
 }
 
 export function createKeyboardGroup(): KeyboardGroupResult {
@@ -350,12 +246,17 @@ export function createKeyboardGroup(): KeyboardGroupResult {
 
   const geometries = new Set<BufferGeometry>()
   const materials = new Set<Material>()
-  const keyGeometries = new Map<number, ReturnType<typeof createSculptedKeyGeometry>>()
-  const legendTextures = new Map<string, CanvasTexture>()
-  const legendMaterials = new Map<string, MeshBasicMaterial>()
+  const keyGeometries = new Map<number, ReturnType<typeof createKeyGeometry>>()
+  const keycapBatches = new Map<number, InstancedMesh<BufferGeometry, MeshStandardMaterial>>()
+  const batchCounts = new Map<number, number>()
+  const nextInstanceIndices = new Map<number, number>()
+  KEYBOARD_ROWS.flat().forEach(({ units = 1 }) => {
+    batchCounts.set(units, (batchCounts.get(units) ?? 0) + 1)
+  })
+  const legendBatches = new Map<number, ReturnType<typeof createLegendBatch>>()
   const switchableLegends: Array<{
-    mesh: Mesh
-    keyWidth: number
+    batch: ReturnType<typeof createLegendBatch>
+    instanceIndex: number
     korean: string
     english: string
   }> = []
@@ -367,8 +268,16 @@ export function createKeyboardGroup(): KeyboardGroupResult {
   const baseKeycapColor = new Color(palette.keycap)
   const pressedKeycapColor = new Color(interaction.pressedColor)
   const legendColor = new Color(palette.legend)
+  const instanceColor = new Color()
+  // White preserves the original absolute per-key palette through instanceColor.
+  const keycapMaterial = new MeshStandardMaterial({
+    color: 0xFFFFFF,
+    metalness: 0,
+    roughness: 0.9,
+  })
+  materials.add(keycapMaterial)
 
-  const housingGeometry = createKeyboardHousingGeometry()
+  const housingGeometry = new BoxGeometry(BOARD_WIDTH, BOARD_HEIGHT, BOARD_DEPTH)
   const housingMaterial = new MeshStandardMaterial({
     color: palette.housing,
     metalness: 0,
@@ -390,73 +299,76 @@ export function createKeyboardGroup(): KeyboardGroupResult {
     if (cached) return cached
 
     const width = units * UNIT_PITCH - KEY_GAP
-    const geometry = createSculptedKeyGeometry(width)
+    const geometry = createKeyGeometry(width)
     keyGeometries.set(units, geometry)
     geometries.add(geometry.keycap)
     geometries.add(geometry.legend)
     return geometry
   }
 
-  const getLegendMaterial = (legend: string, keyWidth: number) => {
-    const cacheKey = `${legend}:${keyWidth.toFixed(4)}`
-    const cached = legendMaterials.get(cacheKey)
+  const getLegendBatch = (units: number, geometry: BufferGeometry) => {
+    const cached = legendBatches.get(units)
     if (cached) return cached
+    const batch = createLegendBatch(geometry, batchCounts.get(units)!, legendColor, `keyboard-legend-batch-${units}`, text => createLegendCanvas(text, units * UNIT_PITCH - KEY_GAP), LEGEND_MAX_ANISOTROPY)
+    legendBatches.set(units, batch)
+    materials.add(batch.mesh.material)
+    group.add(batch.mesh)
+    return batch
+  }
 
-    const texture = createLegendTexture(legend, keyWidth)
-    const material = new MeshBasicMaterial({
-      color: legendColor,
-      map: texture,
-      polygonOffset: true,
-      polygonOffsetFactor: -1,
-      polygonOffsetUnits: -1,
-      transparent: true,
-    })
-
-    legendTextures.set(cacheKey, texture)
-    legendMaterials.set(cacheKey, material)
-    materials.add(material)
-    return material
+  const getKeycapBatch = (units: number, geometry: BufferGeometry) => {
+    const cached = keycapBatches.get(units)
+    if (cached) return cached
+    const batch = new InstancedMesh(geometry, keycapMaterial, batchCounts.get(units)!)
+    batch.name = `keyboard-key-batch-${units}`
+    if (EXPOSE_INSPECTION) batch.userData.units = units
+    batch.castShadow = true
+    batch.receiveShadow = true
+    batch.instanceMatrix.setUsage(DynamicDrawUsage)
+    keycapBatches.set(units, batch)
+    group.add(batch)
+    return batch
   }
 
   KEYBOARD_ROWS.forEach((row, rowIndex) => {
+    const rightHandStartKey = MODEL_3D_CONFIG.pet.animation.inputMode.rightHandStartKeys[rowIndex]
+    const rightHandStartColumn = rightHandStartKey ? row.findIndex(key => key.inputKeys.includes(rightHandStartKey)) : -1
     const rowUnits = row.reduce((sum, key) => sum + (key.units ?? 1), 0)
     let cursorX = (-rowUnits * UNIT_PITCH) / 2
     const z = (rowIndex - (KEYBOARD_ROWS.length - 1) / 2) * ROW_PITCH
 
     row.forEach((key, columnIndex) => {
       const units = key.units ?? 1
-      const keyWidth = units * UNIT_PITCH - KEY_GAP
       const keyName = `keyboard-key-r${rowIndex}-c${columnIndex}`
       const keyTargetY = BOARD_HEIGHT + 0.012 + KEY_HEIGHT / 2
       const keyGroup = new Group()
-      const keycapMaterial = new MeshStandardMaterial({
-        color: palette.keycap,
-        metalness: 0,
-        roughness: 0.9,
-      })
       const keyGeometry = getKeyGeometry(units)
-      const keycap = new Mesh(keyGeometry.keycap, keycapMaterial)
+      const batch = getKeycapBatch(units, keyGeometry.keycap)
+      const instanceIndex = nextInstanceIndices.get(units) ?? 0
+      nextInstanceIndices.set(units, instanceIndex + 1)
 
-      materials.add(keycapMaterial)
       keyGroup.name = `${keyName}-group`
       keyGroup.position.set(
         cursorX + (units * UNIT_PITCH) / 2,
         keyTargetY + visualOffsetY,
         z,
       )
-      keyGroup.userData.inputKeys = key.inputKeys
+      if (EXPOSE_INSPECTION) {
+        keyGroup.userData.inputKeys = key.inputKeys
+        keyGroup.userData.keycapBatchName = batch.name
+        keyGroup.userData.keycapInstanceIndex = instanceIndex
+      }
+      keyGroup.updateMatrix()
+      batch.setMatrixAt(instanceIndex, keyGroup.matrix)
+      batch.setColorAt(instanceIndex, baseKeycapColor)
 
-      keycap.name = keyName
-      keycap.castShadow = true
-      keycap.receiveShadow = true
-      keycap.userData.legend = key.legend
-      keycap.userData.units = units
-      keyGroup.add(keycap)
-
-      const legend = new Mesh(keyGeometry.legend, getLegendMaterial(key.legend, keyWidth))
-      legend.name = `${keyName}-legend`
-      legend.renderOrder = 1
-      keyGroup.add(legend)
+      const legend = getLegendBatch(units, keyGeometry.legend)
+      legend.mesh.setMatrixAt(instanceIndex, keyGroup.matrix)
+      legend.setText(instanceIndex, key.legend)
+      if (EXPOSE_INSPECTION) {
+        keyGroup.userData.legendBatchName = legend.mesh.name
+        keyGroup.userData.legendInstanceIndex = instanceIndex
+      }
       group.add(keyGroup)
 
       const englishLegend = key.inputKeys
@@ -464,8 +376,8 @@ export function createKeyboardGroup(): KeyboardGroupResult {
         .find(Boolean)
       if (englishLegend) {
         switchableLegends.push({
-          mesh: legend,
-          keyWidth,
+          batch: legend,
+          instanceIndex,
           korean: key.legend,
           english: englishLegend,
         })
@@ -473,7 +385,9 @@ export function createKeyboardGroup(): KeyboardGroupResult {
 
       const animationState: KeyAnimationState = {
         group: keyGroup,
-        material: keycapMaterial,
+        batch,
+        legendBatch: legend.mesh,
+        instanceIndex,
         baseY: keyGroup.position.y,
         held: false,
         minimumPressUntil: 0,
@@ -481,12 +395,15 @@ export function createKeyboardGroup(): KeyboardGroupResult {
       }
 
       keyAnimations.push(animationState)
-      const target = {
+      const target: KeyboardKeyTarget = {
         position: [
           keyGroup.position.x,
           keyTargetY + KEY_HEIGHT / 2,
           keyGroup.position.z,
-        ] as [number, number, number],
+        ],
+      }
+      if (rightHandStartColumn >= 0) {
+        target.typingSide = columnIndex >= rightHandStartColumn ? 'Right' : 'Left'
       }
       key.inputKeys.forEach((inputKey) => {
         keyAnimationsByInput.set(inputKey, animationState)
@@ -499,6 +416,21 @@ export function createKeyboardGroup(): KeyboardGroupResult {
       cursorX += units * UNIT_PITCH
     })
   })
+
+  legendBatches.forEach(batch => batch.flush())
+  for (const batch of [...keycapBatches.values(), ...[...legendBatches.values()].map(batch => batch.mesh)]) {
+    batch.instanceMatrix.needsUpdate = true
+    if (batch.instanceColor) {
+      batch.instanceColor.setUsage(DynamicDrawUsage)
+      batch.instanceColor.needsUpdate = true
+    }
+    // Local key movement is only downward; keep both main and shadow culling
+    // conservative throughout a press without rebuilding bounds every frame.
+    batch.computeBoundingBox()
+    batch.boundingBox!.min.y -= interaction.pressTravel
+    batch.boundingBox!.expandByScalar(1e-6)
+    batch.boundingSphere = batch.boundingBox!.getBoundingSphere(new Sphere())
+  }
 
   let disposed = false
   const getContactId = (contact: KeyboardContactAddress) => (
@@ -516,11 +448,18 @@ export function createKeyboardGroup(): KeyboardGroupResult {
 
     animationState.group.position.y = animationState.baseY
       - interaction.pressTravel * easedProgress
-    animationState.material.color.lerpColors(
+    animationState.group.updateMatrix()
+    animationState.batch.setMatrixAt(animationState.instanceIndex, animationState.group.matrix)
+    animationState.legendBatch.setMatrixAt(animationState.instanceIndex, animationState.group.matrix)
+    animationState.legendBatch.instanceMatrix.needsUpdate = true
+    instanceColor.lerpColors(
       baseKeycapColor,
       pressedKeycapColor,
       easedProgress,
     )
+    animationState.batch.setColorAt(animationState.instanceIndex, instanceColor)
+    animationState.batch.instanceMatrix.needsUpdate = true
+    animationState.batch.instanceColor!.needsUpdate = true
   }
 
   const setColors: KeyboardGroupResult['setColors'] = (colors) => {
@@ -530,7 +469,7 @@ export function createKeyboardGroup(): KeyboardGroupResult {
     baseKeycapColor.set(normalized.keyboardKeycapColor)
     pressedKeycapColor.set(normalized.keyboardPressedColor)
     legendColor.set(normalized.keyboardLegendColor)
-    legendMaterials.forEach(material => material.color.copy(legendColor))
+    legendBatches.forEach(batch => batch.mesh.material.color.copy(legendColor))
     keyAnimations.forEach(applyKeyAppearance)
   }
 
@@ -539,8 +478,9 @@ export function createKeyboardGroup(): KeyboardGroupResult {
 
     switchableLegends.forEach((legend) => {
       const text = language === 'en' ? legend.english : legend.korean
-      legend.mesh.material = getLegendMaterial(text, legend.keyWidth)
+      legend.batch.setText(legend.instanceIndex, text)
     })
+    legendBatches.forEach(batch => batch.flush())
   }
 
   const setKeyPressed = (key: string, pressed: boolean) => {
@@ -581,11 +521,12 @@ export function createKeyboardGroup(): KeyboardGroupResult {
         : interaction.releaseDurationMs
       const direction = targetPressed ? 1 : -1
 
-      animationState.progress = Math.min(
+      const progress = Math.min(
         1,
         Math.max(0, animationState.progress + (direction * deltaMilliseconds) / duration),
       )
-
+      if (progress === animationState.progress) return
+      animationState.progress = progress
       applyKeyAppearance(animationState)
     })
   }
@@ -595,13 +536,16 @@ export function createKeyboardGroup(): KeyboardGroupResult {
     disposed = true
 
     group.clear()
-    legendTextures.forEach(texture => texture.dispose())
+    keycapBatches.forEach(batch => batch.dispose())
+    legendBatches.forEach(batch => batch.dispose())
     materials.forEach(material => material.dispose())
     geometries.forEach(geometry => geometry.dispose())
 
-    legendTextures.clear()
-    legendMaterials.clear()
+    legendBatches.clear()
     keyGeometries.clear()
+    keycapBatches.clear()
+    batchCounts.clear()
+    nextInstanceIndices.clear()
     keyAnimations.length = 0
     keyAnimationsByContact.clear()
     switchableLegends.length = 0

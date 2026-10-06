@@ -39,6 +39,29 @@ impl Drop for Handle {
 pub fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(Some(0)).collect()
 }
+/// Fixed, read-only OS servicing revision; absent or malformed values stay unknown.
+pub fn windows_revision() -> Option<u32> {
+    use windows_sys::Win32::System::Registry::{
+        HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RRF_SUBKEY_WOW6464KEY, RegGetValueW,
+    };
+    let key = crate::windows_process::wide("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
+    let name = crate::windows_process::wide("UBR");
+    let mut revision = 0u32;
+    let mut bytes = std::mem::size_of_val(&revision) as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            key.as_ptr(),
+            name.as_ptr(),
+            RRF_RT_REG_DWORD | RRF_SUBKEY_WOW6464KEY,
+            std::ptr::null_mut(),
+            (&mut revision as *mut u32).cast(),
+            &mut bytes,
+        )
+    };
+    (status == 0 && bytes == 4).then_some(revision)
+}
+
 pub fn user_sid(process: HANDLE) -> Result<String, String> {
     let mut token = std::ptr::null_mut();
     if unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut token) } == 0 {
@@ -168,9 +191,13 @@ pub fn registered_install_root() -> Result<std::path::PathBuf, String> {
     } else {
         "DMeloper's Block Pet"
     };
-    let uninstall_key = format!(
-        "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{product}"
-    );
+    let uninstall_key = if cfg!(feature = "wix-github") {
+        "Software\\DMeloper\\BlockPet\\Github".to_owned()
+    } else if cfg!(feature = "wix-local-test") {
+        "Software\\DMeloper\\BlockPet\\WixLocal".to_owned()
+    } else {
+        format!("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{product}")
+    };
     let mut buffer = vec![0u16; 32768];
     let mut size = std::mem::size_of_val(buffer.as_slice()) as u32;
     let status = unsafe {

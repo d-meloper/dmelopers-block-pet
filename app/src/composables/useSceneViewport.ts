@@ -11,12 +11,12 @@ import { beginPresetNativeEdit, presetOperationInProgress, presetResetInProgress
 import { isSceneViewportState, SCENE_VIEWPORT_REQUEST, SCENE_VIEWPORT_RESPONSE, SCENE_VIEWPORT_STATE } from '@/features/scene/types'
 import { equalViewportRect } from '@/features/scene/viewportSettings'
 import { editorsLocked } from '@/features/stateSafety/bridge'
-import { useCatStore } from '@/stores/cat'
+import { useBlockStore } from '@/stores/block'
 
 export function useSceneViewport(
   emitRequest: (request: SceneViewportRequest, isCurrent?: () => boolean) => Promise<unknown> = payload => emitTo(WINDOW_LABEL.MAIN, SCENE_VIEWPORT_REQUEST, payload),
 ) {
-  const store = useCatStore()
+  const store = useBlockStore()
   const { t } = useI18n()
   const viewportState = ref<SceneViewportState>()
   const viewportPending = ref(false)
@@ -38,7 +38,8 @@ export function useSceneViewport(
     // manual edit. Only adopt the exact request that native bounds corrected.
     if (!editorsLocked.value && !presetOperationInProgress.value && !presetResetInProgress.value
       && !value.automatic && !preset.autoViewportEnabled && value.revision === preset.viewportModeRevision
-      && value.manualCorrection && equalViewportRect(preset.manualViewportRect, value.manualCorrection.requested)) {
+      && value.manualCorrection && equalViewportRect(preset.manualViewportRect, value.manualCorrection.requested)
+      && !equalViewportRect(preset.manualViewportRect, value.manualCorrection.applied)) {
       preset.manualViewportRect = { ...value.manualCorrection.applied }
     }
   }
@@ -129,7 +130,14 @@ export function useSceneViewport(
           })
           if (pending.automatic !== undefined) confirmPresetUserEdit()
         } else {
-          console.warn('The scene viewport acknowledgement was rejected.')
+          const code = payload.success !== true
+            ? 'NATIVE_OPERATION_FAILED'
+            : !isSceneViewportState(payload.state)
+                ? 'INVALID_RESPONSE'
+                : !isCurrentState(payload.state)
+                    ? 'STATE_CHANGED'
+                    : 'STATE_MISMATCH'
+          console.warn('The scene viewport acknowledgement was rejected.', { code })
           viewportError.value = t('pages.preference.scene.errors.unavailable')
         }
         finish(success)

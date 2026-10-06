@@ -12,6 +12,7 @@ import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import * as menuViewportSetting from './menuViewportSetting'
 
 interface Item {
+  id?: string
   text?: string
   item?: string
   checked?: boolean
@@ -21,9 +22,9 @@ interface Item {
   items?: Item[]
 }
 
-function createMenuHarness(language = 'ko-KR', acknowledgeEdits = true) {
+function createMenuHarness(language = 'ko-KR', acknowledgeEdits = true, windowLabel = WINDOW_LABEL.MAIN) {
   const general = { broadcast: { enabled: false, showOnDesktop: false } }
-  const cat = {
+  const block = {
     window: { visible: true, opacity: 100, keepInScreen: true, passThrough: false, alwaysOnTop: false },
     activePet3dPreset: { cameraZoomPercent: 100, sceneRotationOffsetDegrees: 0 },
   }
@@ -44,17 +45,18 @@ function createMenuHarness(language = 'ko-KR', acknowledgeEdits = true) {
   const apply = menuViewportSetting.createMenuViewportSettingHandler({
     ready: async () => {},
     apply: ({ key, value }) => {
-      cat.activePet3dPreset[key] = value
+      block.activePet3dPreset[key] = value
     },
   })
-  const exports = {} as { useAppMenu: () => { getAppMenu: () => Promise<{ items: Item[] }> } }
+  const exports = {} as { useAppMenu: () => { getAppMenu: () => Promise<{ id: string, items: Item[] }> } }
   const mocks: Record<string, unknown> = {
     '@tauri-apps/api/menu': {
-      Menu: { new: async ({ items }: { items: Item[] }) => {
+      Menu: { new: async ({ id, items }: { id: string, items: Item[] }) => {
         menus.push(items)
-        return { items }
+        return { id, items }
       } },
     },
+    '@tauri-apps/api/webviewWindow': { getCurrentWebviewWindow: () => ({ label: windowLabel }) },
     '@tauri-apps/api/event': {
       emitTo: async (label: string, event: string, payload: unknown) => {
         requests.push({ label, event, payload })
@@ -63,12 +65,12 @@ function createMenuHarness(language = 'ko-KR', acknowledgeEdits = true) {
           const request = payload as { desktopVisible?: boolean, visible?: boolean, opacity?: number, keepInScreen?: boolean, alwaysOnTop?: boolean }
           if (typeof request.desktopVisible === 'boolean') {
             if (general.broadcast.enabled) general.broadcast.showOnDesktop = request.desktopVisible
-            cat.window.visible = request.desktopVisible
+            block.window.visible = request.desktopVisible
           }
-          if (typeof request.visible === 'boolean') cat.window.visible = request.visible
-          if (typeof request.opacity === 'number') cat.window.opacity = request.opacity
-          if (typeof request.keepInScreen === 'boolean') cat.window.keepInScreen = request.keepInScreen
-          if (typeof request.alwaysOnTop === 'boolean') cat.window.alwaysOnTop = request.alwaysOnTop
+          if (typeof request.visible === 'boolean') block.window.visible = request.visible
+          if (typeof request.opacity === 'number') block.window.opacity = request.opacity
+          if (typeof request.keepInScreen === 'boolean') block.window.keepInScreen = request.keepInScreen
+          if (typeof request.alwaysOnTop === 'boolean') block.window.alwaysOnTop = request.alwaysOnTop
         }
       },
     },
@@ -90,7 +92,7 @@ function createMenuHarness(language = 'ko-KR', acknowledgeEdits = true) {
     '@/plugins/window': { showWindow: async (request: unknown) => {
       shown.push(request)
     } },
-    '@/stores/cat': { useCatStore: () => cat },
+    '@/stores/block': { useBlockStore: () => block },
     '@/stores/general': { useGeneralStore: () => general },
     '@/features/broadcast/visibility': { isDesktopPetVisible },
     '@/features/stateSafety': { editorsLocked },
@@ -100,7 +102,7 @@ function createMenuHarness(language = 'ko-KR', acknowledgeEdits = true) {
   runInNewContext(ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, { exports, require: (name: string) => mocks[name] })
-  return { cat, general, menus, requests, shown, processCalls, editorsLocked, failQuit: () => {
+  return { block, general, menus, requests, shown, processCalls, editorsLocked, failQuit: () => {
     quitFails = true
   }, create: exports.useAppMenu }
 }
@@ -113,25 +115,27 @@ describe('shared pet and tray native menu', () => {
           for (const showOnDesktop of [false, true]) {
             const h = createMenuHarness(language)
             Object.assign(h.general.broadcast, { enabled, showOnDesktop })
-            h.cat.window.visible = visible
+            h.block.window.visible = visible
             const show = !(visible && (!enabled || showOnDesktop))
             const label = (show: boolean) => language === 'ko-KR'
               ? show ? '펫 표시' : '펫 숨기기'
               : show ? 'Show Pet' : 'Hide Pet'
             const { items } = await h.create().getAppMenu()
-            assert.equal(items[1].text, label(show))
+            const visibilityItem = items.find(item => item.text === label(show))
+            assert.ok(visibilityItem)
             h.editorsLocked.value = true
-            await items[1].action!()
+            await visibilityItem.action!()
             assert.equal(h.requests.length, 0)
             h.editorsLocked.value = false
-            await items[1].action!()
+            await visibilityItem.action!()
             assert.equal(JSON.stringify(h.requests[0].payload), JSON.stringify({ desktopVisible: show }))
-            assert.equal(h.cat.window.visible, show)
+            assert.equal(h.block.window.visible, show)
             assert.equal(h.general.broadcast.showOnDesktop, enabled ? show : showOnDesktop)
             const next = await h.create().getAppMenu()
-            assert.equal(next.items[1].text, label(!show))
-            await next.items[1].action!()
-            assert.equal(h.cat.window.visible, !show)
+            const nextVisibilityItem = next.items.find(item => item.text === label(!show))
+            assert.ok(nextVisibilityItem)
+            await nextVisibilityItem.action!()
+            assert.equal(h.block.window.visible, !show)
             assert.equal(h.general.broadcast.showOnDesktop, enabled ? !show : showOnDesktop)
             assert.equal(h.general.broadcast.enabled, enabled)
           }
@@ -147,8 +151,8 @@ describe('shared pet and tray native menu', () => {
     assert.deepEqual(h.requests.map(request => [request.label, request.event, JSON.stringify(request.payload)]), [
       ['preference', PRESET_EDIT_REQUEST, '{"keepInScreen":false}'],
     ])
-    assert.equal(h.cat.window.keepInScreen, true)
-    assert.equal(h.cat.window.alwaysOnTop, false)
+    assert.equal(h.block.window.keepInScreen, true)
+    assert.equal(h.block.window.alwaysOnTop, false)
     h.editorsLocked.value = true
     await items[6].action!()
     assert.equal(h.requests.length, 1)
@@ -174,7 +178,7 @@ describe('shared pet and tray native menu', () => {
     const h = createMenuHarness()
     const pet = await h.create().getAppMenu()
     const tray = await h.create().getAppMenu()
-    const expected = ['펫 설정', '펫 숨기기', 'Separator', '축소/확대', '회전', '투명도', '화면 안에 유지', 'Separator', '환경설정', '앱 다시시작', '앱 종료']
+    const expected = ['펫 숨기기', '펫 설정', 'Separator', '축소/확대', '회전', '투명도', '화면 안에 유지', 'Separator', '환경설정', '앱 다시시작', '앱 종료']
     for (const menu of [pet, tray]) {
       assert.deepEqual(Array.from(menu.items, item => item.text ?? item.item), expected)
       assert.deepEqual(Array.from(menu.items[3].items!, item => item.text), ['매우 작게 (25%)', '작게 (50%)', '조금 작게 (75%)', '기본 (100%)', '크게 (125%)', '아주크게 (150%)', '최대 (200%)'])
@@ -185,7 +189,7 @@ describe('shared pet and tray native menu', () => {
       await menu.items[8].action!()
     }
     assert.deepEqual(h.shown, ['preference', 'preference'])
-    assert.equal(h.cat.activePet3dPreset.sceneRotationOffsetDegrees, 0)
+    assert.equal(h.block.activePet3dPreset.sceneRotationOffsetDegrees, 0)
   })
 
   it('applies 75 percent through the shared menu and includes it in shortcut cycling', async () => {
@@ -197,7 +201,7 @@ describe('shared pet and tray native menu', () => {
       assert.ok(entry)
       assert.equal(zoom.indexOf(entry), zoom.findIndex(item => item.text?.endsWith('(50%)')) + 1)
       await entry.action!()
-      assert.equal(h.cat.activePet3dPreset.cameraZoomPercent, 75)
+      assert.equal(h.block.activePet3dPreset.cameraZoomPercent, 75)
       const refreshed = await h.create().getAppMenu()
       assert.equal(refreshed.items[3].items!.find(item => item.text?.endsWith('(75%)'))!.checked, true)
       assert.equal(menuViewportSetting.nextViewportOption('cameraZoomPercent', 50), 75)
@@ -208,9 +212,9 @@ describe('shared pet and tray native menu', () => {
 
   it('keeps arbitrary settings exact and updates the same values used by Preferences', async () => {
     const h = createMenuHarness()
-    h.cat.activePet3dPreset.cameraZoomPercent = 63.5
-    h.cat.activePet3dPreset.sceneRotationOffsetDegrees = -27
-    h.cat.window.opacity = 44
+    h.block.activePet3dPreset.cameraZoomPercent = 63.5
+    h.block.activePet3dPreset.sceneRotationOffsetDegrees = -27
+    h.block.window.opacity = 44
     const { items } = await h.create().getAppMenu()
     for (const [index, text] of [[3, '63.5%'], [4, '-27°'], [5, '44%']] as const) {
       const current = items[index].items![0]
@@ -219,18 +223,18 @@ describe('shared pet and tray native menu', () => {
       assert.equal(current.checked, true)
       assert.equal(current.action, undefined)
     }
-    assert.equal(h.cat.activePet3dPreset.cameraZoomPercent, 63.5)
-    assert.equal(h.cat.activePet3dPreset.sceneRotationOffsetDegrees, -27)
-    assert.equal(h.cat.window.opacity, 44)
+    assert.equal(h.block.activePet3dPreset.cameraZoomPercent, 63.5)
+    assert.equal(h.block.activePet3dPreset.sceneRotationOffsetDegrees, -27)
+    assert.equal(h.block.window.opacity, 44)
     await items[3].items!.find(item => item.text === '작게 (50%)')!.action!()
     await items[4].items!.find(item => item.text === '좌측 측면 (290°)')!.action!()
-    assert.equal(h.cat.activePet3dPreset.cameraZoomPercent, 50)
-    assert.equal(h.cat.activePet3dPreset.sceneRotationOffsetDegrees, 290)
+    assert.equal(h.block.activePet3dPreset.cameraZoomPercent, 50)
+    assert.equal(h.block.activePet3dPreset.sceneRotationOffsetDegrees, 290)
     const fresh = await h.create().getAppMenu()
     assert.equal(fresh.items[4].items!.find(item => item.text === '좌측 측면 (290°)')!.checked, true)
     assert.equal(fresh.items[4].items!.length, 7)
     await fresh.items[4].items!.find(item => item.text === '기본 (0°)')!.action!()
-    assert.equal(h.cat.activePet3dPreset.sceneRotationOffsetDegrees, 0)
+    assert.equal(h.block.activePet3dPreset.sceneRotationOffsetDegrees, 0)
     const reset = await h.create().getAppMenu()
     assert.equal(reset.items[4].items![0].checked, true)
     assert.equal(reset.items[4].items!.length, 7)
@@ -244,27 +248,27 @@ describe('shared pet and tray native menu', () => {
       ['preference', PRESET_EDIT_REQUEST, '{"opacity":75}'],
     ])
     await items[6].action!()
-    assert.equal(h.cat.window.opacity, 75)
-    assert.equal(h.cat.window.keepInScreen, false)
-    assert.equal(h.cat.window.passThrough, false)
+    assert.equal(h.block.window.opacity, 75)
+    assert.equal(h.block.window.keepInScreen, false)
+    assert.equal(h.block.window.passThrough, false)
   })
 
   it('targets Pet Settings but retains the tab for Preferences, toggles visibility, and preserves native process actions', async () => {
     const h = createMenuHarness('en-US')
     const { items } = await h.create().getAppMenu()
-    assert.equal(items[0].text, 'Pet Settings')
-    await items[0].action!()
+    assert.equal(items[1].text, 'Pet Settings')
+    await items[1].action!()
     await items[8].action!()
     assert.deepEqual(JSON.parse(JSON.stringify(h.shown)), [
       { label: 'preference', destination: 'pet' },
       'preference',
     ])
     assert.equal(items[8].accelerator, '')
-    await items[1].action!()
+    await items[0].action!()
     const hidden = await h.create().getAppMenu()
-    assert.equal(hidden.items[1].text, 'Show Pet')
-    await hidden.items[1].action!()
-    assert.equal(h.cat.window.visible, true)
+    assert.equal(hidden.items[0].text, 'Show Pet')
+    await hidden.items[0].action!()
+    assert.equal(h.block.window.visible, true)
     assert.deepEqual(h.requests.map(request => [request.label, request.event, JSON.stringify(request.payload)]), [
       ['preference', PRESET_EDIT_REQUEST, '{"desktopVisible":false}'],
       ['preference', PRESET_EDIT_REQUEST, '{"desktopVisible":true}'],

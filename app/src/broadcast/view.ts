@@ -40,7 +40,7 @@ export function createBroadcastView(container: HTMLElement, assetBase: URL) {
     view.canvas.style.transform = scene.mirror ? 'scaleX(-1)' : ''
     view.canvas.style.opacity = String(scene.opacity / 100)
     renderer.setInputActive(true)
-    renderer.setMouseInputActive(scene.preset.mouseEnabled)
+    renderer.setMouseInputActive(true)
   }
   const clear = () => {
     loading?.renderer.destroy()
@@ -122,7 +122,7 @@ export function createBroadcastView(container: HTMLElement, assetBase: URL) {
       if (!current) return
       current.renderer.setInputActive(false)
       current.renderer.setInputActive(true)
-      current.renderer.setMouseInputActive(current.scene.preset.mouseEnabled)
+      current.renderer.setMouseInputActive(true)
     },
     clear,
     dispose() {

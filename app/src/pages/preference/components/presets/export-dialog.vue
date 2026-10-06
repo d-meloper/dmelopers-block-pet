@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { PresetManager } from '@/composables/usePresetManager'
+import type { PresetExportMode } from '@/features/presets/transfer'
 import type { PresetEntry } from '@/features/presets/types'
 
 import { reportDiagnostic } from '@/services/diagnostics'
@@ -16,7 +17,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ close: [] }>()
 const { t } = useI18n()
-const mode = ref<'image' | 'nickname'>('image')
+const mode = ref<PresetExportMode>('image')
 const submitting = ref(false)
 const operationError = ref<string>()
 const username = computed(() => {
@@ -24,7 +25,7 @@ const username = computed(() => {
   return value && isMinecraftUsername(value) ? value : undefined
 })
 const disabled = computed(() => submitting.value || props.manager.busy.value || !props.manager.ready.value || !props.entry)
-const displayName = computed(() => props.entry?.builtin ? t('pages.preference.presets.builtinName') : props.entry?.name ?? '')
+const displayName = computed(() => props.entry?.name ?? '')
 
 watch(() => [props.open, props.entry?.id], () => {
   if (!props.open) return
@@ -120,6 +121,23 @@ async function submit() {
             class="mt-2 block text-sm"
             :class="{ 'text-color-3 opacity-65': mode !== 'nickname' }"
           >{{ $t('pages.preference.presets.transfer.dialog.username') }}: <strong>{{ username }}</strong></span>
+        </span>
+      </label>
+      <label class="flex cursor-pointer items-start gap-2 b b-color-2 rounded-lg p-3">
+        <input
+          v-model="mode"
+          aria-describedby="preset-export-default-hint"
+          class="mt-1"
+          name="preset-export-skin"
+          type="radio"
+          value="default"
+        >
+        <span>
+          <span class="block font-medium">{{ $t('pages.preference.presets.transfer.dialog.default') }}</span>
+          <span
+            id="preset-export-default-hint"
+            class="mt-1 block whitespace-pre-line text-sm text-color-3"
+          >{{ $t('pages.preference.presets.transfer.dialog.defaultHint') }}</span>
         </span>
       </label>
     </fieldset>

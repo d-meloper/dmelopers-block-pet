@@ -1,31 +1,59 @@
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
-import { execPath } from 'node:process'
+import { argv, execPath } from 'node:process'
 import { fileURLToPath } from 'node:url'
 
-const require = createRequire(import.meta.url)
-const root = fileURLToPath(new URL('../src-tauri/', import.meta.url))
-const temporaryParent = resolve(tmpdir())
-const temporary = mkdtempSync(join(temporaryParent, 'pet-windows-icons-'))
+import { buildCacheMatches, buildFingerprint, listBuildInputs, saveBuildCache, writeFileIfChanged } from './devBuildCache'
 
-try {
-  execFileSync(execPath, [
-    require.resolve('@tauri-apps/cli/tauri.js'),
-    'icon',
-    join(root, '../public/logo.png'),
-    '--output',
-    temporary,
-  ], { stdio: 'inherit' })
-  mkdirSync(join(root, 'icons'), { recursive: true })
-  for (const name of ['32x32.png', '128x128.png', '128x128@2x.png', 'icon.ico']) {
-    copyFileSync(join(temporary, name), join(root, 'icons', name))
+const require = createRequire(import.meta.url)
+const project = fileURLToPath(new URL('..', import.meta.url))
+const root = resolve(project, 'src-tauri')
+const cachePath = resolve(project, 'node_modules/.cache/block-pet-dev/icons.json')
+const names = ['32x32.png', '128x128.png', '128x128@2x.png', 'icon.ico']
+const outputs = [...names.map(name => join(root, 'icons', name)), join(root, 'assets/tray.png')]
+const cached = argv.includes('--cached')
+
+async function inputs() {
+  const cliPackage = require.resolve('@tauri-apps/cli/package.json')
+  const cliRequire = createRequire(cliPackage)
+  return [
+    ...await listBuildInputs(dirname(cliPackage)),
+    cliRequire.resolve('@tauri-apps/cli-win32-x64-msvc'),
+    ...['public/logo.png', 'package.json', 'pnpm-lock.yaml', 'scripts/buildIcon.ts', 'scripts/devBuildCache.ts']
+      .map(path => resolve(project, path)),
+  ]
+}
+
+async function main() {
+  const fingerprint = cached ? await buildFingerprint(await inputs()) : undefined
+  if (fingerprint && await buildCacheMatches(cachePath, fingerprint, outputs)) return
+  const temporaryParent = resolve(tmpdir())
+  const temporary = mkdtempSync(join(temporaryParent, 'pet-windows-icons-'))
+  try {
+    execFileSync(execPath, [
+      require.resolve('@tauri-apps/cli/tauri.js'),
+      'icon',
+      join(project, 'public/logo.png'),
+      '--output',
+      temporary,
+    ], { stdio: 'inherit' })
+    mkdirSync(join(root, 'icons'), { recursive: true })
+    for (const name of names) {
+      await writeFileIfChanged(join(root, 'icons', name), await readFile(join(temporary, name)))
+    }
+    await writeFileIfChanged(join(root, 'assets/tray.png'), await readFile(join(temporary, '32x32.png')))
+  } finally {
+    if (dirname(resolve(temporary)) === temporaryParent && basename(temporary).startsWith('pet-windows-icons-')) {
+      rmSync(temporary, { recursive: true, force: true })
+    }
   }
-  copyFileSync(join(temporary, '32x32.png'), join(root, 'assets/tray.png'))
-} finally {
-  if (dirname(resolve(temporary)) === temporaryParent && basename(temporary).startsWith('pet-windows-icons-')) {
-    rmSync(temporary, { recursive: true, force: true })
+  if (fingerprint && fingerprint === await buildFingerprint(await inputs())) {
+    await saveBuildCache(cachePath, fingerprint, outputs)
   }
 }
+
+await main()

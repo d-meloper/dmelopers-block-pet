@@ -154,6 +154,7 @@ function finishSliderInput() {
 <template>
   <!-- Capture on a DOM wrapper: Ant's slider does not forward native listeners. -->
   <div
+    class="default-snap-slider"
     @focusout="finishInput"
     @keydown.capture="startKeyboardInput"
     @keyup.capture="finishKeyboardInput"
@@ -174,3 +175,42 @@ function finishSliderInput() {
     />
   </div>
 </template>
+
+<style scoped>
+/* Keep Ant's original layout height; only the transparent hit strip grows. */
+.default-snap-slider :deep(.ant-slider-horizontal) {
+  height: 12px;
+  padding-block: 4px;
+}
+
+.default-snap-slider :deep(.ant-slider-horizontal::before) {
+  content: '';
+  height: 50px;
+  inset-block-start: 50%;
+  inset-inline: 0;
+  position: absolute;
+  translate: 0 -50%;
+}
+
+.default-snap-slider :deep(.ant-slider-horizontal .ant-slider-handle) {
+  inset-block-start: 50%;
+  translate: 0 -50%;
+}
+
+/* Ant enlarges this on focus/hover; keep the hit target stable in every state. */
+.default-snap-slider :deep(.ant-slider-horizontal .ant-slider-handle::before) {
+  height: 50px;
+  inset-block-start: calc(50% - 25px);
+  inset-inline-start: calc(50% - 25px);
+  width: 50px;
+}
+
+/* Numeric hints are teleported to body and must not steal nearby handle presses. */
+:global(.ant-slider-tooltip) {
+  pointer-events: none;
+}
+
+:global(.ant-slider-tooltip .ant-tooltip-inner) {
+  text-align: center;
+}
+</style>

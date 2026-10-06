@@ -2,11 +2,12 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 import { DEFAULT_SHORTCUT_SETTINGS } from '@/config/defaultSettings'
+import { restoreShortcutState, serializeShortcutState } from '@/config/persistedNames'
 
-export type HotKey = 'visibleCat' | 'mirrorMode' | 'cycleZoom' | 'cycleRotation' | 'penetrable' | 'alwaysOnTop' | 'visiblePreference' | 'toggleBroadcast' | 'showDisplayArea' | 'mouseEnabled' | 'keepInScreen' | 'hideOnHover'
+export type HotKey = 'visibleBlock' | 'mirrorMode' | 'cycleZoom' | 'cycleRotation' | 'penetrable' | 'alwaysOnTop' | 'visiblePreference' | 'toggleBroadcast' | 'showDisplayArea' | 'mouseEnabled' | 'keepInScreen' | 'hideOnHover'
 
 export const useShortcutStore = defineStore('shortcut', () => {
-  const visibleCat = ref(DEFAULT_SHORTCUT_SETTINGS.visibleCat)
+  const visibleBlock = ref(DEFAULT_SHORTCUT_SETTINGS.visibleBlock)
   const visiblePreference = ref(DEFAULT_SHORTCUT_SETTINGS.visiblePreference)
   const mirrorMode = ref(DEFAULT_SHORTCUT_SETTINGS.mirrorMode)
   const cycleZoom = ref(DEFAULT_SHORTCUT_SETTINGS.cycleZoom)
@@ -26,7 +27,7 @@ export const useShortcutStore = defineStore('shortcut', () => {
     mouseEnabled.value = DEFAULT_SHORTCUT_SETTINGS.mouseEnabled
     keepInScreen.value = DEFAULT_SHORTCUT_SETTINGS.keepInScreen
     hideOnHover.value = DEFAULT_SHORTCUT_SETTINGS.hideOnHover
-    visibleCat.value = DEFAULT_SHORTCUT_SETTINGS.visibleCat
+    visibleBlock.value = DEFAULT_SHORTCUT_SETTINGS.visibleBlock
     visiblePreference.value = DEFAULT_SHORTCUT_SETTINGS.visiblePreference
     mirrorMode.value = DEFAULT_SHORTCUT_SETTINGS.mirrorMode
     cycleZoom.value = DEFAULT_SHORTCUT_SETTINGS.cycleZoom
@@ -41,7 +42,7 @@ export const useShortcutStore = defineStore('shortcut', () => {
     mouseEnabled,
     keepInScreen,
     hideOnHover,
-    visibleCat,
+    visibleBlock,
     visiblePreference,
     mirrorMode,
     cycleZoom,
@@ -50,4 +51,11 @@ export const useShortcutStore = defineStore('shortcut', () => {
     alwaysOnTop,
     reset,
   }
+}, {
+  tauri: {
+    hooks: {
+      beforeFrontendSync: restoreShortcutState,
+      beforeBackendSync: serializeShortcutState,
+    },
+  },
 })

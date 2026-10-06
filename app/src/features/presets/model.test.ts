@@ -3,13 +3,13 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { createPinia, setActivePinia } from 'pinia'
 
-import type { Three3DRenderer } from '@/utils/three3d'
-
-import { DEFAULT_DESK_SETTINGS, DESK_SETTING_KEYS } from '@/config/desk'
+import { DESK_SETTING_KEYS, LEGACY_DESK_SETTINGS } from '@/config/desk'
 import { DEFAULT_DEVICE_COLORS, DEVICE_COLOR_KEYS } from '@/config/deviceColors'
 import presetRanges from '@/config/presetRanges.json'
-import { createDefaultPet3dPreset, preparePetStateForSync, useCatStore } from '@/stores/cat'
+import { preparePetStateForSync, useBlockStore } from '@/stores/block'
 import { LEGACY_SKIN_APPEARANCE_KEYS } from '@/stores/petSettingsMigration'
+
+import type { PresetCollection, PresetSnapshot } from './types'
 
 import {
   applyPresetSnapshot,
@@ -20,21 +20,28 @@ import {
   isPresetSnapshot,
   migratePresetCollection,
   movePreset,
-  nextPresetAfterDelete,
   orderedPresets,
-  sanitizeStoredPresetCollection,
   uniquePresetName,
-  updateActivePreset,
   validatePresetCollection,
   validatePresetName,
 } from './model'
-import { exportPortablePreset, parsePortablePreset, serializePortablePreset, validatePortablePreset } from './transfer'
-import { BUILTIN_PRESET_ID } from './types'
-import { applyPresetVisualSettings } from './visualSettings'
+
+const DEFAULT_PRESET_ID = 'default'
+
+function savedCatalog(snapshot: PresetSnapshot = createDefaultPresetSnapshot(), name = 'Preset 1'): PresetCollection {
+  return {
+    ...createPresetCollection(),
+    activeId: 'initial',
+    entries: [
+      { id: DEFAULT_PRESET_ID, name: 'Default', favorite: false, snapshot: createDefaultPresetSnapshot() },
+      { id: 'initial', name, favorite: false, snapshot: clonePreset(snapshot) },
+    ],
+  }
+}
 
 function store() {
   setActivePinia(createPinia())
-  const value = useCatStore()
+  const value = useBlockStore()
   value.init()
   return value
 }
@@ -98,29 +105,28 @@ describe('preset ownership and persistence', () => {
   it('retains existing settings as an independent initial entry and survives JSON restore', () => {
     const source = store()
     source.activePet3dPreset.cameraZoomPercent = 153
-    const saved = createPresetCollection(capturePresetSnapshot(source), '프리셋 1')
+    const saved = savedCatalog(capturePresetSnapshot(source), '프리셋 1')
     source.activePet3dPreset.cameraZoomPercent = 82
     assert.equal(saved.entries[1].snapshot.preset.cameraZoomPercent, 153)
     const restored = clonePreset(saved)
     validatePresetCollection(restored)
     assert.equal(restored.activeId, 'initial')
-    assert.equal(restored.entries[0].id, BUILTIN_PRESET_ID)
+    assert.equal(restored.entries[0].id, DEFAULT_PRESET_ID)
     assert.equal(restored.entries[0].snapshot.preset.cameraZoomPercent, 100)
   })
 
-  it('copies factory settings only on an actual user edit, never normalization', () => {
-    const collection = createPresetCollection()
-    const snapshot = createDefaultPresetSnapshot()
-    snapshot.preset.cameraZoomPercent = 126
-    assert.equal(updateActivePreset(collection, snapshot, false, '기본값 사본'), false)
-    assert.equal(collection.entries.length, 1)
-    assert.equal(updateActivePreset(collection, snapshot, true, '기본값 사본'), true)
-    assert.equal(collection.entries.length, 2)
-    assert.equal(collection.entries[0].snapshot.preset.cameraZoomPercent, 100)
-    snapshot.preset.cameraZoomPercent = 143
-    updateActivePreset(collection, snapshot, true, '기본값 사본')
-    assert.equal(collection.entries.length, 2)
-    assert.equal(collection.entries[1].snapshot.preset.cameraZoomPercent, 143)
+  it('copies stored snapshots into current settings without linking either value', () => {
+    const target = store()
+    const saved = savedCatalog()
+    const before = clonePreset(saved)
+    target.presetCollection = saved
+    applyPresetSnapshot(target, saved.entries[1].snapshot)
+    target.activePet3dPreset.cameraZoomPercent = 170
+    target.updateDmeloperPalmColor('#123456')
+    assert.deepEqual(target.presetCollection, before)
+    applyPresetSnapshot(target, saved.entries[1].snapshot)
+    assert.equal(target.activePet3dPreset.cameraZoomPercent, 100)
+    assert.deepEqual(target.presetCollection, before)
   })
 
   it('keeps same-skin presets independent through switching and settings initialization', () => {
@@ -147,7 +153,7 @@ describe('preset ownership and persistence', () => {
     const id = 'a'.repeat(64)
     source.customization3d.activeSkinLibraryEntryId = id
     source.customization3d.dmeloperSkinDataUrl = 'data:image/png;base64,aGVsbG8='
-    source.presetCollection = createPresetCollection(capturePresetSnapshot(source))
+    source.presetCollection = savedCatalog(capturePresetSnapshot(source))
     const saved = clonePreset(source.presetCollection.entries[1].snapshot)
     source.handleSkinLibraryEntriesDeleted([id])
     assert.equal(source.customization3d.dmeloperSkinDataUrl, undefined)
@@ -158,24 +164,25 @@ describe('preset ownership and persistence', () => {
     assert.equal(source.customization3d.activeSkinLibraryEntryId, id)
   })
 
-  it('whole-program reset leaves only factory settings; tab reset changes the current entry', () => {
+  it('whole-program reset clears the list; tab reset changes only current settings', () => {
     const source = store()
-    source.presetCollection = createPresetCollection(capturePresetSnapshot(source))
+    source.presetCollection = savedCatalog(capturePresetSnapshot(source))
+    const before = clonePreset(source.presetCollection)
     source.activePet3dPreset.mouseEnabled = false
     source.resetEnvironment3d()
-    updateActivePreset(source.presetCollection, capturePresetSnapshot(source), true, 'Copy')
+    assert.deepEqual(source.presetCollection, before)
     assert.equal(source.presetCollection.entries.length, 2)
-    source.resetAllSettings()
-    assert.equal(source.presetCollection.entries.length, 1)
-    assert.equal(source.presetCollection.activeId, BUILTIN_PRESET_ID)
+    source.resetAllSettings({ deleteSkins: false, resetPresets: true })
+    assert.equal(source.presetCollection.entries.length, 0)
+    assert.equal(source.presetCollection.activeId, null)
   })
 
   it('rejects unsupported or corrupt catalogs without mutating the evidence', () => {
-    const future = { ...createPresetCollection(), schemaVersion: 999 }
+    const future = { ...savedCatalog(), schemaVersion: 999 }
     const before = clonePreset(future)
     assert.throws(() => validatePresetCollection(future))
     assert.deepEqual(future, before)
-    const missing = createPresetCollection()
+    const missing = savedCatalog()
     missing.activeId = 'missing'
     assert.throws(() => validatePresetCollection(missing))
   })
@@ -184,8 +191,8 @@ describe('preset ownership and persistence', () => {
 describe('saved preset range recovery', () => {
   it('keeps in-range fractional inactive snapshots byte-for-byte identical on restore', () => {
     const target = store()
-    const saved = createPresetCollection(createDefaultPresetSnapshot())
-    saved.activeId = BUILTIN_PRESET_ID
+    const saved = savedCatalog(createDefaultPresetSnapshot())
+    saved.activeId = DEFAULT_PRESET_ID
     Object.assign(saved.entries[1].snapshot.preset, {
       petRotationDegrees: 3.3,
       petDeskOffset: -0.044,
@@ -200,77 +207,27 @@ describe('saved preset range recovery', () => {
       thicknessPixels: 0.599,
     })
     const before = JSON.stringify(saved)
-    assert.equal(sanitizeStoredPresetCollection(saved, target.sanitizePet3dPreset), saved)
     target.presetCollection = saved
     target.init()
     assert.equal(JSON.stringify(target.presetCollection), before)
-    assert.equal(target.presetCollection.activeId, BUILTIN_PRESET_ID)
+    assert.equal(target.presetCollection.activeId, DEFAULT_PRESET_ID)
   })
 
-  it('clamps inactive cards before preview/export while retaining catalog identity and actual fractions', async () => {
-    for (const edge of ['min', 'max'] as const) {
-      const saved = createPresetCollection(createDefaultPresetSnapshot(), 'Saved 😶')
-      saved.activeId = BUILTIN_PRESET_ID
-      saved.entries[1].favorite = true
-      const preset = saved.entries[1].snapshot.preset
-      for (const [key, range] of Object.entries(presetRanges.preset)) {
-        Reflect.set(preset, key, range[edge] + (edge === 'min' ? -10 : 10))
-      }
-      for (const [key, range] of Object.entries(presetRanges.eyebrows)) {
-        Reflect.set(preset.dmeloperEyebrows, key, range[edge] + (edge === 'min' ? -10 : 10))
-      }
-      preset.cameraZoomPercent = 113.75
-      preset.petRightArmBendPercent = 103.25
-      preset.lighting.key.azimuthDegrees = -14.91
-      preset.manualViewportRect.x = 12.5
-      saved.entries[1].snapshot.appearance.minecraftSkinUsername = 'Fixture_User'
-      const before = clonePreset(saved)
-      const target = store()
-      const schemaVersion = target.customization3d.schemaVersion
-      target.presetCollection = saved
-      target.init()
-      const restored = target.presetCollection!
-      assert.equal(restored.schemaVersion, saved.schemaVersion)
-      assert.equal(restored.activeId, BUILTIN_PRESET_ID)
-      assert.equal(target.customization3d.schemaVersion, schemaVersion)
-      assert.deepEqual(restored.entries.map(({ id, name, favorite, builtin }) => ({ id, name, favorite, builtin })), before.entries.map(({ id, name, favorite, builtin }) => ({ id, name, favorite, builtin })))
-      assert.deepEqual(restored.entries[0], before.entries[0])
-      assert.deepEqual(saved, before, 'restoration must leave the source catalog untouched')
-      const entry = restored.entries[1]
-      for (const [key, range] of Object.entries(presetRanges.preset)) {
-        assert.equal(Reflect.get(entry.snapshot.preset, key), range[edge], key)
-      }
-      for (const [key, range] of Object.entries(presetRanges.eyebrows)) {
-        assert.equal(Reflect.get(entry.snapshot.preset.dmeloperEyebrows, key), range[edge], key)
-      }
-      assert.equal(entry.snapshot.preset.cameraZoomPercent, 113.75)
-      assert.equal(entry.snapshot.preset.petRightArmBendPercent, 103.25)
-      assert.equal(entry.snapshot.preset.lighting.key.azimuthDegrees, -14.91)
-      assert.equal(entry.snapshot.preset.manualViewportRect.x, 12.5)
-      assert.equal(target.activePet3dPreset.petRotationDegrees, 0, 'recovery must not activate the inactive card')
-
-      const document = await exportPortablePreset(entry.name, entry.snapshot, 'nickname')
-      const imported = parsePortablePreset(new TextEncoder().encode(serializePortablePreset(document)))
-      assert.deepEqual(imported.settings.preset, entry.snapshot.preset)
-      imported.settings.preset.petRotationDegrees = 90
-      assert.throws(() => validatePortablePreset(imported), { code: 'invalidSettings' }, 'external files remain strictly validated')
-
-      // Thumbnail and desktop rendering share this actual visual-settings path.
-      const preview = new Map<string, unknown[]>()
-      const renderer = new Proxy({} as Three3DRenderer, {
-        get: (_target, key) => (...values: unknown[]) => preview.set(String(key), values),
-      })
-      applyPresetVisualSettings(renderer, { ...createDefaultPet3dPreset(), ...entry.snapshot.preset })
-      assert.deepEqual(preview.get('setPetTransform'), [presetRanges.preset.petRotationDegrees[edge], presetRanges.preset.petDeskOffset[edge]])
-      assert.deepEqual(preview.get('setKeyboardBasePosition'), [presetRanges.preset.keyboardBaseXOffset[edge], presetRanges.preset.keyboardBaseZOffset[edge]])
-      assert.deepEqual(preview.get('setMouseBasePosition'), [presetRanges.preset.mouseBaseXOffset[edge], presetRanges.preset.mouseBaseZOffset[edge]])
-      assert.deepEqual(preview.get('setDmeloperEyebrows'), [entry.snapshot.preset.dmeloperEyebrows])
-      applyPresetSnapshot(target, entry.snapshot)
-      assert.deepEqual(capturePresetSnapshot(target), entry.snapshot)
-      const normalized = clonePreset(restored)
-      target.init()
-      assert.deepEqual(target.presetCollection, normalized)
-    }
+  it('applies runtime bounds only to the current copy and retains the stored snapshot', () => {
+    const target = store()
+    const saved = savedCatalog()
+    saved.entries[1].snapshot.preset.petRotationDegrees = 90
+    saved.entries[1].snapshot.preset.petDeskOffset = -0.044
+    const before = clonePreset(saved)
+    target.presetCollection = saved
+    target.init()
+    assert.deepEqual(target.presetCollection, before)
+    applyPresetSnapshot(target, target.presetCollection.entries[1].snapshot)
+    assert.equal(target.activePet3dPreset.petRotationDegrees, presetRanges.preset.petRotationDegrees.max)
+    assert.equal(target.activePet3dPreset.petDeskOffset, -0.044)
+    assert.deepEqual(target.presetCollection, before)
+    target.init()
+    assert.deepEqual(target.presetCollection, before)
   })
 
   it('preserves unsupported/corrupt catalog evidence for validation instead of repairing it into acceptance', () => {
@@ -280,10 +237,12 @@ describe('saved preset range recovery', () => {
       (value: ReturnType<typeof createPresetCollection>) => value.entries[1].snapshot.preset.lighting.key.strengthPercent = Number.NaN,
       (value: ReturnType<typeof createPresetCollection>) => Reflect.set(value.entries[1].snapshot.preset, 'unknownField', 1),
     ]) {
-      const saved = createPresetCollection(createDefaultPresetSnapshot())
+      const saved = savedCatalog(createDefaultPresetSnapshot())
       saved.entries[1].snapshot.preset.petRotationDegrees = 90
       damage(saved)
-      assert.equal(sanitizeStoredPresetCollection(saved, target.sanitizePet3dPreset), saved)
+      target.presetCollection = saved
+      target.init()
+      assert.deepEqual(target.presetCollection, saved)
       assert.equal(saved.entries[1].snapshot.preset.petRotationDegrees, 90)
       assert.throws(() => validatePresetCollection(saved))
     }
@@ -291,20 +250,18 @@ describe('saved preset range recovery', () => {
 })
 
 describe('preset list operations', () => {
-  it('keeps favorites first, preserves group order, and chooses a deterministic delete successor', () => {
-    const collection = createPresetCollection(createDefaultPresetSnapshot())
+  it('keeps favorites first and preserves order within each group', () => {
+    const collection = savedCatalog(createDefaultPresetSnapshot())
     collection.entries.push({ ...clonePreset(collection.entries[1]), id: 'second', name: 'Second', favorite: true })
     collection.entries.push({ ...clonePreset(collection.entries[1]), id: 'third', name: 'Third' })
-    assert.deepEqual(orderedPresets(collection).map(entry => entry.id), ['second', BUILTIN_PRESET_ID, 'initial', 'third'])
+    assert.deepEqual(orderedPresets(collection).map(entry => entry.id), ['second', DEFAULT_PRESET_ID, 'initial', 'third'])
     movePreset(collection, 'third', 'initial')
-    assert.equal(nextPresetAfterDelete(collection, 'third')?.id, 'initial')
     movePreset(collection, 'initial', 'second')
-    assert.deepEqual(orderedPresets(collection).map(entry => entry.id), ['second', BUILTIN_PRESET_ID, 'third', 'initial'])
-    assert.equal(nextPresetAfterDelete(collection, 'initial')?.id, 'third')
+    assert.deepEqual(orderedPresets(collection).map(entry => entry.id), ['second', DEFAULT_PRESET_ID, 'third', 'initial'])
   })
 
   it('supports Unicode names, prevents accidental overwrite, and numbers automatic names', () => {
-    const collection = createPresetCollection(createDefaultPresetSnapshot(), '작업 😶 安')
+    const collection = savedCatalog(createDefaultPresetSnapshot(), '작업 😶 安')
     assert.equal(validatePresetName(collection, '  새 작업 😶 安  '), '새 작업 😶 安')
     assert.throws(() => validatePresetName(collection, '작업 😶 安'))
     assert.throws(() => validatePresetName(collection, '   '))
@@ -319,7 +276,7 @@ describe('preset list operations', () => {
   })
 
   it('always appends only a number for duplicate names, including localized defaults and long Unicode names', () => {
-    const collection = createPresetCollection(createDefaultPresetSnapshot(), '작업 2')
+    const collection = savedCatalog(createDefaultPresetSnapshot(), '작업 2')
     assert.equal(uniquePresetName(collection, 'App Defaults', true), 'App Defaults 2')
     assert.equal(uniquePresetName(collection, '작업 2', true), '작업 2 2')
     collection.entries.push({ ...clonePreset(collection.entries[1]), id: 'duplicate', name: '작업 2 2' })
@@ -336,7 +293,7 @@ describe('preset list operations', () => {
 
 it('upgrades every v1 preset palette before strict validation and keeps existing catalog choices', () => {
   const current = store()
-  const source = createPresetCollection(capturePresetSnapshot(current), 'Saved')
+  const source = savedCatalog(capturePresetSnapshot(current), 'Saved')
   source.schemaVersion = 1
   source.entries[1].favorite = true
   source.entries[1].snapshot.preset.keyboardColor = '#123456'
@@ -352,7 +309,7 @@ it('upgrades every v1 preset palette before strict validation and keeps existing
   current.init()
   const migrated = current.presetCollection!
   validatePresetCollection(migrated)
-  assert.equal(migrated.schemaVersion, 3)
+  assert.equal(migrated.schemaVersion, 4)
   assert.equal(migrated.activeId, source.activeId)
   assert.equal(migrated.entries[1].favorite, true)
   assert.equal(migrated.entries[1].name, 'Saved')
@@ -374,7 +331,7 @@ it('migrates v2 skin memory into inert evidence while preserving each explicit p
   current.customization3d.dmeloperSkinDataUrl = 'data:image/png;base64,aGVsbG8='
   current.updateDmeloperEyebrows({ color: '#123456', widthPixels: 4 })
   current.updateDmeloperPalmColor('#ABCDEF')
-  const source = createPresetCollection(capturePresetSnapshot(current), 'Saved A')
+  const source = savedCatalog(capturePresetSnapshot(current), 'Saved A')
   source.schemaVersion = 2
   const first = source.entries[1]
   const second = { ...clonePreset(first), id: 'second', name: 'Saved B' }
@@ -392,7 +349,7 @@ it('migrates v2 skin memory into inert evidence while preserving each explicit p
   }
   for (const entry of source.entries) {
     Object.assign(entry.snapshot, { visible: false })
-    Object.assign(entry.snapshot.appearance, entry.builtin ? { dmeloperEyebrowProfiles: {} } : clonePreset(oldMaps))
+    Object.assign(entry.snapshot.appearance, clonePreset(oldMaps))
   }
   const before = clonePreset(source)
   const migrated = migratePresetCollection(source)
@@ -401,7 +358,7 @@ it('migrates v2 skin memory into inert evidence while preserving each explicit p
   assert.equal(migrated.entries.length, source.entries.length)
   assert.deepEqual(migrated.legacyAppearanceArchive?.initial, oldMaps)
   assert.deepEqual(migrated.legacyAppearanceArchive?.second, oldMaps)
-  assert.equal(migrated.legacyAppearanceArchive?.[BUILTIN_PRESET_ID], undefined)
+  assert.deepEqual(migrated.legacyAppearanceArchive?.[DEFAULT_PRESET_ID], oldMaps)
   for (const entry of migrated.entries) {
     assert.equal('visible' in entry.snapshot, false)
     assert.ok(LEGACY_SKIN_APPEARANCE_KEYS.every(key => !(key in entry.snapshot.appearance)))
@@ -434,7 +391,7 @@ it('keeps live visibility outside snapshot equality and restores it separately f
   applyPresetSnapshot(current, { ...shown, ...{ visible: false } })
   assert.equal(current.window.visible, true, 'retired visibility cannot override the load default')
   assert.equal(isPresetSnapshot({ ...shown, visible: false }), false)
-  assert.equal(createPresetCollection().legacyAppearanceArchive, undefined)
+  assert.equal(savedCatalog().legacyAppearanceArchive, undefined)
 })
 
 it('captures and applies all six colors independently without changing common performance', () => {
@@ -451,7 +408,7 @@ it('captures and applies all six colors independently without changing common pe
 })
 
 it('adds default head size to existing version 3 catalogs without losing saved settings', () => {
-  const legacy = createPresetCollection()
+  const legacy = savedCatalog()
   Reflect.deleteProperty(legacy.entries[0].snapshot.preset, 'petHeadScalePercent')
   legacy.entries[0].snapshot.preset.petRotationDegrees = 37
   const migrated = migratePresetCollection(legacy)
@@ -462,7 +419,7 @@ it('adds default head size to existing version 3 catalogs without losing saved s
 })
 
 it('migrates missing eyebrow depth in every saved preset without changing explicit zero or input data', () => {
-  const legacy = createPresetCollection(createDefaultPresetSnapshot())
+  const legacy = savedCatalog(createDefaultPresetSnapshot())
   Reflect.deleteProperty(legacy.entries[0].snapshot.preset.dmeloperEyebrows, 'depthPercent')
   legacy.entries[1].snapshot.preset.dmeloperEyebrows.depthPercent = 0
   const before = JSON.stringify(legacy)
@@ -482,28 +439,32 @@ it('migrates missing eyebrow depth in every saved preset without changing explic
 })
 
 it('additively migrates desk settings in existing catalogs and retains each explicit desk choice', () => {
-  const collection = createPresetCollection(createDefaultPresetSnapshot())
+  const collection = savedCatalog(createDefaultPresetSnapshot())
   const legacy = JSON.parse(JSON.stringify(collection))
   for (const entry of legacy.entries) {
     for (const key of DESK_SETTING_KEYS) delete entry.snapshot.preset[key]
   }
   legacy.entries[1].snapshot.preset.deskTransparent = false
   legacy.entries[1].snapshot.preset.deskColor = '#123aBC'
+  legacy.entries[1].snapshot.preset.deskWidthOffset = 0.6
+  legacy.entries[1].snapshot.preset.deskDepthOffset = -0.3
   const before = clonePreset(legacy)
   const migrated = migratePresetCollection(legacy)
   validatePresetCollection(migrated)
   assert.deepEqual(legacy, before)
   assert.equal(migrated.schemaVersion, collection.schemaVersion)
-  for (const key of DESK_SETTING_KEYS) assert.equal(migrated.entries[0].snapshot.preset[key], DEFAULT_DESK_SETTINGS[key])
+  for (const key of DESK_SETTING_KEYS) assert.equal(migrated.entries[0].snapshot.preset[key], LEGACY_DESK_SETTINGS[key])
   assert.equal(migrated.entries[1].snapshot.preset.deskTransparent, false)
   assert.equal(migrated.entries[1].snapshot.preset.deskColor, '#123aBC')
   assert.equal(migrated.entries[1].snapshot.preset.deskHeightOffset, 0)
+  assert.equal(migrated.entries[1].snapshot.preset.deskWidthOffset, 0.6)
+  assert.equal(migrated.entries[1].snapshot.preset.deskDepthOffset, -0.3)
   assert.equal(migratePresetCollection(migrated), migrated)
   const target = store()
   applyPresetSnapshot(target, migrated.entries[1].snapshot)
   assert.deepEqual(capturePresetSnapshot(target).preset, migrated.entries[1].snapshot.preset)
   applyPresetSnapshot(target, legacy.entries[0].snapshot)
-  for (const key of DESK_SETTING_KEYS) assert.equal(target.activePet3dPreset[key], DEFAULT_DESK_SETTINGS[key])
+  for (const key of DESK_SETTING_KEYS) assert.equal(target.activePet3dPreset[key], LEGACY_DESK_SETTINGS[key])
 })
 
 it('rejects explicit invalid desk values and unknown preset fields without masking them during migration', () => {
@@ -517,11 +478,43 @@ it('rejects explicit invalid desk values and unknown preset fields without maski
     { deskHeightOffset: Number.NaN },
     { deskHeightOffset: '0' },
     { deskHeightOffset: undefined },
+    { deskWidthOffset: -1.01 },
+    { deskWidthOffset: 1.01 },
+    { deskWidthOffset: Number.NaN },
+    { deskWidthOffset: '0' },
+    { deskWidthOffset: undefined },
+    { deskDepthOffset: -1.01 },
+    { deskDepthOffset: 1.01 },
+    { deskDepthOffset: null },
+    { deskDepthOffset: Infinity },
+    { deskDepthOffset: false },
     { deskEnabled: true },
   ]) {
-    const collection = createPresetCollection()
+    const collection = savedCatalog()
     Object.assign(collection.entries[0].snapshot.preset, changes)
     assert.equal(isPresetSnapshot(collection.entries[0].snapshot), false)
     assert.throws(() => validatePresetCollection(migratePresetCollection(collection)))
   }
+})
+
+it('removes only the legacy default entry and preserves local user presets and selection', () => {
+  for (const activeId of ['builtin:default', 'initial']) {
+    const saved = savedCatalog()
+    const userEntries = clonePreset(saved.entries)
+    const legacy = { ...saved, schemaVersion: 3, activeId, entries: [
+      { id: 'builtin:default', name: '', builtin: true, favorite: false, snapshot: createDefaultPresetSnapshot() },
+      ...saved.entries.map(entry => ({ ...entry, builtin: false })),
+    ] }
+    const before = clonePreset(legacy)
+    const migrated = migratePresetCollection(legacy)
+    validatePresetCollection(migrated)
+    assert.deepEqual(migrated.entries, userEntries)
+    assert.equal(migrated.activeId, activeId === 'initial' ? 'initial' : null)
+    assert.equal(migratePresetCollection(migrated), migrated)
+    assert.deepEqual(legacy, before)
+  }
+  const migrated = migratePresetCollection({ schemaVersion: 3, activeId: 'builtin:default', entries: [
+    { id: 'builtin:default', name: '', builtin: true, favorite: false, snapshot: createDefaultPresetSnapshot() },
+  ] })
+  assert.deepEqual(migrated, createPresetCollection())
 })

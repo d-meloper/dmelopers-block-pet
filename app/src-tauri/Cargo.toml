@@ -28,9 +28,8 @@ name = "general_defaults"
 path = "src/general_defaults_tests.rs"
 
 [[test]]
-name = "updater_startup"
-path = "src/updater_startup_tests.rs"
-required-features = ["test-repository"]
+name = "support_info"
+path = "src/support_info_tests.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -45,6 +44,8 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 log.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["native-tls", "system-proxy"] }
 sha2 = "0.10"
+# UUID v5 identities only; signatures and payload authentication use SHA-256/minisign.
+sha1 = { version = "=0.10.7", optional = true }
 tauri = { workspace = true, features = ["tray-icon", "image-png", "protocol-asset"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
@@ -57,7 +58,6 @@ tauri-plugin-opener = "2"
 tauri-plugin-pinia = "3"
 tauri-plugin-log = "2"
 tauri-plugin-prevent-default = "1"
-tauri-plugin-updater = { version = "=2.11.0", optional = true, default-features = false, features = ["native-tls", "system-proxy"] }
 minisign-verify = { version = "=0.2.5", optional = true }
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-global-shortcut = "2"
@@ -65,7 +65,7 @@ tauri-plugin-locale = "2"
 rdev = { git = "https://github.com/kunkunsh/rdev" }
 
 [target."cfg(target_os = \"windows\")".dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Graphics_Gdi", "Win32_UI_Controls_Dialogs", "Win32_Storage_FileSystem", "Win32_System_Performance", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_HiDpi", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_UI_Shell", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Environment", "Win32_System_Com", "Win32_Globalization"] }
+windows-sys = { version = "0.61", features = ["Win32_Graphics_Gdi", "Win32_UI_Controls_Dialogs", "Win32_Storage_FileSystem", "Win32_System_Performance", "Win32_System_ProcessStatus", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_HiDpi", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_UI_Shell", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Environment", "Win32_System_Com", "Win32_Globalization"] }
 windows = { version = "0.61", features = ["ApplicationModel"] }
 # windows 0.61 does not forward its std feature to WinRT futures.
 windows-future = { version = "0.2", features = ["std"] }
@@ -77,10 +77,16 @@ tokio-tungstenite = "0.29"
 
 [features]
 default = ["channel-github"]
-manual-nsis = ["channel-github"]
-channel-github = ["dep:tauri-plugin-updater", "dep:minisign-verify"]
+channel-github = []
 channel-store = []
 cargo-clippy = []
 # Recognize old invocations only to reject them explicitly in build.rs.
 private-update-qa = []
-test-repository = ["dep:tauri-plugin-updater", "dep:minisign-verify"]
+test-repository = ["dep:minisign-verify"]
+# Isolated Burn installation shared by local and GitHub test delivery.
+wix-local-test = ["test-repository"]
+# Same isolated Burn profile, with fixed HTTPS test-repository delivery.
+wix-github-test = ["wix-local-test"]
+
+# Official Burn profile shares the product data channel, never the test channel.
+wix-github = ["channel-github", "dep:minisign-verify", "dep:sha1"]

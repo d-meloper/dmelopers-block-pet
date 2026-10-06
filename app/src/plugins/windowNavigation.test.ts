@@ -65,7 +65,7 @@ describe('window destination and preference navigation', () => {
     })
     await handler('preference')
     assert.deepEqual(shown, [6])
-    for (let tab = 0; tab < 8; tab++) {
+    for (const tab of [1, 2, 3, 0, 4, 6, 5, 7]) {
       page.current.value = tab
       await flush()
       await handler('preference')

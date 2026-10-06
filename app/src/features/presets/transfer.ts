@@ -21,7 +21,7 @@ export const PET_PRESET_FORMAT = 'dmeloper.petpreset'
 export const PET_PRESET_VERSION = 1
 export const MAX_PET_PRESET_BYTES = 4 * 1024 * 1024
 export const MAX_PRESET_PNG_BYTES = 2 * 1024 * 1024
-export type PresetExportMode = 'image' | 'nickname'
+export type PresetExportMode = 'image' | 'nickname' | 'default'
 export type PresetTransferPhase = 'reading' | 'skin' | 'applying' | 'saving' | 'exporting'
 
 export interface PortablePetPreset {
@@ -149,13 +149,20 @@ export function serializePortablePreset(value: PortablePetPreset): string {
 }
 
 export async function exportPortablePreset(name: string, snapshot: PresetSnapshot, mode: PresetExportMode): Promise<PortablePetPreset> {
-  const { appearance } = snapshot
+  const source = mode === 'default' ? clonePreset(snapshot) : snapshot
+  if (mode === 'default') {
+    const defaults = createDefaultPresetSnapshot()
+    source.appearance = defaults.appearance
+    source.preset.dmeloperEyebrows.color = defaults.preset.dmeloperEyebrows.color
+    source.preset.dmeloperPalmColor = defaults.preset.dmeloperPalmColor
+  }
+  const { appearance } = source
   // Construct the portable projection explicitly; never serialize a local catalog.
   const settings = clonePreset({
-    preset: Object.fromEntries(PRESET_SETTING_KEYS.map(key => [key, snapshot.preset[key]])) as PresetSnapshot['preset'],
-    mirror: snapshot.mirror,
-    opacity: snapshot.opacity,
-    eyebrowAnimationEnabled: snapshot.eyebrowAnimationEnabled,
+    preset: Object.fromEntries(PRESET_SETTING_KEYS.map(key => [key, source.preset[key]])) as PresetSnapshot['preset'],
+    mirror: source.mirror,
+    opacity: source.opacity,
+    eyebrowAnimationEnabled: source.eyebrowAnimationEnabled,
   })
   const nickname = appearance.minecraftSkinUsername
   let skin: PortablePetPreset['skin']
@@ -163,7 +170,7 @@ export async function exportPortablePreset(name: string, snapshot: PresetSnapsho
     if (!nickname || !isMinecraftUsername(nickname)) reject('invalidNickname')
     skin = { mode, nickname }
   } else {
-    const prepared = await preparePresetSkin(snapshot)
+    const prepared = await preparePresetSkin(source)
     skin = {
       mode: 'image',
       pngBase64: prepared.appearance.dmeloperSkinDataUrl!.slice('data:image/png;base64,'.length),

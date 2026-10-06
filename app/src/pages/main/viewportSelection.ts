@@ -1,4 +1,4 @@
-import type { Pet3dPresetSelectionPayload } from '@/stores/cat'
+import type { Pet3dPresetSelectionPayload } from '@/stores/block'
 
 import { normalizeAutoViewportPadding } from '@/features/scene/viewportSettings'
 import { getResolvedDmeloperSkinUrl } from '@/services/dmeloperSkin'
@@ -18,6 +18,8 @@ export interface VisibleBoundsSelectionSignature {
   petRotationDegrees: number
   petDeskOffset: number
   deskHeightOffset: number
+  deskWidthOffset: number
+  deskDepthOffset: number
   petRightArmBendPercent: number
   petRightArmSpreadDegrees: number
   petLeftArmBendPercent: number
@@ -63,6 +65,8 @@ export function createVisibleBoundsSelectionSignature(
     petRotationDegrees: preset.petRotationDegrees,
     petDeskOffset: preset.petDeskOffset,
     deskHeightOffset: preset.deskHeightOffset ?? 0,
+    deskWidthOffset: preset.deskWidthOffset ?? -1,
+    deskDepthOffset: preset.deskDepthOffset ?? 0,
     petRightArmBendPercent: preset.petRightArmBendPercent,
     petRightArmSpreadDegrees: preset.petRightArmSpreadDegrees,
     petLeftArmBendPercent: preset.petLeftArmBendPercent,

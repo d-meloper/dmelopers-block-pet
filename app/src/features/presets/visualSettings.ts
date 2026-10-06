@@ -1,4 +1,4 @@
-import type { Pet3dPreset } from '@/stores/cat'
+import type { Pet3dPreset } from '@/stores/block'
 import type { Three3DRenderer } from '@/utils/three3d'
 
 import { MODEL_3D_CONFIG } from '@/config/model3d'

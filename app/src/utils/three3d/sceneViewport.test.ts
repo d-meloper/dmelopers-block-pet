@@ -6,7 +6,7 @@ import { BoxGeometry, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, Vector3
 
 import { createDefaultDmeloperEyebrowPreset } from '@/config/dmeloperEyebrows'
 import { normalizeManualViewport, resizeAutoViewportPadding, viewportSizeChanged } from '@/features/scene/viewportSettings'
-import { createDefaultPet3dPreset, useCatStore } from '@/stores/cat'
+import { createDefaultPet3dPreset, useBlockStore } from '@/stores/block'
 
 import renderer from '../three3d'
 import { padContentRect, projectVisibleSceneBounds } from './projectedBounds'
@@ -146,7 +146,7 @@ describe('scene viewport geometry and camera', () => {
 describe('scene and eyebrow persistence', () => {
   it('defaults automatic sizing ON and accepts 25% zoom plus persisted manual geometry', () => {
     setActivePinia(createPinia())
-    const store = useCatStore()
+    const store = useBlockStore()
     assert.equal(createDefaultPet3dPreset().autoViewportEnabled, true)
     Object.assign(store.activePet3dPreset, {
       autoViewportEnabled: false,
@@ -163,7 +163,7 @@ describe('scene and eyebrow persistence', () => {
 
   it('keeps animation global across skin changes and restores it with eyebrow reset', () => {
     setActivePinia(createPinia())
-    const store = useCatStore()
+    const store = useBlockStore()
     store.model.eyebrowAnimationEnabled = false
     store.resetDmeloperSkinToDefault()
     store.updateDmeloperEyebrows({ widthPixels: 3 })

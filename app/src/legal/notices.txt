@@ -1,6 +1,6 @@
 DMeloper's Block Pet — licenses and credits
 
-Dependency coverage: locked Node production packages, compiled Solar/Lucide icon data, and the Windows Rust normal/build dependency closures of the current x64 application plus retained historical update-worker and x86 installer-plugin source graphs. Current Store/GitHub packages do not ship the historical worker or custom plugin. Build-only libraries are included conservatively; this inventory does not claim every listed component is linked at runtime.
+Dependency coverage: locked Node production packages, compiled Solar/Lucide icon data, and the Windows Rust normal/build dependency closures of the current x64 GitHub and Microsoft Store applications. Build-only libraries are included conservatively; this inventory does not claim every listed component is linked at runtime.
 
 
 ■ Project license
@@ -57,23 +57,6 @@ included in the public source or installer.
 under its original MIT license, preserved at ../app/vendor/tauri-winres/LICENSE, and
 retains the original Tauri Apps Contributors and Max Resch copyright notices.
 
-The installer helper block_pet_installer_utils.dll, retained from an earlier implementation, is derived from
-Tauri nsis-tauri-utils 0.5.3 (https://github.com/tauri-apps/nsis-tauri-utils/tree/nsis_tauri_utils-v0.5.3).
-Its source is retained at ../app/src-tauri/windows/installer-utils, including
-the original MIT and Apache-2.0 texts, the original copyright
-Copyright (c) 2019 - 2022 Tauri Programme within The Commons Conservancy, and
-the pinned upstream archive/source hashes. The local derivative retains only
-version comparison, process inspection and non-elevated application launch;
-unused process-termination and string commands were removed. The vendored
-nsis-plugin-api and nsis-fn sources are unchanged. This locally built DLL is
-not an official or Authenticode-signed Tauri release.
-
-Current GitHub and Store packages do not build or include this helper. Its source
-and notices are kept to document the earlier implementation.
-
-The shared update core and the update worker from the earlier implementation are maintained under the project MIT license in ../app/crates/update-core. The current packages do not ship the separate worker. Its dependencies and the historical installer plugin are still recorded as separate source/build consumers in the offline notices; inclusion in that inventory does not mean the component is shipped.
-
-../app/vendor/tauri-plugin-updater contains the locally patched Tauri updater 2.11.0 used by the GitHub channel. Its MIT/Apache-2.0 license texts, upstream identity, and local changes are preserved in that directory and in the offline notices. Store packages do not use this updater.
 
 ■ Models and Skins
 
@@ -103,8 +86,16 @@ The selected arrow and square icons include Feather-derived artwork by Cole
 Bemis. The offline notices include both applicable license texts and copyright notices.
 The package's ISC declaration alone does not cover all of these icons.
 
-Icon data is supplied by local @iconify-json packages and rendered as CSS by
-UnoCSS. The application does not fetch these icons from a CDN at runtime.
+Solar and Lucide icon data is supplied by local @iconify-json packages and
+rendered as CSS by UnoCSS. The application does not fetch these icons from a CDN
+at runtime.
+
+The filled GitHub icon in About is from Ant Design Icons (https://github.com/ant-design/ant-design-icons),
+provided by the local @ant-design/icons-vue package under the MIT License.
+Its original copyright and license text are included in the offline notices.
+The Notion link uses a local vector drawn to match a maintainer-supplied reference
+image. Notion's name and mark belong to their respective rights holder; this
+notice does not assign them a new open-source license or claim original authorship.
 
 ■ Offline dependency notices and source availability
 
@@ -113,9 +104,11 @@ project MIT license and dependency notices without an internet connection.
 The license text is included in ../app/src/legal/notices.txt.
 The CycloneDX inventory is ../app/src/legal/dependencies.cdx.json.
 The separate Data and Permissions entry below it explains local data and permissions
-in the selected app language.
+in the selected app language. WiX installers also include ThirdParty-WiX.txt in
+the installation folder, with the native WiX SDK's original license and notice.
+That installer notice is separate from the application's Node/Rust inventory.
 
-The inventory lists the application's Node and Windows Rust dependencies, Solar/Lucide icon data, and dependencies of retained source components. It includes libraries used to build the application. Detailed component relationships and locked versions are recorded in the machine-readable inventory. The historical worker and installer helper are not included in the current packages.
+The inventory lists the application's Node and Windows Rust dependencies and Solar/Lucide icon data. It includes libraries used to build the application. Detailed component relationships and locked versions are recorded in the machine-readable inventory.
 Build dependencies are included conservatively; listing a package does not
 claim its code is linked into the installed executable.
 
@@ -251,21 +244,6 @@ Author metadata: ["RustCrypto Developers"]
 Source: https://crates.io/api/v1/crates/block-buffer/0.10.4/download
 Notice a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5 — LICENSE-APACHE
 Notice d5c22aa3118d240e877ad41c5d9fa232f9c77d757d4aac0c2f943afc0a95e0ef — LICENSE-MIT
-
-cargo:block-pet-installer-utils@0.1.0
-License: MIT OR Apache-2.0
-Author metadata: []
-Source: src-tauri/windows/installer-utils
-Upstream: https://github.com/tauri-apps/nsis-tauri-utils at nsis_tauri_utils-v0.5.3
-Upstream archive SHA-256: 4f42fb387ea0e39a0ce66993d32382fdfa637a0bd01d5ea006a8e69df449bde9
-Notice 1c1020fa10a6bf318717e82c911bcc54ebdfb9bb280460ae332bcb2f82f57fbe — https://github.com/tauri-apps/nsis-tauri-utils/blob/nsis_tauri_utils-v0.5.3/LICENSE_MIT
-Notice a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9 — https://github.com/tauri-apps/nsis-tauri-utils/blob/nsis_tauri_utils-v0.5.3/LICENSE_APACHE-2.0
-
-cargo:block-pet-update-core@1.0.0
-License: MIT
-Author metadata: ["DMeloper"]
-Source: crates/update-core
-Notice b97cfe66c42f7686b58f1615651bb991ffc1099de7e76bb6990e35e5300a56ec — PublicGitHub/LICENSE
 
 cargo:bon-macros@3.9.1
 License: MIT OR Apache-2.0
@@ -1239,24 +1217,6 @@ Source: https://crates.io/api/v1/crates/nodrop/0.1.14/download
 Notice a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2 — LICENSE-APACHE
 Notice 0245ee104228a100ce5fceecf43e25faae450494d9173f43fd94c27d69fdac13 — LICENSE-MIT
 
-cargo:nsis-fn@0.0.0
-License: MIT OR Apache-2.0
-Author metadata: []
-Source: https://github.com/tauri-apps/nsis-tauri-utils/tree/nsis_tauri_utils-v0.5.3/crates/nsis-fn
-Upstream: https://github.com/tauri-apps/nsis-tauri-utils at nsis_tauri_utils-v0.5.3
-Upstream archive SHA-256: 4f42fb387ea0e39a0ce66993d32382fdfa637a0bd01d5ea006a8e69df449bde9
-Notice 1c1020fa10a6bf318717e82c911bcc54ebdfb9bb280460ae332bcb2f82f57fbe — https://github.com/tauri-apps/nsis-tauri-utils/blob/nsis_tauri_utils-v0.5.3/LICENSE_MIT
-Notice a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9 — https://github.com/tauri-apps/nsis-tauri-utils/blob/nsis_tauri_utils-v0.5.3/LICENSE_APACHE-2.0
-
-cargo:nsis-plugin-api@0.0.0
-License: MIT OR Apache-2.0
-Author metadata: []
-Source: https://github.com/tauri-apps/nsis-tauri-utils/tree/nsis_tauri_utils-v0.5.3/crates/nsis-plugin-api
-Upstream: https://github.com/tauri-apps/nsis-tauri-utils at nsis_tauri_utils-v0.5.3
-Upstream archive SHA-256: 4f42fb387ea0e39a0ce66993d32382fdfa637a0bd01d5ea006a8e69df449bde9
-Notice 1c1020fa10a6bf318717e82c911bcc54ebdfb9bb280460ae332bcb2f82f57fbe — https://github.com/tauri-apps/nsis-tauri-utils/blob/nsis_tauri_utils-v0.5.3/LICENSE_MIT
-Notice a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9 — https://github.com/tauri-apps/nsis-tauri-utils/blob/nsis_tauri_utils-v0.5.3/LICENSE_APACHE-2.0
-
 cargo:ntapi@0.4.3
 License: Apache-2.0 OR MIT
 Author metadata: ["MSxDOS <melcodos@gmail.com>"]
@@ -1500,13 +1460,6 @@ Source: https://crates.io/api/v1/crates/proc-macro2/1.0.106/download
 Notice 62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a — LICENSE-APACHE
 Notice 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3 — LICENSE-MIT
 
-cargo:proc-macro2@1.0.107
-License: MIT OR Apache-2.0
-Author metadata: ["David Tolnay <dtolnay@gmail.com>", "Alex Crichton <alex@alexcrichton.com>"]
-Source: https://crates.io/api/v1/crates/proc-macro2/1.0.107/download
-Notice 62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a — LICENSE-APACHE
-Notice 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3 — LICENSE-MIT
-
 cargo:pxfm@0.1.28
 License: BSD-3-Clause OR Apache-2.0
 Author metadata: ["Radzivon Bartoshyk"]
@@ -1524,13 +1477,6 @@ cargo:quote@1.0.45
 License: MIT OR Apache-2.0
 Author metadata: ["David Tolnay <dtolnay@gmail.com>"]
 Source: https://crates.io/api/v1/crates/quote/1.0.45/download
-Notice 62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a — LICENSE-APACHE
-Notice 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3 — LICENSE-MIT
-
-cargo:quote@1.0.47
-License: MIT OR Apache-2.0
-Author metadata: ["David Tolnay <dtolnay@gmail.com>"]
-Source: https://crates.io/api/v1/crates/quote/1.0.47/download
 Notice 62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a — LICENSE-APACHE
 Notice 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3 — LICENSE-MIT
 
@@ -1734,13 +1680,6 @@ Author metadata: ["The Servo Project Developers"]
 Source: https://crates.io/api/v1/crates/selectors/0.36.1/download
 License basis: the published package's SPDX declaration; standard terms and available original source notices follow.
 Notice 3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04 — https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MPL-2.0.txt
-
-cargo:semver@1.0.27
-License: MIT OR Apache-2.0
-Author metadata: ["David Tolnay <dtolnay@gmail.com>"]
-Source: https://crates.io/api/v1/crates/semver/1.0.27/download
-Notice 62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a — LICENSE-APACHE
-Notice 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3 — LICENSE-MIT
 
 cargo:semver@1.0.28
 License: MIT OR Apache-2.0
@@ -1992,13 +1931,6 @@ Source: https://crates.io/api/v1/crates/syn/2.0.117/download
 Notice 62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a — LICENSE-APACHE
 Notice 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3 — LICENSE-MIT
 
-cargo:syn@2.0.119
-License: MIT OR Apache-2.0
-Author metadata: ["David Tolnay <dtolnay@gmail.com>"]
-Source: https://crates.io/api/v1/crates/syn/2.0.119/download
-Notice 62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a — LICENSE-APACHE
-Notice 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3 — LICENSE-MIT
-
 cargo:sync_wrapper@1.0.2
 License: Apache-2.0
 Author metadata: ["Actyx AG <developer@actyx.io>"]
@@ -2125,16 +2057,6 @@ Notice 9c1db6b7e7eb83e1cb2af973b5df2bdc63651ede0f38506ab98dfa0940487759 — LICE
 Notice a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9 — LICENSE_APACHE-2.0
 Notice 9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d — LICENSE_MIT
 
-cargo:tauri-plugin-updater@2.11.0
-License: Apache-2.0 OR MIT
-Author metadata: ["Tauri Programme within The Commons Conservancy"]
-Source: vendor/tauri-plugin-updater
-Upstream: https://github.com/tauri-apps/plugins-workspace at 6aa2854f314481a459be1189b02c65a2450789ab
-Upstream archive SHA-256: b28d8cabdeb0564f03ae261963de4bc3d98321cd3d213e76a81b7d344e5df606
-Notice 9c1db6b7e7eb83e1cb2af973b5df2bdc63651ede0f38506ab98dfa0940487759 — LICENSE.spdx
-Notice a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9 — LICENSE_APACHE-2.0
-Notice 9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d — LICENSE_MIT
-
 cargo:tauri-plugin@2.5.4
 License: Apache-2.0 OR MIT
 Author metadata: ["Tauri Programme within The Commons Conservancy"]
@@ -2194,13 +2116,6 @@ Author metadata: ["Tauri Programme within The Commons Conservancy"]
 Source: https://crates.io/api/v1/crates/tauri/2.11.1/download
 Notice a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9 — LICENSE_APACHE-2.0
 Notice 9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d — LICENSE_MIT
-
-cargo:tempfile@3.27.0
-License: MIT OR Apache-2.0
-Author metadata: ["Steven Allen <steven@stebalien.com>", "The Rust Project Developers", "Ashley Mannix <ashleymannix@live.com.au>", "Jason White <me@jasonwhite.io>"]
-Source: https://crates.io/api/v1/crates/tempfile/3.27.0/download
-Notice a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2 — LICENSE-APACHE
-Notice 8b427f5bc501764575e52ba4f9d95673cf8f6d80a86d0d06599852e1a9a20a36 — LICENSE-MIT
 
 cargo:tendril@0.4.3
 License: MIT OR Apache-2.0
@@ -2288,12 +2203,6 @@ License: MIT
 Author metadata: ["Daniel Abramov <dabramov@snapview.de>", "Alexey Galakhov <agalakhov@snapview.de>"]
 Source: https://crates.io/api/v1/crates/tokio-tungstenite/0.29.0/download
 Notice fdd55e2b2da854b0fbdc1e607df7c2ba1e1ebf91ecb77c515511ebeef972bc8f — LICENSE
-
-cargo:tokio-util@0.7.18
-License: MIT
-Author metadata: ["Tokio Contributors <team@tokio.rs>"]
-Source: https://crates.io/api/v1/crates/tokio-util/0.7.18/download
-Notice 253cd04c6714889df2d32f3f64d669179a1c95c76ac43c40882c52eb06bc3552 — LICENSE
 
 cargo:tokio@1.52.0
 License: MIT
@@ -4651,32 +4560,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-
-
-========================================================================
-NOTICE 1c1020fa10a6bf318717e82c911bcc54ebdfb9bb280460ae332bcb2f82f57fbe
-
-MIT License
-
-Copyright (c) 2019 - 2022 Tauri Programme within The Commons Conservancy
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 
 
 ========================================================================
@@ -12001,36 +11884,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-
-
-========================================================================
-NOTICE 8b427f5bc501764575e52ba4f9d95673cf8f6d80a86d0d06599852e1a9a20a36
-
-Copyright (c) 2015 Steven Allen
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
 
 
 ========================================================================

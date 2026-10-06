@@ -14,20 +14,12 @@
         "value": "x86_64-pc-windows-msvc"
       },
       {
-        "name": "dmeloper:installer-plugin-target",
-        "value": "i686-pc-windows-msvc"
-      },
-      {
         "name": "dmeloper:lf-sha256:Cargo.lock",
-        "value": "8af228c3e7546cf713057e117b4532983a1ee0cb0956719ba9aa401e629ebe29"
+        "value": "756b50bc7096d3fe02ecdbe913188eddd42fcb68d9b0560b13b97272e5665cdf"
       },
       {
         "name": "dmeloper:lf-sha256:pnpm-lock.yaml",
         "value": "b97d61a5be7011b91ea88808092a48ad499f2bc21a7c91eee5fa49880b09a9be"
-      },
-      {
-        "name": "dmeloper:lf-sha256:src-tauri/windows/installer-utils/Cargo.lock",
-        "value": "6bd81c8d32673ed35d045212fb697ec677b14b2a0f082e9eb4ab728c2ad2e25b"
       }
     ]
   },
@@ -358,7 +350,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -498,57 +490,13 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
         {
           "type": "distribution",
           "url": "https://crates.io/api/v1/crates/block-buffer/0.10.4/download"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:cargo/block-pet-installer-utils@0.1.0",
-      "name": "block-pet-installer-utils",
-      "version": "0.1.0",
-      "purl": "pkg:cargo/block-pet-installer-utils@0.1.0",
-      "licenses": [
-        {
-          "expression": "MIT OR Apache-2.0"
-        }
-      ],
-      "properties": [
-        {
-          "name": "dmeloper:notice-method",
-          "value": "derived-upstream-license"
-        },
-        {
-          "name": "dmeloper:build-consumers",
-          "value": "installer-plugin"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:cargo/block-pet-update-core@1.0.0",
-      "name": "block-pet-update-core",
-      "version": "1.0.0",
-      "purl": "pkg:cargo/block-pet-update-core@1.0.0",
-      "licenses": [
-        {
-          "expression": "MIT"
-        }
-      ],
-      "properties": [
-        {
-          "name": "dmeloper:notice-method",
-          "value": "project-MIT"
-        },
-        {
-          "name": "dmeloper:build-consumers",
-          "value": "update-worker"
         }
       ]
     },
@@ -934,7 +882,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -990,7 +938,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -1102,7 +1050,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -1214,7 +1162,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -1662,7 +1610,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -1746,7 +1694,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -1886,7 +1834,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -1970,7 +1918,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -2222,7 +2170,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -2334,7 +2282,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -2670,7 +2618,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -2782,7 +2730,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -3370,7 +3318,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -3398,7 +3346,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -3426,7 +3374,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -3454,7 +3402,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -3482,7 +3430,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -3510,7 +3458,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -3538,7 +3486,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -3594,7 +3542,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -3622,7 +3570,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -3846,7 +3794,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -4014,7 +3962,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -4042,7 +3990,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -4098,7 +4046,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -4294,7 +4242,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -4350,7 +4298,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,test-application,update-worker"
+          "value": "application,test-application"
         }
       ],
       "externalReferences": [
@@ -4553,62 +4501,6 @@
         {
           "type": "distribution",
           "url": "https://crates.io/api/v1/crates/nodrop/0.1.14/download"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:cargo/nsis-fn@0.0.0",
-      "name": "nsis-fn",
-      "version": "0.0.0",
-      "purl": "pkg:cargo/nsis-fn@0.0.0",
-      "licenses": [
-        {
-          "expression": "MIT OR Apache-2.0"
-        }
-      ],
-      "properties": [
-        {
-          "name": "dmeloper:notice-method",
-          "value": "vendored-upstream-license"
-        },
-        {
-          "name": "dmeloper:build-consumers",
-          "value": "installer-plugin"
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "distribution",
-          "url": "https://github.com/tauri-apps/nsis-tauri-utils/tree/nsis_tauri_utils-v0.5.3/crates/nsis-fn"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:cargo/nsis-plugin-api@0.0.0",
-      "name": "nsis-plugin-api",
-      "version": "0.0.0",
-      "purl": "pkg:cargo/nsis-plugin-api@0.0.0",
-      "licenses": [
-        {
-          "expression": "MIT OR Apache-2.0"
-        }
-      ],
-      "properties": [
-        {
-          "name": "dmeloper:notice-method",
-          "value": "vendored-upstream-license"
-        },
-        {
-          "name": "dmeloper:build-consumers",
-          "value": "installer-plugin"
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "distribution",
-          "url": "https://github.com/tauri-apps/nsis-tauri-utils/tree/nsis_tauri_utils-v0.5.3/crates/nsis-plugin-api"
         }
       ]
     },
@@ -4882,7 +4774,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -5498,7 +5390,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -5666,41 +5558,13 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
         {
           "type": "distribution",
           "url": "https://crates.io/api/v1/crates/proc-macro2/1.0.106/download"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:cargo/proc-macro2@1.0.107",
-      "name": "proc-macro2",
-      "version": "1.0.107",
-      "purl": "pkg:cargo/proc-macro2@1.0.107",
-      "licenses": [
-        {
-          "expression": "MIT OR Apache-2.0"
-        }
-      ],
-      "properties": [
-        {
-          "name": "dmeloper:notice-method",
-          "value": "published-package-license-files"
-        },
-        {
-          "name": "dmeloper:build-consumers",
-          "value": "installer-plugin"
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "distribution",
-          "url": "https://crates.io/api/v1/crates/proc-macro2/1.0.107/download"
         }
       ]
     },
@@ -5778,41 +5642,13 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
         {
           "type": "distribution",
           "url": "https://crates.io/api/v1/crates/quote/1.0.45/download"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:cargo/quote@1.0.47",
-      "name": "quote",
-      "version": "1.0.47",
-      "purl": "pkg:cargo/quote@1.0.47",
-      "licenses": [
-        {
-          "expression": "MIT OR Apache-2.0"
-        }
-      ],
-      "properties": [
-        {
-          "name": "dmeloper:notice-method",
-          "value": "published-package-license-files"
-        },
-        {
-          "name": "dmeloper:build-consumers",
-          "value": "installer-plugin"
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "distribution",
-          "url": "https://crates.io/api/v1/crates/quote/1.0.47/download"
         }
       ]
     },
@@ -6338,7 +6174,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -6602,34 +6438,6 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:cargo/semver@1.0.27",
-      "name": "semver",
-      "version": "1.0.27",
-      "purl": "pkg:cargo/semver@1.0.27",
-      "licenses": [
-        {
-          "expression": "MIT OR Apache-2.0"
-        }
-      ],
-      "properties": [
-        {
-          "name": "dmeloper:notice-method",
-          "value": "published-package-license-files"
-        },
-        {
-          "name": "dmeloper:build-consumers",
-          "value": "installer-plugin"
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "distribution",
-          "url": "https://crates.io/api/v1/crates/semver/1.0.27/download"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "bom-ref": "pkg:cargo/semver@1.0.28",
       "name": "semver",
       "version": "1.0.28",
@@ -6646,7 +6454,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -6702,7 +6510,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -6730,7 +6538,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -6758,7 +6566,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -6814,7 +6622,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -6870,7 +6678,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -7094,7 +6902,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -7122,7 +6930,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -7262,7 +7070,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -7346,7 +7154,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -7654,41 +7462,13 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
         {
           "type": "distribution",
           "url": "https://crates.io/api/v1/crates/syn/2.0.117/download"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:cargo/syn@2.0.119",
-      "name": "syn",
-      "version": "2.0.119",
-      "purl": "pkg:cargo/syn@2.0.119",
-      "licenses": [
-        {
-          "expression": "MIT OR Apache-2.0"
-        }
-      ],
-      "properties": [
-        {
-          "name": "dmeloper:notice-method",
-          "value": "published-package-license-files"
-        },
-        {
-          "name": "dmeloper:build-consumers",
-          "value": "installer-plugin"
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "distribution",
-          "url": "https://crates.io/api/v1/crates/syn/2.0.119/download"
         }
       ]
     },
@@ -7738,7 +7518,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -8198,28 +7978,6 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:cargo/tauri-plugin-updater@2.11.0",
-      "name": "tauri-plugin-updater",
-      "version": "2.11.0",
-      "purl": "pkg:cargo/tauri-plugin-updater@2.11.0",
-      "licenses": [
-        {
-          "expression": "Apache-2.0 OR MIT"
-        }
-      ],
-      "properties": [
-        {
-          "name": "dmeloper:notice-method",
-          "value": "patched-upstream-license"
-        },
-        {
-          "name": "dmeloper:build-consumers",
-          "value": "application,test-application"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "bom-ref": "pkg:cargo/tauri-plugin@2.5.4",
       "name": "tauri-plugin",
       "version": "2.5.4",
@@ -8432,7 +8190,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ]
     },
@@ -8461,34 +8219,6 @@
         {
           "type": "distribution",
           "url": "https://crates.io/api/v1/crates/tauri/2.11.1/download"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:cargo/tempfile@3.27.0",
-      "name": "tempfile",
-      "version": "3.27.0",
-      "purl": "pkg:cargo/tempfile@3.27.0",
-      "licenses": [
-        {
-          "expression": "MIT OR Apache-2.0"
-        }
-      ],
-      "properties": [
-        {
-          "name": "dmeloper:notice-method",
-          "value": "published-package-license-files"
-        },
-        {
-          "name": "dmeloper:build-consumers",
-          "value": "application,test-application"
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "distribution",
-          "url": "https://crates.io/api/v1/crates/tempfile/3.27.0/download"
         }
       ]
     },
@@ -8762,7 +8492,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -8858,34 +8588,6 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:cargo/tokio-util@0.7.18",
-      "name": "tokio-util",
-      "version": "0.7.18",
-      "purl": "pkg:cargo/tokio-util@0.7.18",
-      "licenses": [
-        {
-          "expression": "MIT"
-        }
-      ],
-      "properties": [
-        {
-          "name": "dmeloper:notice-method",
-          "value": "published-package-license-files"
-        },
-        {
-          "name": "dmeloper:build-consumers",
-          "value": "application,test-application"
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "distribution",
-          "url": "https://crates.io/api/v1/crates/tokio-util/0.7.18/download"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "bom-ref": "pkg:cargo/tokio@1.52.0",
       "name": "tokio",
       "version": "1.52.0",
@@ -8930,7 +8632,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -8958,7 +8660,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -8986,7 +8688,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -9014,7 +8716,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -9322,7 +9024,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -9490,7 +9192,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,installer-plugin,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -9546,7 +9248,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -9658,7 +9360,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -9742,7 +9444,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -9770,7 +9472,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -9798,7 +9500,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -10358,7 +10060,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,installer-plugin,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -10582,7 +10284,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -10638,7 +10340,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,installer-plugin,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -10666,7 +10368,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -10862,7 +10564,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -10918,7 +10620,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -10946,7 +10648,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -10974,7 +10676,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -11002,7 +10704,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -11058,7 +10760,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -11086,7 +10788,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -11142,7 +10844,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -11170,7 +10872,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -11226,7 +10928,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -11254,7 +10956,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -11282,7 +10984,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [
@@ -11310,7 +11012,7 @@
         },
         {
           "name": "dmeloper:build-consumers",
-          "value": "application,store-application,test-application,update-worker"
+          "value": "application,store-application,test-application"
         }
       ],
       "externalReferences": [

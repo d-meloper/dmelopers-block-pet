@@ -46,7 +46,7 @@ import { createDefaultDmeloperEyebrowPreset } from '@/config/dmeloperEyebrows'
 import { DMELOPER_PALM_FALLBACK_COLOR } from '@/config/dmeloperPalms'
 import { createDefaultLightingSettings, normalizeLightingSettings } from '@/config/lighting'
 import { MODEL_3D_CONFIG } from '@/config/model3d'
-import { DEFAULT_PERFORMANCE_SETTINGS, MAX_FPS, normalizeShadowQuality } from '@/config/performance'
+import { DEFAULT_PERFORMANCE_SETTINGS, MAX_FPS, MIN_FPS, normalizeShadowQuality } from '@/config/performance'
 import { DEFAULT_PET_ARM_POSE_SETTINGS, normalizePetArmPoseSettings } from '@/config/petArmPose'
 import { getScaledAutoViewportPadding, normalizeAutoViewportPadding } from '@/features/scene/viewportSettings'
 
@@ -79,6 +79,7 @@ import {
 } from './three3d/contentBounds'
 import { createDmeloperEyebrowController } from './three3d/dmeloperEyebrows'
 import { createKeyboardGroup } from './three3d/keyboard'
+import { forEachMeshWorldBounds } from './three3d/meshBounds'
 import { createMouseGroup } from './three3d/mouse'
 import { createPetAnimator } from './three3d/pet'
 import { padContentRect, projectVisibleSceneBounds, unionContentRects } from './three3d/projectedBounds'
@@ -130,6 +131,7 @@ export class Three3DRenderer {
   private readonly rendererDiagnosticCleanups = new WeakMap<WebGLRenderer, () => void>()
   private scene?: Scene
   private sceneRoot?: Group
+  private petPresentationVisible = true
   private camera?: PerspectiveCamera
   private directionalLight?: DirectionalLight
   private lighting?: SceneLighting
@@ -151,6 +153,8 @@ export class Three3DRenderer {
   private firstFrameRendered?: () => void
   private runtimeFaulted = false
   private frameId?: number
+  private stillFrameOnly = false
+  private stillFrameInputReceived = false
   private initializationGeneration = 0
   private initializationAbort?: AbortController
   private assetLoadAbort?: AbortController
@@ -224,6 +228,7 @@ export class Three3DRenderer {
     startupOptions: RendererStartupOptions = {},
   ): Promise<VoxelSkinModel | undefined> {
     this.destroy()
+    this.stillFrameOnly = startupOptions.automaticFrames === false
     const initializationGeneration = this.initializationGeneration
     const initializationAbort = new AbortController()
     this.initializationAbort = initializationAbort
@@ -453,8 +458,7 @@ export class Three3DRenderer {
     // Changing the drawing buffer clears it. Draw the current pose in this
     // task instead of exposing an empty canvas until the FPS gate next opens.
     if (this.scene) {
-      this.prepareLighting()
-      this.renderer.render(this.scene, this.camera)
+      this.renderPresentationFrame()
     }
   }
 
@@ -714,7 +718,7 @@ export class Three3DRenderer {
 
   setMaxFPS(fps: number): void {
     this.maxFPS = Number.isFinite(fps)
-      ? Math.min(MAX_FPS, Math.max(20, fps))
+      ? Math.min(MAX_FPS, Math.max(MIN_FPS, fps))
       : 60
     this.noteActivity()
   }
@@ -800,7 +804,7 @@ export class Three3DRenderer {
       candidate.debug.onShaderError = () => {
         throw new Error('The replacement renderer shader could not compile.')
       }
-      candidate.render(this.scene, this.camera)
+      this.renderPresentationFrame(candidate)
       const gl = candidate.getContext()
       if (gl.isContextLost() || gl.getError() !== gl.NO_ERROR
         || gl.getContextAttributes()?.antialias !== enabled) {
@@ -904,10 +908,11 @@ export class Three3DRenderer {
 
   handleSemanticInput(event: SemanticInputEvent): void {
     if (!this.inputActive) return
-    if (event.kind !== 'typing' && (!this.mouseEnabled || !this.mouseInputActive)) return
+    if (event.kind !== 'typing' && event.kind !== 'pointer_activity' && (!this.mouseEnabled || !this.mouseInputActive)) return
+    if (this.stillFrameOnly) this.stillFrameInputReceived = true
     this.renderCadence.handleInput(event, performance.now())
     if (event.kind === 'pointer_activity') {
-      this.mouse?.setMousePosition(event.x, event.y)
+      if (this.mouseEnabled && this.mouseInputActive) this.mouse?.setMousePosition(event.x, event.y)
       this.petAnimator?.setMousePosition(event.x, event.y)
       return
     }
@@ -966,8 +971,7 @@ export class Three3DRenderer {
     if (active) return
     this.renderCadence.resetMouseInput(performance.now())
     this.mouse?.resetInput()
-    this.petAnimator?.setMouseEnabled(false)
-    this.petAnimator?.setMouseEnabled(this.mouseEnabled)
+    this.petAnimator?.resetMouseInput()
     this.dmeloperEyebrowController?.resetMouseInput()
   }
 
@@ -980,6 +984,7 @@ export class Three3DRenderer {
         this.handleSemanticInput({ kind: 'typing', active: false, intensity: 0, contact: { ...contact, pressed: false } })
       }
       this.heldKeyboardContacts.clear()
+      this.petAnimator?.resetInput()
     }
     if (this.inputActive !== active) this.renderCadence.reset(performance.now())
     this.inputActive = active
@@ -1030,7 +1035,7 @@ export class Three3DRenderer {
   }
 
   setMousePosition(xRatio: number, yRatio: number): void {
-    if (!this.inputActive || !this.mouseInputActive || !this.mouseEnabled) return
+    if (!this.inputActive) return
     this.handleSemanticInput({ kind: 'pointer_activity', x: xRatio, y: yRatio })
   }
 
@@ -1076,6 +1081,12 @@ export class Three3DRenderer {
     if (petGroup) petGroup.position.z = MODEL_3D_CONFIG.pet.position[2] + deskOffset
   }
 
+  private get mouseBaseSceneXOffset(): number {
+    return this.mouseBaseXOffset < 0
+      ? this.mouseBaseXOffset * MODEL_3D_CONFIG.mouse.negativeXOffsetScale
+      : this.mouseBaseXOffset
+  }
+
   setMouseBasePosition(xOffset: number, zOffset: number): void {
     if (!Number.isFinite(xOffset) || !Number.isFinite(zOffset)) return
     if (
@@ -1087,18 +1098,22 @@ export class Three3DRenderer {
     this.mouseBaseXOffset = xOffset
     this.mouseBaseZOffset = zOffset
     if (this.mouse) {
-      this.mouse.group.position.x = MODEL_3D_CONFIG.mouse.position[0] + xOffset
+      this.mouse.group.position.x = MODEL_3D_CONFIG.mouse.position[0] + this.mouseBaseSceneXOffset
       this.mouse.group.position.z = MODEL_3D_CONFIG.mouse.position[2] + zOffset
     }
   }
 
   setDeskSettings(settings: Partial<DeskSettings>): void {
     const next = normalizeDeskSettings(settings)
-    if (next.deskHeightOffset !== this.deskSettings.deskHeightOffset) this.invalidateContentMeasurement()
+    if (next.deskHeightOffset !== this.deskSettings.deskHeightOffset
+      || next.deskWidthOffset !== this.deskSettings.deskWidthOffset
+      || next.deskDepthOffset !== this.deskSettings.deskDepthOffset) {
+      this.invalidateContentMeasurement()
+    }
     if (Object.keys(next).some(key => next[key as keyof DeskSettings] !== this.deskSettings[key as keyof DeskSettings])) this.noteActivity()
     this.deskSettings = next
     if (this.desk) {
-      this.desk.position.y = MODEL_3D_CONFIG.desk.position[1] - MODEL_3D_CONFIG.objectVerticalGap + next.deskHeightOffset
+      this.applyDeskTransform()
       this.desk.material.colorWrite = !next.deskTransparent
       this.desk.material.color.set(next.deskColor)
     }
@@ -1167,6 +1182,8 @@ export class Three3DRenderer {
     this.contentMeasurementTail = Promise.resolve()
     if (this.frameId !== undefined) cancelAnimationFrame(this.frameId)
     this.frameId = undefined
+    this.stillFrameOnly = false
+    this.stillFrameInputReceived = false
     this.clearPetModel()
     this.heldKeyboardContacts.clear()
     this.generatedGroupDisposers.splice(0).forEach(dispose => dispose())
@@ -1220,7 +1237,7 @@ export class Three3DRenderer {
     const mouse = createMouseGroup()
     mouse.setMouseEnabled(this.mouseEnabled)
     mouse.group.position.set(
-      MODEL_3D_CONFIG.mouse.position[0] + this.mouseBaseXOffset,
+      MODEL_3D_CONFIG.mouse.position[0] + this.mouseBaseSceneXOffset,
       MODEL_3D_CONFIG.mouse.position[1],
       MODEL_3D_CONFIG.mouse.position[2] + this.mouseBaseZOffset,
     )
@@ -1262,8 +1279,7 @@ export class Three3DRenderer {
     desk.userData.excludeFromContentBounds = true
     desk.receiveShadow = true
     this.desk = desk
-    desk.position.set(...MODEL_3D_CONFIG.desk.position)
-    desk.position.y += this.deskSettings.deskHeightOffset - MODEL_3D_CONFIG.objectVerticalGap
+    this.applyDeskTransform()
     desk.renderOrder = -100
     sceneRoot.add(desk, petGroup, keyboard.group, mouse.group)
 
@@ -1273,6 +1289,34 @@ export class Three3DRenderer {
     this.lightingBoundsDirty = true
     scene.add(sceneRoot, this.lighting.group)
     installSoftShadows(sceneRoot, this.highShadows)
+    const beforeRender = scene.onBeforeRender
+    scene.onBeforeRender = function (...args) {
+      beforeRender.apply(this, args)
+      const renderer = args[0]
+      const shadow = renderer.shadowMap
+      // Three 0.185.1 stamps instance uploads after incrementing the frame in
+      // its shadow pass. Retire that stamp before a draw which skips shadows;
+      // otherwise the first Off/crop measurement can reuse stale key buffers.
+      if (!shadow.enabled || (!shadow.autoUpdate && !shadow.needsUpdate)) renderer.info.render.frame++
+    }
+  }
+
+  private applyDeskTransform(): void {
+    if (!this.desk) return
+    const { size, position, heightOffsetScale, minimumWidth } = MODEL_3D_CONFIG.desk
+    const { deskWidthOffset, deskDepthOffset } = this.deskSettings
+    // Retain the default and upper half while mapping the minimum width to one scene unit.
+    const widthScale = deskWidthOffset < 0
+      ? MathUtils.lerp(1.5, minimumWidth / size[0], -deskWidthOffset)
+      : 1.5 + deskWidthOffset / 2
+    const depthScale = 1 + deskDepthOffset / 2
+    this.desk.scale.set(widthScale, 1, depthScale)
+    // Preserve the pet-facing edge midpoint while changing width and depth.
+    this.desk.position.set(
+      position[0],
+      position[1] - MODEL_3D_CONFIG.objectVerticalGap + this.deskSettings.deskHeightOffset * heightOffsetScale,
+      position[2] + size[2] * (depthScale - 1) / 2,
+    )
   }
 
   private applyObjectScale(
@@ -1285,7 +1329,7 @@ export class Three3DRenderer {
     group.scale.setScalar(baseScale * scaleRatio)
     // The generated mesh already embeds -objectVerticalGap / baseScale.
     // Offset the scaled group so its original desk clearance stays fixed.
-    group.position.y = baseY + this.deskSettings.deskHeightOffset
+    group.position.y = baseY + this.deskSettings.deskHeightOffset * MODEL_3D_CONFIG.desk.heightOffsetScale
       + MODEL_3D_CONFIG.objectVerticalGap * (scaleRatio - 1)
   }
 
@@ -1438,6 +1482,17 @@ export class Three3DRenderer {
     orientation.add(model)
     orientation.traverse(object => object.layers.set(0))
 
+    const targets = this.getPetAnimatorTargets()
+
+    this.clearPetModel()
+    petGroup.add(orientation)
+    petGroup.position.z = MODEL_3D_CONFIG.pet.position[2] + this.petDeskOffset
+    petGroup.updateMatrixWorld(true)
+    this.petModel = model
+    this.petAnimator = this.createConfiguredPetAnimator(model, targets)
+  }
+
+  private getPetAnimatorTargets(): Parameters<typeof createPetAnimator>[1] {
     const keyboardGroup = this.keyboard?.group
     const mouseGroup = this.mouse?.group
     const keyboardRestTarget = this.keyboard?.getKeyTarget('Space')
@@ -1459,23 +1514,29 @@ export class Three3DRenderer {
       throw new Error('The fixed pet interaction targets are not initialized.')
     }
 
-    this.clearPetModel()
-    petGroup.add(orientation)
-    petGroup.position.z = MODEL_3D_CONFIG.pet.position[2] + this.petDeskOffset
-    petGroup.updateMatrixWorld(true)
-    this.petModel = model
-    this.petAnimator = createPetAnimator(model, {
+    return {
       keyboardBodyDefaultTarget: keyboardLeftRestTarget,
       keyboardBodyTurnThresholdTarget,
+      keyboardNavigationTargets: MODEL_3D_CONFIG.pet.animation.keyboard.navigationKeys
+        .flatMap(key => this.keyboard?.getKeyTarget(key) ?? []),
       keyboardGroup,
       keyboardLeftRestTarget,
       keyboardRestTarget,
       keyboardRightRestTarget,
       mouseGroup,
-    })
-    this.petAnimator?.setHeadScalePercent(this.petHeadScalePercent)
-    this.petAnimator?.setArmPoseSettings(this.petArmPoseSettings)
-    this.petAnimator?.setMouseEnabled(this.mouseEnabled)
+    }
+  }
+
+  private createConfiguredPetAnimator(
+    model: Object3D,
+    targets: Parameters<typeof createPetAnimator>[1],
+  ): PetAnimator | undefined {
+    const animator = createPetAnimator(model, targets)
+    // Public setters can skip equal values; a new animator still needs them.
+    animator?.setHeadScalePercent(this.petHeadScalePercent)
+    animator?.setArmPoseSettings(this.petArmPoseSettings)
+    animator?.setMouseEnabled(this.mouseEnabled)
+    return animator
   }
 
   private clearPetModel(): void {
@@ -1624,7 +1685,17 @@ export class Three3DRenderer {
     for (const name of ['petGroup', 'keyboardGroup', 'mouseGroup']) {
       const object = this.sceneRoot.getObjectByName(name)
       if (!object) continue
-      const objectBounds = new Box3().setFromObject(object)
+      const objectBounds = new Box3()
+      if (name === 'keyboardGroup') {
+        const world = new Box3()
+        // Transform each cap before union; a rotated batch's aggregate local
+        // AABB would otherwise change the original camera composition.
+        object.traverse((node) => {
+          if (node instanceof Mesh) forEachMeshWorldBounds(node, world, box => objectBounds.union(box))
+        })
+      } else {
+        objectBounds.setFromObject(object)
+      }
       if (name === 'petGroup') objectBounds.min.y = Math.max(0, objectBounds.min.y)
       bounds.union(objectBounds)
     }
@@ -1689,6 +1760,56 @@ export class Three3DRenderer {
     return renderPetHealthFrame(this.renderer, this.scene, this.camera, this.petModel)
   }
 
+  /** Hide only the pet on screen; measurements still use its complete geometry. */
+  setPetPresentationVisible(visible: boolean): void {
+    if (visible === this.petPresentationVisible) return
+    this.petPresentationVisible = visible
+    this.noteActivity()
+    if (this.runtimeFaulted) return
+    try {
+      // Clear the old pet immediately instead of waiting for the FPS gate.
+      this.renderPresentationFrame()
+    } catch (error) {
+      if (this.runtimeFailure) this.failRuntime(error)
+      else throw error
+    }
+  }
+
+  private renderPresentationFrame(renderer = this.renderer): void {
+    if (!renderer || !this.scene || !this.camera) return
+    this.prepareLighting()
+    const pet = this.petPresentationVisible ? undefined : this.sceneRoot?.getObjectByName('petGroup')
+    const visible = pet?.visible
+    // Restore synchronously: fitting, crop readback and healthy-frame proof must
+    // still see the returning pet. Other scene objects keep their visibility.
+    if (pet) pet.visible = false
+    try {
+      renderer.render(this.scene, this.camera)
+    } finally {
+      if (pet) pet.visible = visible!
+    }
+  }
+
+  /**
+   * Restore a cold pose between input-free previews without rebuilding or refitting.
+   * The owner restores baseline scene/device transforms before applying a new preset.
+   */
+  resetStillFramePose(): void {
+    if (!this.stillFrameOnly || this.frameId !== undefined || this.runtimeFaulted
+      || !this.renderer || !this.sceneRoot || !this.camera || !this.petModel
+      || !this.loadedPetAssetState || this.pendingPetAssetState
+      || this.stillFrameInputReceived || this.heldKeyboardContacts.size > 0) {
+      throw new Error('A still-frame pose can only be reset on an initialized, input-free preview renderer.')
+    }
+    const targets = this.getPetAnimatorTargets()
+    // dispose restores authored bone transforms before the next animator saves
+    // its base pose, preventing shoulder offsets and damping history from accumulating.
+    this.petAnimator?.dispose()
+    this.petAnimator = this.createConfiguredPetAnimator(this.petModel, targets)
+    this.sceneRoot.updateWorldMatrix(true, true)
+    this.invalidateContentMeasurement()
+  }
+
   /** Settle a preview, or the current input pose at one unchanged live timestamp. */
   renderStillFrame(currentTimestamp?: number): void {
     if (!this.renderer || !this.scene || !this.camera) return
@@ -1699,8 +1820,7 @@ export class Three3DRenderer {
       this.petAnimator?.update(16, timestamp)
       this.dmeloperEyebrowController?.update(timestamp)
     }
-    this.prepareLighting()
-    this.renderer.render(this.scene, this.camera)
+    this.renderPresentationFrame()
   }
 
   private failRuntime(error: unknown): void {
@@ -1729,8 +1849,7 @@ export class Three3DRenderer {
         this.mouse?.update(delta, timestamp)
         this.petAnimator?.update(delta, timestamp)
         this.dmeloperEyebrowController?.update(timestamp)
-        this.prepareLighting()
-        this.renderer.render(this.scene, this.camera)
+        this.renderPresentationFrame()
         if (!this.runtimeFaulted && this.petModel && this.firstFrameRendered) {
           const notify = this.firstFrameRendered
           this.firstFrameRendered = undefined

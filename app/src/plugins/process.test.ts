@@ -143,7 +143,7 @@ function quitHarness(ownerSubscriptionFailures = 0, actualRuntime = false) {
         },
       },
       '@/stores/app': {},
-      '@/stores/cat': {},
+      '@/stores/block': {},
       '@/stores/general': {},
       '@/stores/shortcut': {},
       '@/utils/settingsPersistence': { saveSynchronizedSettings },

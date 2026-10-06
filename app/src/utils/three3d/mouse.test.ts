@@ -1,9 +1,9 @@
 /* eslint-disable test/no-import-node-test */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { Box3, Color, FrontSide, Mesh, MeshStandardMaterial, Raycaster, Vector3 } from 'three'
+import { Box3, Color, FrontSide, MathUtils, Mesh, MeshStandardMaterial, Raycaster, Vector3 } from 'three'
 
-import { DEFAULT_DEVICE_COLORS } from '@/config/deviceColors'
+import { DEFAULT_DEVICE_COLORS, normalizeDeviceColors } from '@/config/deviceColors'
 import { MODEL_3D_CONFIG } from '@/config/model3d'
 
 import { createMouseGroup } from './mouse'
@@ -24,6 +24,194 @@ function sameColor(actual: Color, expected: Color) {
 }
 
 describe('mouse mesh feedback', () => {
+  it('matches eager button and movement updates while avoiding unchanged appearance and arrays', (t) => {
+    let now = 1000
+    t.mock.method(performance, 'now', () => now)
+    const actual = createMouseGroup()
+    const eager = createMouseGroup()
+    t.after(actual.dispose)
+    t.after(eager.dispose)
+    const names = { Left: 'mouseLeftButton', Right: 'mouseRightButton', Middle: 'mouseWheel' } as const
+    const states = Object.fromEntries(Object.entries(names).map(([button, name]) => {
+      const mesh = getMesh(eager, name)
+      return [button, {
+        mesh,
+        baseColor: mesh.material.color.clone(),
+        baseY: mesh.position.y,
+        baseRotationX: mesh.rotation.x,
+        pressed: false,
+        minimumPressedUntil: 0,
+        progress: 0,
+      }]
+    })) as Record<keyof typeof names, {
+      mesh: ReturnType<typeof getMesh>
+      baseColor: Color
+      baseY: number
+      baseRotationX: number
+      pressed: boolean
+      minimumPressedUntil: number
+      progress: number
+    }>
+    const actualMeshes = Object.values(names).map(name => getMesh(actual, name))
+    const resources = actualMeshes.map(mesh => ({ geometry: mesh.geometry, material: mesh.material }))
+    const actualDevice = actual.group.getObjectByName('mouseDevice')!
+    const eagerDevice = eager.group.getObjectByName('mouseDevice')!
+    const pressedColor = new Color(interaction.pressedColor)
+    const zeroEmissive = new Color(0)
+    let enabled = true
+    let targetX = 0
+    let targetZ = 0
+    const applyEagerAppearance = (state: typeof states.Left) => {
+      const eased = MathUtils.smoothstep(state.progress, 0, 1)
+      if (state !== states.Middle) {
+        state.mesh.position.y = state.baseY - Math.min(interaction.buttonTravel, 0.0035) * eased
+        state.mesh.rotation.x = state.baseRotationX + Math.min(interaction.buttonTravel * 0.8, 0.018) * eased
+      }
+      state.mesh.material.color.lerpColors(state.baseColor, pressedColor, eased)
+      state.mesh.material.emissive.lerpColors(zeroEmissive, pressedColor, eased)
+      state.mesh.material.emissiveIntensity = 0.18 * eased
+    }
+    let lerps = 0
+    let valueArrays = 0
+    const lerpColors = Color.prototype.lerpColors
+    const objectValues = Object.values
+    t.mock.method(Color.prototype, 'lerpColors', function (this: Color, from: Color, to: Color, alpha: number) {
+      lerps++
+      return lerpColors.call(this, from, to, alpha)
+    })
+    t.mock.method(Object, 'values', (value: object) => {
+      valueArrays++
+      return objectValues(value)
+    })
+    let actualLerps = 0
+    let eagerLerps = 0
+    const compare = () => {
+      assert.equal(actual.group.visible, eager.group.visible)
+      assert.deepEqual(actualDevice.position.toArray(), eagerDevice.position.toArray())
+      objectValues(states).forEach((state, index) => {
+        const mesh = actualMeshes[index]
+        assert.deepEqual(mesh.position.toArray(), state.mesh.position.toArray(), mesh.name)
+        assert.deepEqual(mesh.quaternion.toArray(), state.mesh.quaternion.toArray(), mesh.name)
+        assert.deepEqual(mesh.material.color.toArray(), state.mesh.material.color.toArray(), mesh.name)
+        assert.deepEqual(mesh.material.emissive.toArray(), state.mesh.material.emissive.toArray(), mesh.name)
+        assert.equal(mesh.material.emissiveIntensity, state.mesh.material.emissiveIntensity, mesh.name)
+        assert.equal(mesh.geometry, resources[index].geometry)
+        assert.equal(mesh.material, resources[index].material)
+      })
+    }
+    // Keep the prior unconditional button update and its own progress as the oracle.
+    const advance = (delta: number) => {
+      lerps = valueArrays = 0
+      actual.update(delta, now)
+      const actualCalls = lerps
+      actualLerps += actualCalls
+      assert.equal(valueArrays, 0, 'updates reuse the button-state list')
+      lerps = 0
+      if (enabled) {
+        eagerDevice.position.x = MathUtils.damp(eagerDevice.position.x, targetX, interaction.followDamping, delta / 1000)
+        eagerDevice.position.z = MathUtils.damp(eagerDevice.position.z, targetZ, interaction.followDamping, delta / 1000)
+        objectValues(states).forEach((state) => {
+          const pressed = state.pressed || now < state.minimumPressedUntil
+          const duration = pressed ? interaction.pressDurationMs : interaction.releaseDurationMs
+          state.progress = MathUtils.clamp(state.progress + (pressed ? 1 : -1) * delta / duration, 0, 1)
+          applyEagerAppearance(state)
+        })
+      }
+      eagerLerps += lerps
+      compare()
+      now += delta
+      return actualCalls
+    }
+    const reset = () => {
+      actual.resetInput()
+      eager.resetInput()
+      targetX = targetZ = 0
+      for (const state of objectValues(states)) {
+        state.pressed = false
+        state.minimumPressedUntil = 0
+        state.progress = 0
+        applyEagerAppearance(state)
+      }
+      compare()
+    }
+    const press = (button: keyof typeof names, pressed: boolean) => {
+      actual.setMouseButtonPressed(button, pressed)
+      const state = states[button === 'Middle' ? 'Middle' : button === 'Left' ? 'Right' : 'Left']
+      if (!enabled || state.pressed === pressed) return
+      state.pressed = pressed
+      if (pressed) state.minimumPressedUntil = now + interaction.minimumPressMs
+    }
+    const setColors = (colors: { mouseColor: string, mousePressedColor: string }) => {
+      actual.setColors(colors)
+      eager.setColors(colors)
+      const normalized = normalizeDeviceColors(colors)
+      const tint = new Color(normalized.mouseColor)
+      states.Left.baseColor.set(palette.button).multiply(tint)
+      states.Right.baseColor.set(palette.button).multiply(tint)
+      pressedColor.set(normalized.mousePressedColor)
+      objectValues(states).forEach(applyEagerAppearance)
+      compare()
+    }
+    const setPosition = (x: number, y: number) => {
+      actual.setMousePosition(x, y)
+      if (!enabled) return
+      const horizontal = MathUtils.lerp(-1, 1, 1 - MathUtils.clamp(x, 0, 1))
+      targetX = horizontal * interaction.xRange
+      targetZ = MathUtils.lerp(-interaction.zRange, interaction.zRange, 1 - MathUtils.clamp(y, 0, 1))
+        - horizontal * horizontal * interaction.curveDepth
+    }
+    const setEnabled = (value: boolean) => {
+      actual.setMouseEnabled(value)
+      eager.setMouseEnabled(value)
+      if (enabled === value) return
+      enabled = value
+      reset()
+    }
+    assert.equal(advance(16), 6, 'the first update initializes default emissive intensity')
+    assert.equal(advance(16), 0)
+    for (let frame = 0; frame < 240; frame++) {
+      if (frame === 0) press('Left', true)
+      if (frame === 1) press('Left', false)
+      if (frame === 2) setColors({ mouseColor: '#88aacc', mousePressedColor: '#ff00aa' })
+      if (frame === 8) {
+        press('Right', true)
+        press('Middle', true)
+        setPosition(0.9, 0.2)
+      }
+      if (frame === 10) {
+        press('Right', false)
+        press('Right', false)
+      }
+      if (frame === 12) setColors({ mouseColor: '#0000ff', mousePressedColor: '#ff0000' })
+      if (frame === 15) reset()
+      if (frame === 20) setEnabled(false)
+      if (frame === 21) {
+        press('Middle', true)
+        setPosition(0.1, 1)
+        actual.pulseWheelScroll(0, 1)
+        setColors({ mouseColor: '#ffaa00', mousePressedColor: '#00ff00' })
+      }
+      if (frame === 25) setEnabled(true)
+      if (frame === 30) {
+        actual.pulseWheelScroll(0, 1)
+        states.Middle.minimumPressedUntil = now + interaction.minimumPressMs
+      }
+      if (frame === 40) setPosition(-0.3, 1.4)
+      const calls = advance([0, 8, 16, 67, 100][frame % 5])
+      if (frame > 80) assert.equal(calls, 0)
+    }
+    assert.ok(actualLerps < eagerLerps / 5, `${actualLerps} vs ${eagerLerps} color interpolations`)
+    t.diagnostic(`Mouse appearance color interpolations: eager ${eagerLerps} -> changed buttons ${actualLerps}; per-frame state arrays 1 -> 0`)
+    actual.dispose()
+    eager.dispose()
+    lerps = 0
+    actual.setMouseButtonPressed('Left', true)
+    actual.setColors({ mouseColor: '#ff0000', mousePressedColor: '#00ff00' })
+    actual.update(100, now)
+    assert.equal(lerps, 0)
+    assert.equal(actual.group.children.length, eager.group.children.length)
+  })
+
   it('preserves default shades and tints body/buttons without changing wheel or trim', (t) => {
     const mouse = createMouseGroup()
     t.after(mouse.dispose)
@@ -236,6 +424,25 @@ describe('mouse mesh feedback', () => {
 })
 
 describe('mouse enclosure compatibility', () => {
+  it('keeps both button shoulders above the backing at rest and pressed', (t) => {
+    const mouse = createMouseGroup()
+    t.after(mouse.dispose)
+    for (const pressed of [false, true]) {
+      mouse.setMouseButtonPressed('Left', pressed)
+      mouse.setMouseButtonPressed('Right', pressed)
+      mouse.update(1000, performance.now() + 1000)
+      mouse.group.updateMatrixWorld(true)
+      for (const side of [-1, 1]) {
+        for (const x of [0.2, 0.23, 0.25]) {
+          for (const z of [0.06, 0.12, 0.2]) {
+            const hits = new Raycaster(new Vector3(side * x, 1, z), new Vector3(0, -1, 0)).intersectObject(mouse.group)
+            assert.equal(hits[0]?.object.name, side === -1 ? 'mouseLeftButton' : 'mouseRightButton', `exposed backing: side=${side}, x=${x}, z=${z}, pressed=${pressed}`)
+          }
+        }
+      }
+    }
+  })
+
   it('retains the original envelope, local direction and independently owned hand anchor', () => {
     const mouse = createMouseGroup()
     try {
@@ -255,7 +462,7 @@ describe('mouse enclosure compatibility', () => {
     }
   })
 
-  it('has closed, nondegenerate outward-facing surfaces within the old triangle budget', () => {
+  it('has closed, nondegenerate outward-facing surfaces within the accepted triangle budget', () => {
     const mouse = createMouseGroup()
     let triangles = 0
     try {
@@ -288,7 +495,7 @@ describe('mouse enclosure compatibility', () => {
           assert.ok(Number.isFinite(normal.length()) && Math.abs(normal.length() - 1) < 1e-5, `${object.name}: invalid normal`)
         }
       })
-      assert.ok(triangles <= 5000, `unexpected geometry cost: ${triangles}`)
+      assert.equal(triangles, 814, `unexpected geometry cost: ${triangles}`)
     } finally {
       mouse.dispose()
     }

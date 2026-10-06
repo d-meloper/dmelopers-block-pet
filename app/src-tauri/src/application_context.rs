@@ -3,25 +3,17 @@ pub(crate) fn generate<R: tauri::Runtime>() -> tauri::Context<R> {
     context.config_mut().identifier = native_identifier().into();
     #[cfg(feature = "test-repository")]
     {
-        context.config_mut().product_name = Some("DMeloper's Block Pet Test".into());
-        context.package_info_mut().name = "DMeloper's Block Pet Test".into();
+        let name = "DMeloper's Block Pet";
+        context.config_mut().product_name = Some(name.into());
+        context.package_info_mut().name = name.into();
     }
-    #[cfg(any(feature = "channel-github", feature = "test-repository"))]
-    let context = {
-        let mut context = context;
-        // Tauri deserializes plugin config before running the plugin's setup
-        // closure. Builder::pubkey alone cannot supply the required field then.
-        context.config_mut().plugins.0.insert(
-            "updater".into(),
-            serde_json::json!({ "pubkey": updater_public_key() }),
-        );
-        context
-    };
     context
 }
 
 pub(crate) fn native_identifier() -> &'static str {
-    if cfg!(feature = "test-repository") {
+    if cfg!(feature = "wix-local-test") {
+        "com.dmeloper.blockpet.wixlocal"
+    } else if cfg!(feature = "test-repository") {
         "com.dmeloper.blockpet.test"
     } else if tauri::is_dev() {
         "com.dmeloper.blockpet.development"
@@ -32,14 +24,7 @@ pub(crate) fn native_identifier() -> &'static str {
     }
 }
 
-#[cfg(any(feature = "channel-github", feature = "test-repository"))]
-pub(crate) fn initialize_updater<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
-) -> tauri::Result<()> {
-    app.plugin(tauri_plugin_updater::Builder::new().build())
-}
-
-#[cfg(any(feature = "channel-github", feature = "test-repository"))]
+#[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
 pub(crate) fn updater_public_key() -> String {
     #[cfg(feature = "test-repository")]
     let raw = include_str!("../update-trust.test.json");

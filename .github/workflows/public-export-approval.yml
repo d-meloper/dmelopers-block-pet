@@ -46,7 +46,7 @@ jobs:
         working-directory: app
       - run: python -m unittest discover -s scripts/packaging -p test_*.py
         working-directory: app
-      - name: Build and validate NSIS and MSIX (synthetic identity only)
+      - name: Build and validate Store MSIX (synthetic identity only)
         shell: pwsh
         working-directory: app
         run: |

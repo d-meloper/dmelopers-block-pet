@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { it } from 'node:test'
 import { createPinia, setActivePinia } from 'pinia'
 
-import { useCatStore } from '@/stores/cat'
+import { useBlockStore } from '@/stores/block'
 
 import {
   DEFAULT_DMELOPER_SKIN_RESOURCE,
@@ -66,7 +66,7 @@ it('uses the bundled skin through first run, legacy disable, removal, reset and 
   })
   const createStore = () => {
     setActivePinia(createPinia())
-    return useCatStore()
+    return useBlockStore()
   }
   try {
     // User skins must not depend on resolving an unused default resource.

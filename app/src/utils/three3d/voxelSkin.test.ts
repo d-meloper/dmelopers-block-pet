@@ -29,6 +29,7 @@ import {
   selectVoxelSkinPalmTexel,
   selectVoxelSkinTopology,
   suggestVoxelSkinEyebrowColor,
+  suggestVoxelSkinHeadTopColor,
   suggestVoxelSkinPalmColor,
 } from './voxelSkin'
 
@@ -147,6 +148,48 @@ function quadGeometry(quadCount: number): BufferGeometry {
   geometry.setIndex(indices)
   return geometry
 }
+
+describe('voxel skin head top color', () => {
+  it('averages all 64 top pixels rather than the front or a representative color, without changing source bytes', () => {
+    const data = Uint8Array.from({ length: SKIN_64_LENGTH }, (_, index) => [255, 0, 255, 255][index % 4])
+    for (let y = 0; y < 8; y += 1) {
+      for (let x = 0; x < 8; x += 1) {
+        const value = y * 8 + x
+        setPixel(data, 8 + x, y, [value, 64 + value, 128 + value, 255])
+        setPixel(data, 40 + x, y, [255, 0, 0, 0])
+      }
+    }
+    const before = data.slice()
+    assert.equal(suggestVoxelSkinHeadTopColor(data), '#2060A0')
+    assert.deepEqual(data, before)
+  })
+
+  it('composites transparent, partial and opaque hat pixels before averaging', () => {
+    for (const [alpha, expected] of [[0, '#640000'], [128, '#320032'], [255, '#000064']] as const) {
+      const data = new Uint8Array(SKIN_64_LENGTH)
+      for (let y = 0; y < 8; y += 1) {
+        for (let x = 0; x < 8; x += 1) {
+          setPixel(data, 8 + x, y, [100, 0, 0, 255])
+          setPixel(data, 40 + x, y, [0, 0, 100, alpha])
+        }
+      }
+      assert.equal(suggestVoxelSkinHeadTopColor(data), expected)
+    }
+    const overlayOnly = new Uint8Array(SKIN_64_LENGTH)
+    setPixel(overlayOnly, 47, 7, [12, 34, 56, 64])
+    assert.equal(suggestVoxelSkinHeadTopColor(overlayOnly), '#0C2238')
+  })
+
+  it('uses the existing empty fallback, accepts normalized legacy skins and rejects invalid data', () => {
+    assert.equal(suggestVoxelSkinHeadTopColor(new Uint8Array(SKIN_64_LENGTH)), DMELOPER_EYEBROW_FALLBACK_COLOR)
+    assert.throws(() => suggestVoxelSkinHeadTopColor(new Uint8Array(16)), /64x64 RGBA/)
+    const legacy = new Uint8Array(64 * 32 * 4)
+    for (let y = 0; y < 8; y += 1) {
+      for (let x = 8; x < 16; x += 1) setPixel(legacy, x, y, [70, 80, 90, 255])
+    }
+    assert.equal(suggestVoxelSkinHeadTopColor(normalizeVoxelSkin({ width: 64, height: 32, data: legacy }).data), '#46505A')
+  })
+})
 
 describe('voxel skin normalization', () => {
   it('suggests an eyebrow color from the darkest visible head-front half', () => {

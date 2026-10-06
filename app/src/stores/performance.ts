@@ -2,17 +2,18 @@ import { invoke } from '@tauri-apps/api/core'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-import type { AveragePerformanceMetrics, CurrentPerformanceMetrics } from '@/utils/performance'
+import type { AveragePerformanceMetrics, CurrentPerformanceMetrics, PerformanceResource, PerformanceUnavailableReasons } from '@/utils/performance'
 
 import { INVOKE_KEY } from '@/constants'
 import { reportDiagnostic } from '@/services/diagnostics'
-import { calculateCurrentPerformanceMetrics, createPerformanceAverages, PERFORMANCE_WARMUP_SAMPLES } from '@/utils/performance'
+import { calculateCurrentPerformanceMetrics, calculatePerformanceUnavailableReasons, createPerformanceAverages, PERFORMANCE_WARMUP_SAMPLES } from '@/utils/performance'
 
 interface AppPerformanceSample {
   cpuPercent: number | null
   gpuPercent: number | null
   ramBytes: number | null
   available: boolean
+  unavailableReasons?: Partial<Record<PerformanceResource, string>>
 }
 
 export const usePerformanceStore = defineStore('performance', () => {
@@ -20,6 +21,7 @@ export const usePerformanceStore = defineStore('performance', () => {
   const isTransitioning = ref(false)
   const isWarmingUp = ref(false)
   const currentMetrics = ref<CurrentPerformanceMetrics>({})
+  const unavailableReasons = ref<PerformanceUnavailableReasons>({})
   const hasSampled = ref(false)
   const averageMetrics = ref<AveragePerformanceMetrics>({})
   const elapsedSeconds = ref(0)
@@ -38,12 +40,18 @@ export const usePerformanceStore = defineStore('performance', () => {
     const generation = measurementGeneration
     sampling = true
     try {
-      const appSample = await invoke<AppPerformanceSample>(INVOKE_KEY.SAMPLE_APP_PERFORMANCE)
+      const appSample: AppPerformanceSample = await invoke<AppPerformanceSample>(INVOKE_KEY.SAMPLE_APP_PERFORMANCE)
         .catch((error) => {
           if (isMonitoring.value && generation === measurementGeneration) {
             reportDiagnostic('warn', 'performance.sample', error)
           }
-          return { cpuPercent: null, gpuPercent: null, ramBytes: null, available: false }
+          return {
+            cpuPercent: null,
+            gpuPercent: null,
+            ramBytes: null,
+            available: false,
+            unavailableReasons: { cpu: 'samplingFailed', gpu: 'samplingFailed', ram: 'samplingFailed' },
+          }
         })
       if (!isMonitoring.value || generation !== measurementGeneration) return
       if (warmupSamplesRemaining > 0) {
@@ -69,6 +77,7 @@ export const usePerformanceStore = defineStore('performance', () => {
           ? appSample.ramBytes
           : undefined,
       })
+      unavailableReasons.value = calculatePerformanceUnavailableReasons(currentMetrics.value, appSample.unavailableReasons)
       averageMetrics.value = averages.add(currentMetrics.value)
       hasSampled.value = true
       if (measurementStartedAt !== undefined) {
@@ -81,6 +90,7 @@ export const usePerformanceStore = defineStore('performance', () => {
 
   const clearMetrics = () => {
     currentMetrics.value = {}
+    unavailableReasons.value = {}
     hasSampled.value = false
     averageMetrics.value = {}
     averages = createPerformanceAverages()
@@ -172,6 +182,7 @@ export const usePerformanceStore = defineStore('performance', () => {
     isTransitioning,
     isWarmingUp,
     currentMetrics,
+    unavailableReasons,
     averageMetrics,
     elapsedSeconds,
     hasSampled,

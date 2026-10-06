@@ -17,7 +17,8 @@
         "title": "펫 표시",
         "body": "현재 방송용 출력 옵션이 켜져 있기 때문에 내 화면에 펫이 표시되지 않고 있습니다. 지금 펫을 화면에 표시하시겠습니까?",
         "enable": "지금 켜기",
-        "cancel": "취소"
+        "cancel": "취소",
+        "dismiss": "다시 보지 않기"
       },
       "petRuntimeRecovery": {
         "title": "펫을 표시하지 못했습니다",
@@ -37,18 +38,18 @@
       },
       "presets": {
         "title": "프리셋",
-        "builtinName": "앱 기본값",
-        "initialName": "프리셋 1",
-        "defaultCopyName": "기본값 사본",
         "newName": "새 프리셋",
         "labels": {
           "name": "프리셋 이름",
           "favorites": "즐겨찾기",
+          "list": "프리셋 목록",
           "apply": "{name} 프리셋 적용",
           "reorder": "{name} 프리셋 순서 변경",
           "favorite": "{name} 프리셋 즐겨찾기 추가",
           "unfavorite": "{name} 프리셋 즐겨찾기 해제",
-          "more": "{name} 프리셋 관리"
+          "more": "{name} 프리셋 관리",
+          "userList": "사용자 프리셋 목록",
+          "builtinList": "기본 프리셋 목록"
         },
         "buttons": {
           "new": "새 프리셋",
@@ -60,10 +61,12 @@
           "unfavorite": "즐겨찾기 해제",
           "more": "더보기",
           "cancel": "취소",
+          "apply": "적용하기",
           "retry": "다시 시도"
         },
         "hints": {
-          "scope": "사용자 설정(펫, 장면, 물체)을 하나의 프리셋으로 저장합니다.\n(.petpreset 파일을 이곳에 드래그해 불러올 수 있습니다.)",
+          "empty": "아직 프리셋이 없습니다. 새 프리셋을 만들어 현재 스킨과 설정을 저장해보세요",
+          "scope": "사용자 설정(스킨, 펫, 물체, 장면)을 프리셋으로 저장하거나 불러옵니다. 성능, 단축키, 환경설정은 프리셋에 저장되지 않습니다.\n\n(.petpreset 파일을 이곳에 드래그해 불러올 수 있습니다.)",
           "reorder": "손잡이를 드래그하거나 손잡이에 초점을 두고 Alt + ← / → (↑ / ↓)를 눌러 같은 그룹 안에서 순서를 변경하세요.",
           "moveToEnd": "이 그룹의 마지막으로 이동"
         },
@@ -71,18 +74,20 @@
           "loading": "프리셋 불러오는 중…",
           "saving": "저장 중…",
           "thumbnail": "미리보기 갱신 중…",
-          "active": "적용 중",
           "moved": "{name}: {group}의 {count}개 중 {position}번째로 이동했습니다."
         },
         "dialog": {
+          "applyTitle": "\"{name}\" 프리셋을 적용하시겠습니까?",
+          "applySkin": "이 펫 스킨으로 변경하기",
+          "applySkinHint": "이 옵션을 끄면 현재 적용된 스킨을 유지한 상태로 프리셋을 적용합니다.",
+          "applyWarning": "주의: 현재 설정된 펫, 물체, 장면 설정이 모두 이 프리셋으로 덮어씌워집니다. 현재 설정을 보존하려면 '+새 프리셋' 버튼을 클릭해 현재 상태를 프리셋으로 저장해주세요.",
           "newTitle": "새 프리셋",
           "renameTitle": "프리셋 이름 변경",
-          "newHint": "앱 기본 설정으로 새 프리셋을 만들고 적용합니다.",
+          "newHint": "현재 적용된 스킨과 설정을 새 프리셋으로 저장합니다.",
           "renameHint": "목록에서 알아보기 쉬운 이름을 입력하세요.",
           "nameHint": "앞뒤 공백을 제외한 1~255자. 기존 프리셋과 다른 이름을 사용하세요.",
           "deleteTitle": "‘{name}’ 프리셋을 삭제할까요?",
-          "deleteHint": "이 프리셋을 삭제합니다. 이 작업은 되돌릴 수 없습니다.",
-          "deleteActiveHint": "이 프리셋을 삭제하면 자동으로 ‘{name}’ 프리셋으로 전환됩니다."
+          "deleteHint": "이 프리셋을 삭제합니다. 이 작업은 되돌릴 수 없습니다. 현재 적용된 스킨과 설정은 유지됩니다."
         },
         "transfer": {
           "buttons": {
@@ -94,13 +99,15 @@
             "skinMode": "프리셋의 스킨을 공유할 방식을 선택하세요.",
             "image": "스킨 이미지",
             "nickname": "Java 닉네임",
-            "imageHint": "PNG 스킨 이미지를 프리셋에 포함해 내보냅니다.\n외부 공유는 스킨 이미지 원작자의 허락을 받았거나 공유 권한이 있는 경우에만 진행해주세요. 무단 공유는 저작권 침해에 해당할 수 있습니다.",
-            "nicknameHint": "스킨 닉네임을 프리셋으로 내보냅니다.\n이 프리셋을 불러올 때 해당 닉네임의 스킨을 조회해 최신 스킨으로 적용합니다.",
+            "default": "스킨 공유 안함",
+            "defaultHint": "기본 펫 스킨으로 프리셋을 내보냅니다. 주변요소 배치, 조명, 펫 외형 등 스킨을 제외한 옵션만 내보낼 때 이 옵션을 선택하세요.",
+            "imageHint": "PNG 스킨 이미지를 프리셋에 포함해 내보냅니다. 이 프리셋을 외부에 공유할 때는 스킨 이미지 원작자의 허락을 받거나 공유 권한이 있는 경우에만 진행해주세요. \n(무단으로 스킨 이미지를 외부에 공유하는 것은 저작권 침해에 해당할 수 있습니다.)",
+            "nicknameHint": "스킨 닉네임을 프리셋에 포함해 내보냅니다. 이 프리셋을 불러올 때 해당 스킨 닉네임으로 최신 스킨을 가져오며, 적용 확인 후 펫에 반영합니다.\n(닉네임에 연결된 스킨이 중간에 변경되면 프리셋을 내보낼 때와 불러올 때의 스킨이 달라질 수 있습니다.)\n닉네임을 내보내도 스킨 이미지의 이용·공유 권한이 함께 이전되는 것은 아닙니다.",
             "username": "연결된 닉네임",
             "noNickname": "이 프리셋에는 연결된 Java 닉네임이 없습니다. 펫 탭에서 닉네임으로 스킨을 적용하면 선택할 수 있습니다."
           },
           "hints": {
-            "drop": ".petpreset 파일 하나를 여기로 끌어 놓으면 불러와 적용합니다."
+            "drop": ".petpreset 파일을 여기로 끌어 놓으면 목록에 불러옵니다. 여러 파일을 함께 선택할 수 있습니다."
           },
           "phases": {
             "reading": "프리셋 파일 읽는 중…",
@@ -110,11 +117,10 @@
             "exporting": "프리셋 내보내는 중…"
           },
           "success": {
-            "import": "프리셋을 불러와 적용했습니다.",
+            "import": "프리셋을 불러왔습니다.",
             "export": "프리셋을 내보냈습니다."
           },
           "errors": {
-            "multipleFiles": "프리셋 파일은 하나씩 불러와 주세요.",
             "import": "프리셋을 불러오지 못했습니다. 다시 시도해 주세요.",
             "export": "프리셋 파일을 저장하지 못했습니다. 다시 시도해 주세요.",
             "read": "프리셋 파일을 읽지 못했습니다. 파일을 다시 선택해 주세요.",
@@ -129,20 +135,51 @@
             "apply": "불러온 프리셋을 적용하지 못했습니다. 다시 시도해 주세요.",
             "save": "불러온 프리셋을 저장하지 못했습니다. 다시 시도해 주세요.",
             "recovery": "이전 불러오기 작업의 복구가 필요합니다. 다시 시도하여 설정을 복원한 후 불러와 주세요."
+          },
+          "batch": {
+            "progress": "{current}/{total}: {file} 불러오는 중…",
+            "summary": "성공 {saved}개 · 실패 {failed}개 · 미처리 {pending}개",
+            "saved": "불러옴",
+            "failed": "실패",
+            "pending": "대기",
+            "stopped": "남은 파일의 불러오기가 중단되었습니다. 문제를 해결한 뒤 다시 시도해 주세요.",
+            "retry": "실패·미처리 파일 다시 시도"
           }
         },
         "errors": {
           "invalidName": "앞뒤 공백을 제외한 1~255자를 입력하고 제어 문자는 사용하지 마세요.",
           "duplicateName": "같은 이름의 프리셋이 있습니다. 다른 이름을 입력하세요.",
-          "save": "변경 사항을 저장하지 못했습니다. 현재 설정을 유지했으며 다시 시도할 수 있습니다.",
+          "save": "설정을 자동 저장하지 못했습니다. 현재 설정은 유지됩니다. 다시 시도해 주세요.",
+          "create": "프리셋을 만들지 못했습니다. 만들기를 눌렀을 때의 설정으로 다시 시도할 수 있습니다.",
           "apply": "프리셋을 적용하지 못했습니다. 다시 시도하여 이전 설정을 복원하세요.",
           "manage": "프리셋 변경을 완료하지 못했습니다. 다시 시도해 주세요.",
           "preview": "미리보기를 만들지 못했습니다.",
           "load": "프리셋을 불러오지 못했습니다. 다시 시도해 주세요."
+        },
+        "builtinNames": {
+          "default": "기본",
+          "sunset": "기본 (저녁 노을)",
+          "front": "정면",
+          "bigHeadKeyboard": "대두 키보드"
         }
       },
-      "cat": {
+      "block": {
         "title": "펫",
+        "detailTabs": {
+          "body": "머리·몸",
+          "arms": "팔·손바닥",
+          "eyebrows": "눈썹"
+        },
+        "detailReset": {
+          "body": "머리·몸 설정 초기화",
+          "arms": "팔·손바닥 설정 초기화",
+          "eyebrows": "눈썹 설정 초기화"
+        },
+        "detailResetConfirm": {
+          "body": "머리·몸 설정을 기본값으로 초기화하시겠습니까?",
+          "arms": "양팔과 손바닥 색상을 기본값으로 초기화하시겠습니까?",
+          "eyebrows": "눈썹 설정을 기본값으로 초기화하시겠습니까?"
+        },
         "labels": {
           "modelSettings": "장면 설정",
           "mirrorMode": "좌우 반전",
@@ -159,9 +196,6 @@
           "windowSize": "창 크기",
           "windowRadius": "창 모서리",
           "opacity": "투명도",
-          "motionSound": "동작 소리",
-          "behavior": "동작과 표정",
-          "autoReleaseDelay": "자동 키 해제 지연",
           "hideOnHover": "마우스를 올리면 숨기기",
           "maxFPS": "최대 프레임",
           "petModel": "펫 모델",
@@ -169,7 +203,7 @@
           "applyMinecraftSkin": "적용",
           "dmeloperSkinModel": "스킨 유형",
           "petHeadScale": "머리 크기",
-          "petBehaviorSettings": "펫 상세 설정",
+          "petBehaviorSettings": "펫 외형",
           "petRightArmBend": "오른쪽 팔 구부림 정도",
           "petRightArmSpread": "오른쪽 팔 반경",
           "petLeftArmBend": "왼쪽 팔 구부림 정도",
@@ -187,17 +221,19 @@
           "dmeloperEyebrowSettings": "펫 눈썹 설정",
           "dmeloperEyebrowsEnabled": "펫 눈썹 표시",
           "dmeloperEyebrowColor": "펫 눈썹 색상",
+          "setDmeloperEyebrowColorAutomatically": "눈썹 색상 자동 설정",
           "dmeloperEyebrowCustomColor": "사용자 지정 눈썹 색상",
-          "dmeloperEyebrowCenter": "눈썹 좌우 위치",
-          "dmeloperEyebrowHeight": "눈썹 높이",
-          "dmeloperEyebrowSpacing": "눈썹 간격",
-          "dmeloperEyebrowWidth": "눈썹 길이",
-          "dmeloperEyebrowDepth": "눈썹 깊이",
-          "dmeloperEyebrowThickness": "눈썹 두께",
+          "dmeloperEyebrowCenter": "좌우 위치",
+          "dmeloperEyebrowHeight": "높이",
+          "dmeloperEyebrowSpacing": "간격",
+          "dmeloperEyebrowWidth": "길이",
+          "dmeloperEyebrowDepth": "깊이",
+          "dmeloperEyebrowThickness": "두께",
           "resetDmeloperEyebrows": "눈썹 설정 초기화",
           "dmeloperPalmSettings": "펫 손바닥 설정",
           "dmeloperPalmColor": "펫 손바닥 색상",
           "resetDmeloperPalmColor": "손바닥 색상 자동 설정",
+          "setAutomatically": "자동 설정",
           "reset3d": "설정 초기화",
           "eyebrowAnimation": "눈썹 애니메이션 사용"
         },
@@ -209,17 +245,14 @@
           "visible": "펫을 표시하거나 숨깁니다.",
           "mouseMirror": "손의 마우스 동작 방향을 반전합니다.",
           "ignoreMouse": "마우스 입력에 반응하지 않도록 합니다.",
-          "motionSound": "모델에 소리가 제공되는 경우 동작 소리를 재생합니다.",
-          "behavior": "모델 동작을 입력 이벤트에 맞춰 실행합니다.",
           "passThrough": "클릭이 펫 창을 통과하도록 합니다.",
           "alwaysOnTop": "펫 창을 다른 창보다 위에 유지합니다.",
           "keepInScreen": "펫 창을 화면 영역 안에 유지합니다.",
           "windowSize": "장면 비율을 유지하면서 펫 창 크기를 조절합니다.",
-          "autoReleaseDelay": "해제 이벤트를 받을 수 없는 시스템 키를 일정 시간 후 해제합니다.",
           "hideOnHover": "마우스가 올라오면 설정한 지연 뒤 펫 창을 숨깁니다.",
           "maxFPS": "렌더링 프레임을 제한해 CPU와 GPU 사용량을 줄일 수 있습니다.",
           "petModel": "펫 모델을 선택합니다.",
-          "minecraftSkinUsername": "자바 에디션 닉네임의 공개 스킨을 적용합니다.",
+          "minecraftSkinUsername": "Minecraft: Java Edition 닉네임에 연결된 스킨을 조회해 펫에 적용합니다. 인터넷 연결이 필요하며, 조회 가능한 스킨이라도 사용·공유 권한이 자동으로 부여되지는 않습니다.",
           "dmeloperSkinModel": "와이드 모델은 스킨이 지원하는 경우에만 선택할 수 있습니다.",
           "petHeadScale": "펫의 머리 크기를 변경합니다.",
           "petRightArmBend": "오른쪽 팔꿈치의 구부림을 조절합니다.",
@@ -228,13 +261,13 @@
           "petLeftArmSpread": "왼쪽 팔을 수평 방향으로 회전합니다.",
           "keyboardLanguage": "문자 키만 한글 또는 영문으로 바꾸며 특수 키와 방향키 표기는 유지합니다.",
           "petRotation": "펫 자체를 Y축 기준으로 회전합니다.",
-          "deskDistance": "양수는 책상 쪽, 음수는 펫 뒤쪽으로 이동합니다.",
+          "deskDistance": "값을 높이면 책상에서 멀어지고, 낮추면 가까워집니다.",
           "keyboardX": "키보드 크기와 회전을 유지한 채 기준 위치를 좌우로 옮깁니다.",
           "keyboardZ": "키보드 크기와 회전을 유지한 채 기준 위치를 앞뒤로 옮깁니다.",
           "mouseX": "마우스 이동 범위를 유지한 채 기준 위치를 좌우로 옮깁니다.",
           "mouseZ": "마우스 이동 범위를 유지한 채 기준 위치를 앞뒤로 옮깁니다.",
           "dmeloperEyebrowsEnabled": "펫의 눈썹을 표시합니다",
-          "dmeloperEyebrowColor": "펫의 눈썹 색상을 설정합니다.",
+          "dmeloperEyebrowColor": "펫의 눈썹 색상을 설정합니다. 자동 설정은 스킨 머리 윗면의 평균 색상을 사용합니다.",
           "dmeloperPalmColor": "펫의 손바닥 색상을 설정합니다.",
           "eyebrowAnimation": "펫의 눈썹 애니메이션을 적용합니다."
         },
@@ -245,7 +278,7 @@
           "defaultSkin": "현재 소스: 디멜로퍼(기본값)",
           "localSkin": "현재 소스: 로컬 PNG",
           "minecraftSkinApplied": "적용됨: {name} · {model}",
-          "minecraftSkinLoading": "공식 Minecraft 서비스에서 스킨을 확인하는 중…"
+          "minecraftSkinLoading": "Minecraft 스킨 조회 서비스에서 확인하는 중…"
         },
         "options": {
           "dmeloperSkinModel": {
@@ -348,15 +381,20 @@
         "builtinName": "디멜로퍼(기본값)"
       },
       "scene": {
+        "detailTabs": {
+          "view": "화면",
+          "viewport": "표시 영역",
+          "lighting": "조명"
+        },
         "lighting": {
           "title": "조명 설정",
           "reset": "조명 설정 초기화",
           "confirmReset": "조명 설정을 기본값으로 초기화하시겠습니까?",
           "labels": {
             "color": "조명 색상",
-            "strengthPercent": "조명 세기",
-            "azimuthDegrees": "조명 수평각",
-            "elevationDegrees": "조명 수직각"
+            "strengthPercent": "세기",
+            "azimuthDegrees": "수평각",
+            "elevationDegrees": "수직각"
           },
           "hints": {
             "color": "조명의 색상을 설정합니다.",
@@ -365,8 +403,12 @@
             "elevationDegrees": "조명의 수직 각도를 조절합니다."
           }
         },
-        "title": "장면",
+        "title": "화면",
         "labels": {
+          "widthShort": "너비",
+          "heightShort": "높이",
+          "resetView": "화면 설정 초기화",
+          "resetViewport": "표시 영역 설정 초기화",
           "zoom": "확대",
           "rotation": "회전",
           "opacity": "투명도",
@@ -399,22 +441,32 @@
           "timeout": "스킨 표시 영역의 응답을 기다리고 있습니다. 다시 확인해 주세요."
         },
         "confirm": {
+          "resetView": "화면 설정을 기본값으로 초기화하시겠습니까?",
+          "resetViewport": "표시 영역 설정을 기본값으로 초기화하시겠습니까?",
           "reset": "장면 설정을 기본값으로 초기화하시겠습니까?"
         }
       },
       "environment": {
-        "title": "물체",
+        "detailTabs": {
+          "desk": "책상",
+          "keyboard": "키보드",
+          "mouse": "마우스"
+        },
+        "title": "주변 요소",
         "labels": {
+          "objectSettings": "주변 요소",
           "deskSettings": "책상 설정",
-          "deskTransparent": "책상 투명하게 표시",
-          "deskHeightOffset": "책상 높이",
+          "deskTransparent": "책상 투명하게",
+          "deskHeightOffset": "높이",
+          "deskWidthOffset": "좌우 너비",
+          "deskDepthOffset": "앞뒤 너비",
           "deskColor": "책상 색상",
           "keyboardColor": "키보드 색상",
           "keyboardKeycapColor": "키캡 색상",
           "keyboardLegendColor": "키캡 문자 색상",
-          "keyboardPressedColor": "키보드 입력 강조 색상",
+          "keyboardPressedColor": "입력 강조 색상",
           "mouseColor": "마우스 색상",
-          "mousePressedColor": "마우스 입력 강조 색상",
+          "mousePressedColor": "입력 강조 색상",
           "windowSize": "창 크기",
           "opacity": "투명도",
           "mirrorMode": "좌우 반전",
@@ -430,18 +482,22 @@
           "mouseSettings": "마우스 설정",
           "mouseEnabled": "마우스 사용",
           "refreshMouse": "다시 확인",
-          "keyboardX": "키보드 좌우 위치",
-          "keyboardZ": "키보드 앞뒤 위치",
-          "keyboardScale": "키보드 크기",
-          "mouseX": "마우스 좌우 위치",
-          "mouseZ": "마우스 앞뒤 위치",
-          "mouseScale": "마우스 크기",
+          "keyboardX": "좌우 위치",
+          "keyboardZ": "앞뒤 위치",
+          "keyboardScale": "크기",
+          "mouseX": "좌우 위치",
+          "mouseZ": "앞뒤 위치",
+          "mouseScale": "크기",
           "resetDesk": "책상 설정 초기화",
           "resetKeyboard": "키보드 설정 초기화",
           "resetMouse": "마우스 설정 초기화"
         },
+        "options": {
+          "keyboardKorean": "한글",
+          "keyboardEnglish": "영문"
+        },
         "hints": {
-          "deskTransparent": "책상을 투명하게 표시합니다.",
+          "deskTransparent": "책상을 투명하게 설정합니다.",
           "deskHeightOffset": "책상의 높이를 조절합니다.",
           "deskColor": "책상의 색상을 설정합니다.",
           "windowSize": "장면 크기를 조절합니다.",
@@ -452,14 +508,14 @@
           "cameraVertical": "장면을 화면에서 위아래로 이동합니다.",
           "cameraZoom": "장면의 확대 비율을 조절합니다.",
           "petRotation": "펫 몸통을 좌우로 회전합니다.",
-          "deskDistance": "펫 위치를 책상을 기준으로 앞뒤로 이동합니다.",
+          "deskDistance": "값을 높이면 책상에서 멀어지고, 낮추면 가까워집니다.",
           "keyboardX": "키보드 위치를 좌우로 이동합니다.",
           "keyboardZ": "키보드 위치를 앞뒤로 이동합니다.",
           "keyboardScale": "키보드 크기를 조절합니다.",
           "mouseX": "마우스 위치를 좌우로 이동합니다.",
           "mouseZ": "마우스 위치를 앞뒤로 이동합니다.",
           "mouseScale": "마우스 크기를 조절합니다.",
-          "mouseEnabled": "마우스 입력을 사용합니다. 이 설정을 끄면 마우스를 숨기고, 마우스 입력을 추적하지 않습니다.",
+          "mouseEnabled": "이 옵션을 끄면 마우스 물체와 클릭·스크롤 반응이 꺼집니다. 커서를 따라보는 동작은 유지됩니다.",
           "keyboardColor": "키보드 본체의 색상을 변경합니다.",
           "keyboardKeycapColor": "키캡의 색상을 변경합니다.",
           "keyboardLegendColor": "키캡에 표시되는 문자의 색상을 변경합니다.",
@@ -489,7 +545,6 @@
           "hideOnHover": "마우스를 올리면 숨기기",
           "keepInScreen": "화면 안에 유지",
           "showTaskbarIcon": "작업 표시줄 아이콘",
-          "showTrayIcon": "트레이 아이콘",
           "appearanceSettings": "화면 설정",
           "themeMode": "테마",
           "language": "언어",
@@ -508,7 +563,6 @@
           "hideOnHover": "마우스가 올라오면 설정한 지연 뒤 펫 창을 숨깁니다.",
           "keepInScreen": "펫 창을 화면 영역 안에 유지합니다.",
           "showTaskbarIcon": "펫을 작업 표시줄 아이콘으로 표시합니다.",
-          "showTrayIcon": "시스템 트레이에 앱 아이콘을 표시합니다.",
           "launchOnStartup": "윈도우 시작 시 프로그램을 자동으로 실행합니다."
         },
         "confirm": {
@@ -558,7 +612,21 @@
           "renderScale": "렌더링 해상도를 조절합니다. 낮게 설정하면 성능이 향상됩니다.",
           "antialias": "렌더링 되는 모델의 계단 현상을 완화합니다. 끄면 성능이 향상됩니다.",
           "pixelFilter": "펫의 픽셀 색상 경계를 부드럽게 합니다. 끄면 성능이 향상됩니다.",
-          "warmup": "측정 준비 중입니다."
+          "warmup": "측정 준비 중입니다.",
+          "resourceUnavailable": "{resource}: {reason}",
+          "unavailableEnvironment": "일부 환경에서는 특정 리소스 사용량이 측정되지 않을 수 있습니다."
+        },
+        "unavailableReasons": {
+          "unsupported": "이 환경에서 지원되지 않습니다.",
+          "accessDenied": "성능 정보에 접근할 수 없습니다.",
+          "processUnavailable": "앱 프로세스를 확인할 수 없습니다.",
+          "processSnapshotFailed": "프로세스 목록을 가져오지 못했습니다.",
+          "counterUnavailable": "성능 카운터를 사용할 수 없습니다.",
+          "counterReadFailed": "성능 카운터를 읽지 못했습니다.",
+          "initializing": "측정값을 준비하고 있습니다.",
+          "intervalTooShort": "측정 간격이 너무 짧습니다.",
+          "invalidSample": "유효한 측정값을 얻지 못했습니다.",
+          "samplingFailed": "성능 측정 요청을 완료하지 못했습니다."
         },
         "status": {
           "unavailable": "측정 불가",
@@ -578,7 +646,7 @@
       "shortcut": {
         "title": "단축키",
         "labels": {
-          "toggleCat": "펫 표시 전환",
+          "toggleBlock": "펫 표시 전환",
           "toggleBroadcast": "방송용 출력 전환",
           "toggleMouse": "마우스 사용 전환",
           "hideOnHover": "마우스를 옮기면 숨기기",
@@ -590,7 +658,7 @@
           "cycleRotation": "회전 전환"
         },
         "hints": {
-          "toggleCat": "펫 창을 표시하거나 숨깁니다.",
+          "toggleBlock": "펫 창을 표시하거나 숨깁니다.",
           "toggleBroadcast": "방송용 출력을 켜거나 끕니다.",
           "togglePreferences": "환경설정 창을 표시하거나 숨깁니다.",
           "mirrorMode": "펫 장면의 좌우 반전을 전환합니다.",
@@ -604,39 +672,45 @@
         "title": "정보",
         "labels": {
           "aboutApp": "앱 정보",
+          "troubleshootingSupport": "문제 해결 및 지원",
           "appLog": "앱 로그",
           "appInfo": "환경 정보",
+          "contactUs": "문의하기",
           "iconCredits": "아이콘 출처",
           "legalNotices": "제3자 라이선스 안내",
           "resetAll": "프로그램 설정 전체 초기화",
           "introduction": "소개 페이지",
-          "developerInfo": "개발자 정보",
+          "releaseNotes": "릴리즈 노트",
           "developer": "개발자",
           "developerName": "디멜로퍼 DMeloper",
           "developerEmail": "개발자 이메일 주소",
-          "releaseNotes": "릴리즈 노트 페이지",
-          "dataNotice": "데이터·권한 안내"
+          "dataNotice": "데이터·권한 안내",
+          "resetDeleteSkins": "펫 스킨 모두 삭제",
+          "resetPresets": "사용자 프리셋 모두 삭제"
         },
         "hints": {
-          "appInfo": "문제 신고에 필요한 앱 환경 정보를 복사합니다.",
+          "appInfo": "개인 경로·닉네임·스킨·방송 주소를 제외한 Windows 버전, 그래픽과 주요 환경 정보를 복사합니다.",
           "copySuccess": "복사했습니다.",
           "solarIcons": "480 Design의 Solar Icons를 CC BY 4.0에 따라 사용합니다.",
           "lucideIcons": "Lucide Contributors의 ISC 고지와 Cole Bemis의 Feather 유래 MIT 고지를 함께 제공합니다.",
+          "antDesignIcons": "GitHub 아이콘은 MIT 라이선스의 Ant Design Icons에서 가져왔습니다. 원래 저작권과 라이선스 원문은 제3자 라이선스 안내에 포함합니다.",
+          "notionIcon": "Notion 링크에는 제공된 참고 이미지에 맞춰 만든 로컬 벡터를 사용합니다. Notion의 이름과 표시는 해당 권리자에게 속합니다.",
           "legalNotices": "제3자 라이선스와 출처를 확인합니다.",
-          "dataNotice": "앱에서 사용하는 데이터·권한과 외부 통신을 확인합니다."
+          "dataNotice": "앱에서 사용하는 데이터·권한과 외부 통신을 확인합니다.",
+          "unofficialProduct": "본 앱은 공식 Minecraft 제품이 아니며, Mojang Studios 또는 Microsoft의 승인·제휴·후원을 받지 않았습니다."
         },
         "buttons": {
           "copy": "복사",
-          "viewLog": "로그 보기",
+          "viewLog": "열기",
+          "fillSurvey": "문의 설문지 바로가기",
           "viewLegalNotices": "안내문 보기",
-          "checkUpdate": "최신버전 확인",
           "github": "깃허브",
           "notion": "노션",
           "openLinktree": "링크트리 열기"
         },
         "confirm": {
           "resetAll": "프로그램 설정 전체를 초기화하시겠습니까?",
-          "resetAllWarning": "모든 설정과 창 위치, 성능 지표가 기본값으로 돌아갑니다. 스킨 목록과 사용자 프리셋, 프리셋에 저장된 외형도 영구 삭제되며 앱 기본값 프리셋만 남습니다."
+          "resetAllWarning": "프로그램의 모든 설정과 창 위치를 기본값으로 초기화합니다. 이 작업은 되돌릴 수 없습니다."
         },
         "errors": {
           "resetAll": "프로그램 초기화를 완료하지 못했습니다.",
@@ -710,8 +784,8 @@
       },
       "labels": {
         "preference": "환경설정",
-        "hideCat": "펫 숨기기",
-        "showCat": "펫 표시",
+        "hideBlock": "펫 숨기기",
+        "showBlock": "펫 표시",
         "passThrough": "클릭 통과",
         "windowSize": "축소/확대",
         "opacity": "투명도",
@@ -741,18 +815,6 @@
       }
     }
   },
-  "manualUpdates": {
-    "title": "프로그램 버전 관리",
-    "latest": "최신 버전 페이지",
-    "download": "깃허브",
-    "hint": "공식 최신 버전 페이지를 브라우저에서 엽니다.",
-    "checking": "최신 버전을 확인하는 중입니다.",
-    "upToDate": "현재 프로그램이 최신 버전입니다.",
-    "available": "현재 프로그램이 최신 버전이 아닙니다.(최신 버전: v{version}) 위 [노션] 또는 [깃허브] 버튼을 클릭해 최신 버전을 내려 받아 새로 설치해주세요. 기존 설정과 데이터는 그대로 유지됩니다.",
-    "localNewer": "현재 프로그램은 공개 최신 버전(v{version})보다 새 버전입니다.",
-    "unknown": "최신 버전을 확인할 수 없습니다. 위 링크에서 공식 버전을 확인해주세요.",
-    "openFailed": "배포 페이지를 열지 못했습니다. 기본 브라우저 설정을 확인하세요."
-  },
   "updateReminder": {
     "title": "새 업데이트",
     "message": "최신 버전 (v{version}) 이 출시됐습니다. 지금 설치하시겠습니까?",
@@ -761,24 +823,20 @@
     "close": "닫기"
   },
   "inAppUpdates": {
-    "title": "프로그램 업데이트",
-    "latest": "최신 버전 확인",
-    "hint": "이 프로그램의 최신 버전을 확인합니다.",
     "check": "업데이트 확인",
     "install": "업데이트 설치",
     "checking": "최신 버전을 확인하고 있습니다.",
     "unknown": "업데이트를 확인하지 못했습니다. 다시 확인해 주세요.",
     "available": "최신 버전(v{version})으로 업데이트가 가능합니다.",
-    "upToDate": "최신 버전입니다.",
+    "upToDate": "현재 프로그램이 최신 버전입니다.",
     "downloading": "업데이트를 다운로드하고 서명을 검증하고 있습니다.",
     "saving": "설정·프리셋·스킨을 저장하고 있습니다.",
-    "installing": "설치 프로그램으로 인계하고 있습니다. 설치가 끝나면 앱이 다시 시작됩니다.",
+    "installing": "설치 프로그램을 실행합니다. 설치가 끝나면 앱이 다시 시작됩니다.",
     "failed": "업데이트를 완료하지 못했습니다. 앱이 열려 있으면 다시 확인해 주세요. 설치가 중단되었다면 GitHub 릴리즈 페이지에서 설치 파일을 받아 복구해 주세요.",
     "verifying": "다운로드한 파일의 무결성과 서명을 검증하고 있습니다.",
     "cancel": "업데이트 취소"
   },
   "storeUpdates": {
-    "title": "Microsoft Store 업데이트",
     "hint": "업데이트는 Microsoft Store가 관리합니다. 적용하려면 트레이 메뉴에서 앱을 완전히 종료하세요. 일반 재시작만으로 업데이트가 적용되지는 않을 수 있습니다.",
     "open": "Microsoft Store 열기",
     "openFailed": "Microsoft Store 페이지를 열지 못했습니다. Store 앱에서 업데이트를 확인해 주세요."

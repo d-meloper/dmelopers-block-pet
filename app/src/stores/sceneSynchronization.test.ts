@@ -12,8 +12,9 @@ import { createSSRApp, nextTick } from 'vue'
 import { compileScript, compileTemplate, parse } from 'vue/compiler-sfc'
 
 import type { usePresetManager } from '@/composables/usePresetManager'
-import type { useCatStore } from '@/stores/cat'
+import type { useBlockStore } from '@/stores/block'
 
+import { serializeSettingsState } from '@/config/persistedNames'
 import { captureBroadcastScene } from '@/features/broadcast/scene'
 
 type State = Record<string, any>
@@ -118,7 +119,7 @@ function harness() {
       'tauri-plugin-locale-api': { getLocale: async () => 'ko-KR' },
       '@/services/diagnostics': { reportDiagnostic: () => {} },
       '@/features/presets/skin': { preparePresetSkin: async (snapshot: unknown) => clone(snapshot) },
-      '@/features/presets/thumbnail': { renderPresetThumbnail: async () => 'test-thumbnail' },
+      '@/features/presets/thumbnail': { createPresetThumbnailBatch: () => ({ render: async () => 'test-thumbnail', dispose: () => {} }) },
       '@/services/presetTransfer': { readPresetImport: async () => undefined },
       '@/plugins/process': { registerAppProcessOwner: () => () => {} },
     }
@@ -161,15 +162,15 @@ function harness() {
     const pinia = createPinia()
     pinia.use(load('@/plugins/settingsStore').createSettingsStorePlugin({ isSavingAllowed: () => true, beforeBackendSync: (state: State) => state }))
     createSSRApp({ render: () => null }).use(pinia)
-    const stores: SettingsStore[] = ['app', 'cat', 'general', 'shortcut'].map((id) => {
+    const stores: SettingsStore[] = ['app', 'block', 'general', 'shortcut'].map((id) => {
       const definitions = load(`@/stores/${id}`)
       const definition = Object.keys(definitions).find(key => /^use.*Store$/.test(key))!
       return definitions[definition](pinia)
     })
-    const cat = stores.find(store => store.$id === 'cat')! as unknown as ReturnType<typeof useCatStore>
+    const block = stores.find(store => store.$id === 'cat')! as unknown as ReturnType<typeof useBlockStore>
     return {
       stores,
-      cat,
+      block,
       flushOwner: () => load('@/features/stateSafety/bridge').stateOwners.flushPresets(),
       startOwner: async () => {
         setActivePinia(pinia)
@@ -186,7 +187,7 @@ function harness() {
       },
       presentation: () => {
         const render = evaluate(mainSfc.template, load).render
-        return descendants(render({ $t: (key: string) => key }, [], {}, { catStore: cat, rendererLoading: false }))
+        return descendants(render({ $t: (key: string) => key }, [], {}, { blockStore: block, rendererLoading: false }))
       },
       initialize: async () => {
         for (const store of stores) {
@@ -221,7 +222,7 @@ async function seededHarness() {
   const seed = h.window('fixture')
   for (const store of seed.stores) {
     await store.init?.()
-    h.backend.set(store.$id, clone(store.$state))
+    h.backend.set(store.$id, clone(serializeSettingsState(store.$id, store.$state)))
   }
   seed.dispose()
   return h
@@ -236,6 +237,8 @@ it('preserves scene UI edits through the preset owner, real two-window plugins, 
     await preference.initialize()
     const owner = await preference.startOwner()
     assert.equal(owner.ready.value, true)
+    assert.equal(await owner.create('Saved scene'), true)
+    const storedSnapshot = clone(preference.block.presetCollection!.entries[0].snapshot)
     const controls = preference.sceneControls()
     const opacity = controls().find(node => node.props?.['display-mode'] === 'unit')!
     assert.ok(opacity)
@@ -247,24 +250,23 @@ it('preserves scene UI edits through the preset owner, real two-window plugins, 
     owner.markUserEdit()
     switches[1].props!['onUpdate:checked'](true)
     await settle()
-    assert.equal(main.cat.window.opacity, 37.9)
-    assert.equal(main.cat.model.mirror, true)
-    assert.equal(main.cat.activePet3dPreset.showDisplayArea, true)
+    assert.equal(main.block.window.opacity, 37.9)
+    assert.equal(main.block.model.mirror, true)
+    assert.equal(main.block.activePet3dPreset.showDisplayArea, true)
     const desktop = main.presentation()
     assert.equal(desktop.find(node => node.props?.style?.opacity !== undefined)?.props?.style.opacity, 0.379)
     assert.match(desktop.find(node => node.props?.style?.opacity !== undefined)!.props!.class, /-scale-x-100/)
-    assert.match(desktop.find(node => node.props?.['data-testid'] === 'viewport-hologram')!.props!.class, /viewport-hologram-visible/)
+    assert.match(desktop.find(node => String(node.props?.class ?? '').split(/\s+/).includes('viewport-hologram'))!.props!.class, /viewport-hologram-visible/)
     assert.equal(await owner.retry(), true)
-    const active = preference.cat.presetCollection!.entries.find(entry => entry.id === preference.cat.presetCollection!.activeId)!
-    assert.equal(active.snapshot.opacity, 37.9)
-    assert.equal(active.snapshot.mirror, true)
-    assert.equal(active.snapshot.preset.showDisplayArea, true)
-    Object.assign(preference.cat.model, { maxFPS: 47, renderScalePercent: 75, antialiasEnabled: false })
+    assert.equal(preference.block.presetCollection!.activeId, null)
+    assert.deepEqual(clone(preference.block.presetCollection!.entries[0].snapshot), storedSnapshot)
+    assert.equal((h.backend.get('cat')!.customization3d as ReturnType<typeof useBlockStore>['customization3d']).preset.showDisplayArea, true)
+    Object.assign(preference.block.model, { maxFPS: 47, renderScalePercent: 75, antialiasEnabled: false })
     await settle()
-    assert.equal(main.cat.model.maxFPS, 47)
-    assert.equal(main.cat.model.renderScalePercent, 75)
-    assert.equal(main.cat.model.antialiasEnabled, false)
-    const broadcast = captureBroadcastScene(preference.cat)
+    assert.equal(main.block.model.maxFPS, 47)
+    assert.equal(main.block.model.renderScalePercent, 75)
+    assert.equal(main.block.model.antialiasEnabled, false)
+    const broadcast = captureBroadcastScene(preference.block)
     assert.equal(broadcast.opacity, 37.9)
     assert.equal(broadcast.mirror, true)
     assert.equal(broadcast.preset.showDisplayArea, false, 'the desktop helper never leaks into OBS')
@@ -285,20 +287,20 @@ it('keeps runtime-only main changes local until the preference owner accepts the
   try {
     await main.initialize()
     await preference.initialize()
-    preference.cat.customization3d.dmeloperSkinDataUrl = 'data:image/png;base64,YQ=='
+    preference.block.customization3d.dmeloperSkinDataUrl = 'data:image/png;base64,YQ=='
     await settle()
     const owner = await preference.startOwner()
     assert.equal(owner.ready.value, true)
     await settle()
-    main.cat.activePet3dPreset.mouseEnabled = false
+    main.block.activePet3dPreset.mouseEnabled = false
     await settle()
-    assert.equal(preference.cat.activePet3dPreset.mouseEnabled, true)
+    assert.equal(preference.block.activePet3dPreset.mouseEnabled, true)
     // The existing matching MOUSE_SETTING_RESPONSE handler performs this narrow
     // owner write; the desktop snapshot itself must never be its authority.
-    preference.cat.activePet3dPreset.mouseEnabled = false
+    preference.block.activePet3dPreset.mouseEnabled = false
     await settle()
-    assert.equal(preference.cat.activePet3dPreset.mouseEnabled, false)
-    assert.deepEqual(clone(preference.cat.presetCollection), h.backend.get('cat')!.presetCollection)
+    assert.equal(preference.block.activePet3dPreset.mouseEnabled, false)
+    assert.deepEqual(clone(preference.block.presetCollection), h.backend.get('cat')!.presetCollection)
     assert.equal(await owner.retry(), true)
   } finally {
     main.dispose()
@@ -316,19 +318,19 @@ it('keeps scene UI edits when an earlier peer patch arrives after the edit', asy
     const owner = await preference.startOwner()
     await settle()
     h.hold('main')
-    main.cat.activePet3dPreset.mouseEnabled = false
+    main.block.activePet3dPreset.mouseEnabled = false
     await settle()
     owner.markUserEdit()
-    preference.cat.window.opacity = 37.9
+    preference.block.window.opacity = 37.9
     owner.markUserEdit()
-    preference.cat.model.mirror = true
+    preference.block.model.mirror = true
     owner.markUserEdit()
-    preference.cat.activePet3dPreset.showDisplayArea = true
+    preference.block.activePet3dPreset.showDisplayArea = true
     await settle()
     await h.release()
-    assert.equal(preference.cat.window.opacity, 37.9)
-    assert.equal(preference.cat.model.mirror, true)
-    assert.equal(preference.cat.activePet3dPreset.showDisplayArea, true)
+    assert.equal(preference.block.window.opacity, 37.9)
+    assert.equal(preference.block.model.mirror, true)
+    assert.equal(preference.block.activePet3dPreset.showDisplayArea, true)
   } finally {
     await h.release()
     main.dispose()

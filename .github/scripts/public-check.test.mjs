@@ -55,6 +55,13 @@ test('renamed executable/archive/database and disguised image are rejected by co
   assert.throws(() => inspectFile('app/source.txt', png()), /disguised/)
 })
 
+test('the reviewed README hero is allowed while other images and private metadata are rejected', () => {
+  inspectFile('assets/hero.png', png())
+  for (const path of ['assets/other.png', 'assets/Hero.png', 'assets/hero.jpg'])
+    assert.throws(() => inspectFile(path, png()))
+  assert.throws(() => inspectFile('assets/hero.png', png(chunk('tEXt', Buffer.from(secret)))), /credential/)
+})
+
 test('PNG metadata checks preserve ordinary ICC but inspect every text form', () => {
   inspectPng(png(chunk('iCCP', Buffer.concat([Buffer.from('sRGB\0\0'), deflateSync(Buffer.from('standard color profile'))]))), pngPath)
   const payload = Buffer.from(secret)

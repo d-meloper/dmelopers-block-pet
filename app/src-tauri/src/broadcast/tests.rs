@@ -621,6 +621,8 @@ fn desk_broadcast_settings_accept_legacy_and_partial_scenes_but_reject_malformed
     candidate.preset["deskColor"] = json!("#123aBC");
     for height in [-1.0, 0.0, 1.0] {
         candidate.preset["deskHeightOffset"] = json!(height);
+        candidate.preset["deskWidthOffset"] = json!(height);
+        candidate.preset["deskDepthOffset"] = json!(-height);
         candidate.validate(None).unwrap();
         let restored: BroadcastScene = serde_json::from_value(serde_json::to_value(&candidate).unwrap()).unwrap();
         assert_eq!(restored, candidate);
@@ -629,6 +631,8 @@ fn desk_broadcast_settings_accept_legacy_and_partial_scenes_but_reject_malformed
         ("deskTransparent", vec![json!(null), json!(1), json!("false")]),
         ("deskColor", vec![json!(null), json!(true), json!("red"), json!("#12345"), json!("#GGGGGG")]),
         ("deskHeightOffset", vec![json!(null), json!(false), json!("0"), json!(-1.01), json!(1.01)]),
+        ("deskWidthOffset", vec![json!(null), json!(false), json!("0"), json!(-1.01), json!(1.01)]),
+        ("deskDepthOffset", vec![json!(null), json!(false), json!("0"), json!(-1.01), json!(1.01)]),
         ("deskEnabled", vec![json!(true)]),
     ] {
         for value in values {

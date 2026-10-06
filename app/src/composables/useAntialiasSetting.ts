@@ -7,7 +7,7 @@ import { ANTIALIAS_SETTING_REQUEST, ANTIALIAS_SETTING_RESPONSE } from '@/config/
 import { createAntialiasSettingOwner } from '@/features/performance/antialiasSetting'
 import { beginPresetNativeEdit } from '@/features/presets/operations'
 import { reportDiagnostic } from '@/services/diagnostics'
-import { useCatStore } from '@/stores/cat'
+import { useBlockStore } from '@/stores/block'
 import { usePerformanceStore } from '@/stores/performance'
 
 /** Preferences stays the sole setting writer, including renderer rollback. */
@@ -15,7 +15,7 @@ export function useAntialiasSetting(
   send: (event: string, payload: AntialiasSettingRequest) => Promise<unknown>,
   failed: (reason: 'failed' | 'unconfirmed') => void,
 ) {
-  const cat = useCatStore()
+  const block = useBlockStore()
   const performance = usePerformanceStore()
   let disposed = false
   let unlisten: (() => void) | undefined
@@ -42,9 +42,9 @@ export function useAntialiasSetting(
     return subscription
   }
   const owner = createAntialiasSettingOwner({
-    current: () => cat.model.antialiasEnabled,
+    current: () => block.model.antialiasEnabled,
     restore: (actual) => {
-      cat.model.antialiasEnabled = actual
+      block.model.antialiasEnabled = actual
       void performance.reset()
     },
     send: async (event, request) => {
@@ -59,12 +59,12 @@ export function useAntialiasSetting(
     report: error => reportDiagnostic('warn', 'performance.antialias_request', error),
   })
   let mounted = false
-  watch(() => cat.model.antialiasEnabled, (requested) => {
+  watch(() => block.model.antialiasEnabled, (requested) => {
     if (mounted) owner.request(requested)
   }, { flush: 'sync' })
   onMounted(() => {
     mounted = true
-    owner.request(cat.model.antialiasEnabled)
+    owner.request(block.model.antialiasEnabled)
   })
   onBeforeUnmount(() => {
     disposed = true

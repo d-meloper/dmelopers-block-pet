@@ -515,6 +515,30 @@ function rgbHex(red: number, green: number, blue: number): string {
     .join('')}`.toUpperCase()
 }
 
+/** Average the visible 8x8 Java head top, compositing its hat layer first. */
+export function suggestVoxelSkinHeadTopColor(data: Uint8Array): string {
+  if (data.length !== PIXEL_COUNT_64) {
+    throw new Error('Head top color detection requires exactly 64x64 RGBA pixels.')
+  }
+  let red = 0
+  let green = 0
+  let blue = 0
+  let count = 0
+  for (let row = 0; row < 8; row += 1) {
+    for (let column = 0; column < 8; column += 1) {
+      const pixel = compositeHeadPixel(data, 8 + column, row, 40 + column, row, 0)
+      if (!pixel) continue
+      red += pixel.red
+      green += pixel.green
+      blue += pixel.blue
+      count += 1
+    }
+  }
+  return count > 0
+    ? rgbHex(Math.round(red / count), Math.round(green / count), Math.round(blue / count))
+    : DMELOPER_EYEBROW_FALLBACK_COLOR
+}
+
 /** Suggest a visible hair/hat color from the upper four rows of the Java head front. */
 export function suggestVoxelSkinEyebrowColor(
   data: Uint8Array,

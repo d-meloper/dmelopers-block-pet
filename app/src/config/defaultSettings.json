@@ -5,11 +5,11 @@
     "motionSound": true,
     "behavior": true,
     "autoReleaseDelay": 3,
-    "maxFPS": 60,
+    "maxFPS": 30,
     "shadowsEnabled": true,
     "renderScalePercent": 100,
     "idlePowerSavingEnabled": true,
-    "shadowQuality": "high",
+    "shadowQuality": "medium",
     "antialiasEnabled": true,
     "pixelFilterEnabled": true,
     "eyebrowAnimationEnabled": true,
@@ -41,6 +41,8 @@
     },
     "deskTransparent": true,
     "deskHeightOffset": 0,
+    "deskWidthOffset": -0.28,
+    "deskDepthOffset": 0.1,
     "deskColor": "#D9D9D9",
     "windowScalePercent": 100,
     "showDisplayArea": false,
@@ -89,9 +91,10 @@
     "app": {
       "autostart": false,
       "taskbarVisible": false,
-      "trayVisible": true,
       "autoUpdateCheck": true,
-      "updateReminderHiddenUntil": 0
+      "updateReminderHiddenUntil": 0,
+      "broadcastRestorePromptDismissed": false,
+      "applyPresetSkin": true
     },
     "broadcast": { "enabled": false, "showOnDesktop": false },
     "appearance": {

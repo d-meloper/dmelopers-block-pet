@@ -128,7 +128,9 @@ unsafe fn process_mouse_callback(
         let data = unsafe { &*(data as *const MSLLHOOKSTRUCT) };
         if let Some(event) = mouse_event(param as u32, data) {
             CALLBACK.with_borrow(|state| {
-                let Some(state) = state.as_ref().filter(|state| state.mouse_enabled) else {
+                let Some(state) = state.as_ref().filter(|state| {
+                    state.mouse_enabled || matches!(event, EventType::MouseMove { .. })
+                }) else {
                     return;
                 };
                 let _ = state.sender.send(InputMessage::Event(
@@ -203,13 +205,16 @@ impl Hooks {
             mouse: null_mut(),
             state,
         };
+        hooks.set_mouse_hook(true)?;
         hooks.configure(mouse_enabled)?;
         Ok(hooks)
     }
 
-    fn configure(&mut self, enabled: bool) -> Result<DeviceInputState, String> {
-        if enabled == self.state.mouse_enabled {
-            return Ok(self.state);
+    // Pointer observation follows the active consumer lifetime. The saved option
+    // gates buttons/wheel, while both OFF and ON consumers can follow the cursor.
+    fn set_mouse_hook(&mut self, enabled: bool) -> Result<(), String> {
+        if enabled == !self.mouse.is_null() {
+            return Ok(());
         }
         change_mouse_hook(
             &mut self.mouse,
@@ -240,7 +245,13 @@ impl Hooks {
                 }
                 Ok(())
             },
-        )?;
+        )
+    }
+
+    fn configure(&mut self, enabled: bool) -> Result<DeviceInputState, String> {
+        if enabled == self.state.mouse_enabled {
+            return Ok(self.state);
+        }
         self.state = DeviceInputState {
             mouse_enabled: enabled,
             mouse_generation: next_mouse_generation(),
@@ -257,6 +268,7 @@ impl Hooks {
 
     fn stop(&mut self) -> Result<(), String> {
         self.configure(false)?;
+        self.set_mouse_hook(false)?;
         if !self.keyboard.is_null() {
             if unsafe { UnhookWindowsHookEx(self.keyboard) } == 0 {
                 let error = std::io::Error::last_os_error();
@@ -522,13 +534,21 @@ mod tests {
             assert!(events.try_recv().is_err());
         }
         CALLBACK.with_borrow_mut(|state| state.as_mut().unwrap().mouse_enabled = false);
-        for message in [WM_RBUTTONDOWN, WM_RBUTTONUP] {
+        for message in [WM_RBUTTONDOWN, WM_RBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEWHEEL] {
             let result = unsafe {
                 process_mouse_callback(HC_ACTION as i32, message as usize, pointer, |_, _, _| 43)
             };
             assert_eq!(result, 43);
             assert!(events.try_recv().is_err());
         }
+        let result = unsafe {
+            process_mouse_callback(HC_ACTION as i32, WM_MOUSEMOVE as usize, pointer, |_, _, _| 43)
+        };
+        assert_eq!(result, 43);
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            InputMessage::Event(EventType::MouseMove { .. }, 7, _)
+        ));
         CALLBACK.set(None);
     }
 
@@ -623,7 +643,7 @@ mod tests {
     }
 
     #[test]
-    fn actual_windows_hooks_toggle_mouse_without_replacing_keyboard() {
+    fn actual_windows_hooks_toggle_buttons_without_replacing_keyboard_or_pointer() {
         let (input, _events) = mpsc::channel();
         let (mut listener, initial) =
             HookListener::start(false, input).expect("install actual Windows keyboard hook");
@@ -634,14 +654,14 @@ mod tests {
         };
         let (keyboard, mouse, _) = inspect(&listener);
         assert_ne!(keyboard, 0);
-        assert_eq!(mouse, 0);
+        assert_ne!(mouse, 0);
         assert_eq!(listener.state().unwrap(), initial);
         let mut previous = initial;
         for enabled in [true, false, true, true, false, false, true, false] {
             let current = listener.configure(enabled).unwrap();
-            let (current_keyboard, mouse, observed) = inspect(&listener);
+            let (current_keyboard, current_mouse, observed) = inspect(&listener);
             assert_eq!(current_keyboard, keyboard);
-            assert_eq!(mouse != 0, enabled);
+            assert_eq!(current_mouse, mouse);
             assert_eq!(observed, current);
             if enabled != previous.mouse_enabled {
                 assert!(current.mouse_generation > previous.mouse_generation);

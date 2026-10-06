@@ -27,23 +27,6 @@ included in the public source or installer.
 under its original MIT license, preserved at `../app/vendor/tauri-winres/LICENSE`, and
 retains the original Tauri Apps Contributors and Max Resch copyright notices.
 
-The installer helper `block_pet_installer_utils.dll`, retained from an earlier implementation, is derived from
-[Tauri nsis-tauri-utils 0.5.3](https://github.com/tauri-apps/nsis-tauri-utils/tree/nsis_tauri_utils-v0.5.3).
-Its source is retained at `../app/src-tauri/windows/installer-utils`, including
-the original MIT and Apache-2.0 texts, the original copyright
-`Copyright (c) 2019 - 2022 Tauri Programme within The Commons Conservancy`, and
-the pinned upstream archive/source hashes. The local derivative retains only
-version comparison, process inspection and non-elevated application launch;
-unused process-termination and string commands were removed. The vendored
-`nsis-plugin-api` and `nsis-fn` sources are unchanged. This locally built DLL is
-not an official or Authenticode-signed Tauri release.
-
-Current GitHub and Store packages do not build or include this helper. Its source
-and notices are kept to document the earlier implementation.
-
-The shared update core and the update worker from the earlier implementation are maintained under the project MIT license in `../app/crates/update-core`. The current packages do not ship the separate worker. Its dependencies and the historical installer plugin are still recorded as separate source/build consumers in the offline notices; inclusion in that inventory does not mean the component is shipped.
-
-`../app/vendor/tauri-plugin-updater` contains the locally patched Tauri updater 2.11.0 used by the GitHub channel. Its MIT/Apache-2.0 license texts, upstream identity, and local changes are preserved in that directory and in the offline notices. Store packages do not use this updater.
 
 ## Models and Skins
 
@@ -73,8 +56,16 @@ The selected arrow and square icons include Feather-derived artwork by Cole
 Bemis. The offline notices include both applicable license texts and copyright notices.
 The package's ISC declaration alone does not cover all of these icons.
 
-Icon data is supplied by local `@iconify-json` packages and rendered as CSS by
-UnoCSS. The application does not fetch these icons from a CDN at runtime.
+Solar and Lucide icon data is supplied by local `@iconify-json` packages and
+rendered as CSS by UnoCSS. The application does not fetch these icons from a CDN
+at runtime.
+
+The filled GitHub icon in About is from [Ant Design Icons](https://github.com/ant-design/ant-design-icons),
+provided by the local `@ant-design/icons-vue` package under the MIT License.
+Its original copyright and license text are included in the offline notices.
+The Notion link uses a local vector drawn to match a maintainer-supplied reference
+image. Notion's name and mark belong to their respective rights holder; this
+notice does not assign them a new open-source license or claim original authorship.
 
 ## Offline dependency notices and source availability
 
@@ -83,9 +74,11 @@ project MIT license and dependency notices without an internet connection.
 The license text is included in `../app/src/legal/notices.txt`.
 The CycloneDX inventory is `../app/src/legal/dependencies.cdx.json`.
 The separate Data and Permissions entry below it explains local data and permissions
-in the selected app language.
+in the selected app language. WiX installers also include `ThirdParty-WiX.txt` in
+the installation folder, with the native WiX SDK's original license and notice.
+That installer notice is separate from the application's Node/Rust inventory.
 
-The inventory lists the application's Node and Windows Rust dependencies, Solar/Lucide icon data, and dependencies of retained source components. It includes libraries used to build the application. Detailed component relationships and locked versions are recorded in the machine-readable inventory. The historical worker and installer helper are not included in the current packages.
+The inventory lists the application's Node and Windows Rust dependencies and Solar/Lucide icon data. It includes libraries used to build the application. Detailed component relationships and locked versions are recorded in the machine-readable inventory.
 Build dependencies are included conservatively; listing a package does not
 claim its code is linked into the installed executable.
 

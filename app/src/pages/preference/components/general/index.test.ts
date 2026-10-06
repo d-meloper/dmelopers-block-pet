@@ -26,7 +26,7 @@ function resetHarness(native: {
   }
   const module = { exports: {} as { default: { setup: (props: object, context: object) => Actions } } }
   const mocks: Record<string, unknown> = {
-    'vue': { ...Vue, onMounted: () => {}, onBeforeUnmount: () => {} },
+    'vue': { ...Vue, withDirectives: (node: Vue.VNode) => node, onMounted: () => {}, onBeforeUnmount: () => {} },
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
     'ant-design-vue': {
       Modal: { confirm: (options: typeof dialog) => {
@@ -35,7 +35,7 @@ function resetHarness(native: {
       message: { error: (key: string) => errors.push(key) },
     },
     '@/services/diagnostics': { reportDiagnostic: () => {} },
-    '@/stores/cat': { useCatStore: () => ({ resetGeneralSettings: () => calls.push('reset-cat') }) },
+    '@/stores/block': { useBlockStore: () => ({ resetGeneralSettings: () => calls.push('reset-block') }) },
     '@/stores/general': { useGeneralStore: () => ({
       reset: () => calls.push('reset-general'),
       init: async () => {
@@ -109,7 +109,7 @@ for (const failure of ['status', 'disable', 'readback', 'still-enabled'] as cons
     assert.deepEqual(h.calls, [
       'read',
       ...(failure === 'readback' ? [] : ['disable', 'read']),
-      'reset-cat',
+      'reset-block',
       'reset-general',
       'initialize-general',
       'read',
@@ -140,7 +140,7 @@ it('waits for native startup readback and ignores reset or toggle reentry', asyn
   assert.deepEqual(h.calls, ['read', 'disable'])
   finish()
   await resetting
-  assert.deepEqual(h.calls, ['read', 'disable', 'read', 'reset-cat', 'reset-general', 'initialize-general', 'read'])
+  assert.deepEqual(h.calls, ['read', 'disable', 'read', 'reset-block', 'reset-general', 'initialize-general', 'read'])
 })
 
 it('resets preferences when startup is already disabled by Windows', async () => {
@@ -151,7 +151,7 @@ it('resets preferences when startup is already disabled by Windows', async () =>
     },
   })
   await h.reset()
-  assert.deepEqual(h.calls, ['read', 'reset-cat', 'reset-general', 'initialize-general', 'read'])
+  assert.deepEqual(h.calls, ['read', 'reset-block', 'reset-general', 'initialize-general', 'read'])
   assert.deepEqual(h.errors, [])
 })
 
@@ -182,7 +182,7 @@ it('reads per-installation Windows state without applying a shared autostart pre
     'ant-design-vue': { Modal: {}, message: { error: () => {} } },
     '@/services/diagnostics': { reportDiagnostic: () => {} },
     '@/stores/general': { useGeneralStore: () => general },
-    '@/stores/cat': { useCatStore: () => ({}) },
+    '@/stores/block': { useBlockStore: () => ({}) },
     '@/services/autostart': {
       getAutostartStatus: async () => ({ enabled, state: enabled ? 'enabled' : 'disabled', canEnable: true, canDisable: true }),
       setAutostartEnabled: async (value: boolean) => {
@@ -208,7 +208,7 @@ it('reads per-installation Windows state without applying a shared autostart pre
   assert.equal(general.app.autostart, false)
 })
 
-it('keeps a static startup description and exposes Windows state on focus or hover even when disabled', () => {
+it('keeps startup state accessible without hover, focus or native title tooltips', () => {
   const source = readFileSync(new URL('./index.vue', import.meta.url), 'utf8')
     .replace('</script>', '\ndefineExpose({ autostart })\n</script>')
   const { descriptor } = parse(source)
@@ -217,11 +217,11 @@ it('keeps a static startup description and exposes Windows state on focus or hov
   const exports = {} as { default: { setup: (props: object, context: object) => Render } }
   const translate = (key: string) => key
   const mocks: Record<string, unknown> = {
-    'vue': { ...Vue, onMounted: () => {}, onBeforeUnmount: () => {} },
+    'vue': { ...Vue, withDirectives: (node: Vue.VNode) => node, onMounted: () => {}, onBeforeUnmount: () => {} },
     'vue-i18n': { useI18n: () => ({ t: translate }) },
     'ant-design-vue': { Button: 'button', Divider: 'divider', Flex: 'flex', InputNumber: 'input', Select: { Option: 'option' }, Switch: 'switch', Tooltip: 'tooltip' },
     '@/stores/general': { useGeneralStore: () => ({ app: {}, appearance: {} }) },
-    '@/stores/cat': { useCatStore: () => ({ window: {} }) },
+    '@/stores/block': { useBlockStore: () => ({ window: {} }) },
     '@/components/pro-list-item/index.vue': { default: 'list-item' },
   }
   runInNewContext(ts.transpileModule(script.content, {
@@ -245,17 +245,59 @@ it('keeps a static startup description and exposes Windows state on focus or hov
     const disabled = !status || !(status.enabled ? status.canDisable : status.canEnable)
     const rendered = nodes()
     const row = rendered.find(node => node.type === 'list-item' && node.props?.title === 'pages.preference.general.labels.launchOnStartup')!
-    const tooltip = rendered.find(node => node.type === 'tooltip')!
     assert.equal(row.props!.description, 'pages.preference.general.hints.launchOnStartup')
-    assert.equal(tooltip.props!.title, `autostartStatus.${status?.state ?? 'unknown'}`)
-    assert.deepEqual(Array.from(tooltip.props!.trigger), ['hover', 'focus'])
-    const wrapper = rendered.find(node => node.type === 'span' && typeof node.props?.onFocusin === 'function')!
+    assert.equal(rendered.some(node => node.type === 'tooltip'), false)
+    const wrapper = rendered.find(node => node.type === 'span' && node.props?.class === 'inline-flex')!
     const control = rendered.find(node => node.type === 'switch' && node.props?.['aria-label'] === 'pages.preference.general.labels.launchOnStartup')!
     assert.equal(control.props!.disabled, disabled)
+    assert.equal(control.props!.title, undefined)
+    assert.equal(control.props!['aria-description'], `autostartStatus.${status?.state ?? 'unknown'}`)
     assert.equal(wrapper.props!.tabindex, disabled ? 0 : undefined)
-    wrapper.props!.onFocusin()
-    assert.equal(nodes().find(node => node.type === 'tooltip')!.props!.open, true)
-    wrapper.props!.onFocusout()
-    assert.equal(nodes().find(node => node.type === 'tooltip')!.props!.open, false)
+    assert.equal(wrapper.props!['aria-label'], disabled ? `pages.preference.general.labels.launchOnStartup: autostartStatus.${status?.state ?? 'unknown'}` : undefined)
+    assert.equal(wrapper.props!.title, undefined)
+    assert.equal(wrapper.props!.onFocusin, undefined)
+    assert.equal(wrapper.props!.onFocusout, undefined)
   }
+})
+
+it('hides hover delay while OFF, rejects stale edits and retains its value', () => {
+  const { descriptor } = parse(readFileSync(new URL('./index.vue', import.meta.url), 'utf8'))
+  const script = compileScript(descriptor, { id: 'hover-delay-visibility', inlineTemplate: true })
+  type Render = (context: { $t: (key: string) => string }, cache: unknown[]) => Vue.VNode
+  const exports = {} as { default: { setup: (props: object, context: object) => Render } }
+  const block = Vue.reactive({ window: { hideOnHover: true, hideOnHoverDelay: 2.5 } })
+  const visibility = new Map<Vue.VNode, boolean>()
+  const translate = (key: string) => key
+  const mocks: Record<string, unknown> = {
+    'vue': { ...Vue, onMounted: () => {}, onBeforeUnmount: () => {}, withDirectives: (node: Vue.VNode, bindings: Array<[unknown, boolean]>) => {
+      visibility.set(node, bindings[0][1])
+      return node
+    } },
+    'vue-i18n': { useI18n: () => ({ t: translate }) },
+    'ant-design-vue': { Button: 'button', Divider: 'divider', Flex: 'flex', InputNumber: 'input', Select: { Option: 'option' }, Switch: 'switch', Tooltip: 'tooltip' },
+    '@/stores/general': { useGeneralStore: () => ({ app: {}, appearance: {} }) },
+    '@/stores/block': { useBlockStore: () => block },
+  }
+  runInNewContext(ts.transpileModule(script.content, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, { exports, require: (name: string) => mocks[name] ?? { default: 'section' } })
+  const render = exports.default.setup({}, { expose: () => {} })
+  const flatten = (node: Vue.VNode): Vue.VNode[] => [node, ...Array.isArray(node.children)
+    ? node.children.flatMap(child => Vue.isVNode(child) ? flatten(child) : [])
+    : []]
+  let staleDelay: Vue.VNode | undefined
+  for (const enabled of [true, false, true]) {
+    block.window.hideOnHover = enabled
+    visibility.clear()
+    const nodes = flatten(render({ $t: translate }, []))
+    const delay = nodes.find(node => node.type === 'input' && node.props?.['addon-after'] === 's')!
+    const group = [...visibility.keys()].find(node => flatten(node).includes(delay))!
+    assert.equal(visibility.get(group), enabled)
+    assert.equal(delay.props!.value, 2.5)
+    if (!enabled) staleDelay!.props!['onUpdate:value'](9)
+    assert.equal(block.window.hideOnHoverDelay, 2.5)
+    staleDelay = delay
+  }
+  staleDelay!.props!['onUpdate:value'](3.5)
+  assert.equal(block.window.hideOnHoverDelay, 3.5, 'visible delay remains editable while ON')
 })

@@ -110,6 +110,106 @@ function harness() {
 }
 
 describe('performance monitoring sessions', () => {
+  it('keeps only current resource reasons while preserving unaffected values and independent averages', async () => {
+    const h = harness()
+    await h.store.start()
+    await h.finishWarmup()
+    await h.advance(1000)
+    h.setSample(async () => ({
+      cpuPercent: null,
+      gpuPercent: null,
+      ramBytes: 1024,
+      available: true,
+      unavailableReasons: { cpu: 'processUnavailable', gpu: 'counterReadFailed' },
+    }))
+    await h.advance(1000)
+    assert.deepEqual(h.store.currentMetrics, { cpuPercent: undefined, gpuPercent: undefined, ramBytes: 1024 })
+    assert.deepEqual(h.store.unavailableReasons, { cpu: 'processUnavailable', gpu: 'counterReadFailed' })
+    assert.deepEqual(h.store.averageMetrics, { cpuPercent: 10, gpuPercent: 20, ramBytes: 768 })
+    h.setSample(async () => ({
+      cpuPercent: 0,
+      gpuPercent: null,
+      ramBytes: null,
+      available: true,
+      unavailableReasons: { cpu: 'processUnavailable', gpu: 'invalidSample', ram: 'RAW_FAILURE' },
+    }))
+    await h.advance(1000)
+    assert.deepEqual(h.store.currentMetrics, { cpuPercent: 0, gpuPercent: undefined, ramBytes: undefined })
+    assert.deepEqual(h.store.unavailableReasons, { gpu: 'invalidSample', ram: 'unknown' })
+    assert.deepEqual(h.store.averageMetrics, { cpuPercent: 5, gpuPercent: 20, ramBytes: 768 })
+    h.setSample(async () => ({ cpuPercent: 0, gpuPercent: 0, ramBytes: 0, available: true }))
+    await h.advance(1000)
+    assert.deepEqual(h.store.unavailableReasons, {})
+    assert.deepEqual(h.store.currentMetrics, { cpuPercent: 0, gpuPercent: 0, ramBytes: 0 })
+    assert.deepEqual(h.store.averageMetrics, { cpuPercent: 10 / 3, gpuPercent: 10, ramBytes: 512 })
+    await h.store.stop()
+  })
+
+  it('accepts additive diagnostics for each resource without coupling missing CPU, GPU or RAM', async () => {
+    for (const [resource, key] of [
+      ['cpu', 'cpuPercent'],
+      ['gpu', 'gpuPercent'],
+      ['ram', 'ramBytes'],
+    ] as const) {
+      const h = harness()
+      await h.store.start()
+      await h.finishWarmup()
+      h.setSample(async () => ({
+        cpuPercent: 0,
+        gpuPercent: 0,
+        ramBytes: 0,
+        [key]: null,
+        available: true,
+        unavailableReasons: { [resource]: 'accessDenied' },
+      }))
+      await h.advance(1000)
+      assert.deepEqual(h.store.currentMetrics, { cpuPercent: 0, gpuPercent: 0, ramBytes: 0, [key]: undefined })
+      assert.deepEqual(h.store.unavailableReasons, { [resource]: 'accessDenied' })
+      assert.deepEqual(h.store.averageMetrics, h.store.currentMetrics)
+      await h.store.stop()
+    }
+  })
+
+  it('hides warmup failures, falls back for legacy replies, and clears reasons on reset and new sessions', async () => {
+    const h = harness()
+    h.setSample(async () => ({
+      cpuPercent: null,
+      gpuPercent: null,
+      ramBytes: null,
+      available: false,
+      unavailableReasons: { cpu: 'samplingFailed', gpu: 'samplingFailed', ram: 'samplingFailed' },
+    }))
+    await h.store.start()
+    await h.finishWarmup()
+    assert.deepEqual(h.store.unavailableReasons, {})
+    assert.equal(h.store.hasSampled, false)
+    await h.advance(1000)
+    assert.deepEqual(h.store.unavailableReasons, { cpu: 'samplingFailed', gpu: 'samplingFailed', ram: 'samplingFailed' })
+    h.setSample(async () => ({ cpuPercent: null, gpuPercent: null, ramBytes: null, available: false }))
+    await h.advance(1000)
+    assert.deepEqual(h.store.unavailableReasons, { cpu: 'unknown', gpu: 'unknown', ram: 'unknown' })
+    await h.store.reset()
+    assert.deepEqual(h.store.unavailableReasons, {})
+    assert.equal(h.store.hasSampled, false)
+    await h.finishWarmup()
+    h.setSample(async () => {
+      throw new Error('private native detail')
+    })
+    await h.advance(1000)
+    assert.deepEqual(h.store.unavailableReasons, { cpu: 'samplingFailed', gpu: 'samplingFailed', ram: 'samplingFailed' })
+    h.setSample(async () => ({ cpuPercent: 0, gpuPercent: 0, ramBytes: 0, available: true }))
+    await h.advance(1000)
+    assert.deepEqual(h.store.unavailableReasons, {})
+    h.setSample(async () => ({ cpuPercent: null, gpuPercent: null, ramBytes: null, available: false }))
+    await h.advance(1000)
+    assert.deepEqual(h.store.unavailableReasons, { cpu: 'unknown', gpu: 'unknown', ram: 'unknown' })
+    await h.store.stop()
+    await h.store.start()
+    assert.deepEqual(h.store.unavailableReasons, {})
+    assert.equal(h.store.hasSampled, false)
+    await h.store.stop()
+  })
+
   it('excludes exactly the two preparation samples and retains all later high or zero values', async () => {
     const h = harness()
     const samples = [
@@ -412,9 +512,16 @@ describe('performance monitoring sessions', () => {
       } else {
         await h.store.reset()
       }
-      resolveOld({ cpuPercent: 99, gpuPercent: 99, ramBytes: 999, available: true })
+      resolveOld({
+        cpuPercent: null,
+        gpuPercent: null,
+        ramBytes: null,
+        available: false,
+        unavailableReasons: { cpu: 'accessDenied', gpu: 'counterReadFailed', ram: 'processUnavailable' },
+      })
       await new Promise(resolve => setImmediate(resolve))
       assert.deepEqual(h.store.averageMetrics, {})
+      assert.deepEqual(h.store.unavailableReasons, {})
       assert.equal(h.store.hasSampled, false)
       h.setSample(async () => ({ cpuPercent: 0, gpuPercent: null, ramBytes: 0, available: true }))
       await h.finishWarmup()

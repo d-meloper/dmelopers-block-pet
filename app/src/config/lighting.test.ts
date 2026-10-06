@@ -7,7 +7,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { captureBroadcastScene } from '@/features/broadcast/scene'
 import { applyPresetSnapshot, capturePresetSnapshot, createPresetCollection, migratePresetCollection, validatePresetCollection } from '@/features/presets/model'
 import { parsePortablePreset, serializePortablePreset } from '@/features/presets/transfer'
-import { preparePetStateForSync, useCatStore } from '@/stores/cat'
+import { preparePetStateForSync, useBlockStore } from '@/stores/block'
 
 import { createDefaultLightingSettings, isLightingSettings, migratePresetLighting, normalizeLightingSettings } from './lighting'
 
@@ -39,7 +39,7 @@ it('upgrades old authored pastel defaults while retaining customized lighting', 
   assert.deepEqual(migratePresetLighting(legacy).lighting, defaults)
   assert.deepEqual(normalizeLightingSettings(legacy.lighting), defaults)
   setActivePinia(createPinia())
-  const store = useCatStore()
+  const store = useBlockStore()
   store.$patch(preparePetStateForSync({ customization3d: { preset: legacy } }))
   store.init()
   assert.deepEqual(store.activePet3dPreset.lighting, defaults)
@@ -55,7 +55,7 @@ it('upgrades old authored pastel defaults while retaining customized lighting', 
 
 it('retains lighting through local initialization, snapshots, catalog migration, OBS and scoped resets', () => {
   setActivePinia(createPinia())
-  let store = useCatStore()
+  let store = useBlockStore()
   store.init()
   const lighting = createDefaultLightingSettings()
   lighting.key.color = '#abcdef'
@@ -67,7 +67,7 @@ it('retains lighting through local initialization, snapshots, catalog migration,
   const snapshot = capturePresetSnapshot(store)
   const saved = JSON.parse(JSON.stringify(store.$state))
   setActivePinia(createPinia())
-  store = useCatStore()
+  store = useBlockStore()
   store.$patch(saved)
   store.init()
   assert.deepEqual(store.activePet3dPreset.lighting, lighting)
@@ -79,7 +79,10 @@ it('retains lighting through local initialization, snapshots, catalog migration,
   assert.deepEqual(store.activePet3dPreset.lighting, lighting)
   store.activePet3dPreset.lighting.key.color = '#111111'
   assert.equal(snapshot.preset.lighting.key.color, '#abcdef')
-  const collection = createPresetCollection(snapshot)
+  const collection = { ...createPresetCollection(), activeId: 'saved', entries: [
+    { id: 'default', name: 'Default', favorite: false, snapshot: capturePresetSnapshot(useBlockStore()) },
+    { id: 'saved', name: 'Saved', favorite: false, snapshot },
+  ] }
   Reflect.deleteProperty(collection.entries[0].snapshot.preset, 'lighting')
   const migrated = migratePresetCollection(collection)
   validatePresetCollection(migrated)

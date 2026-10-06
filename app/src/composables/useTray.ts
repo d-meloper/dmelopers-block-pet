@@ -11,7 +11,7 @@ import { APP_DISPLAY_NAME, WINDOW_LABEL } from '@/constants'
 import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import { editorsLocked } from '@/features/stateSafety'
 import { showWindow } from '@/plugins/window'
-import { useCatStore } from '@/stores/cat'
+import { useBlockStore } from '@/stores/block'
 import { useGeneralStore } from '@/stores/general'
 import { createLatestAsyncTaskQueue } from '@/utils/latestAsyncTask'
 
@@ -20,7 +20,7 @@ import { useAppMenu } from './useAppMenu'
 const TRAY_ID = 'DMELOPERS_BLOCK_PET_TRAY'
 
 export function useTray(canEdit: () => boolean = () => true) {
-  const catStore = useCatStore()
+  const blockStore = useBlockStore()
   const generalStore = useGeneralStore()
   const { getAppMenu } = useAppMenu()
   let generation = 0
@@ -36,6 +36,12 @@ export function useTray(canEdit: () => boolean = () => true) {
     broadcastPromptOpen.value = false
   }
 
+  function dismissBroadcastRestore() {
+    if (disposed || !broadcastPromptOpen.value || broadcastRestoreDisabled.value) return
+    generalStore.app.broadcastRestorePromptDismissed = true
+    cancelBroadcastRestore()
+  }
+
   function finishBroadcastPrompt() {
     if (!broadcastPromptOpen.value) broadcastPromptActive.value = false
   }
@@ -45,7 +51,7 @@ export function useTray(canEdit: () => boolean = () => true) {
     // Preferences owns these stores, as in the broadcast settings control.
     // Its existing persistence and main-window watchers restore the renderer.
     generalStore.broadcast.showOnDesktop = true
-    catStore.window.visible = true
+    blockStore.window.visible = true
     cancelBroadcastRestore()
   }
 
@@ -54,8 +60,8 @@ export function useTray(canEdit: () => boolean = () => true) {
     if (broadcastRestoreDisabled.value) return
 
     if (broadcastPromptActive.value || (generalStore.broadcast.enabled
-      && (!catStore.window.visible || !generalStore.broadcast.showOnDesktop))) {
-      if (!broadcastPromptActive.value) {
+      && (!blockStore.window.visible || !generalStore.broadcast.showOnDesktop))) {
+      if (!generalStore.app.broadcastRestorePromptDismissed && !broadcastPromptActive.value) {
         broadcastPromptActive.value = true
         broadcastPromptOpen.value = true
       }
@@ -65,7 +71,7 @@ export function useTray(canEdit: () => boolean = () => true) {
     }
 
     // Hidden pets must restore their renderer through the visibility owner first.
-    const request = catStore.window.visible
+    const request = blockStore.window.visible
       ? showWindow(WINDOW_LABEL.MAIN)
       : emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { visible: true })
     void request.catch(error => console.error('Failed to focus the pet from the tray.', error))
@@ -105,23 +111,20 @@ export function useTray(canEdit: () => boolean = () => true) {
       const previous = attachedMenu
       attachedMenu = menu
       await previous?.close()
-      // Read the latest visibility even if it changed during native creation.
-      await tray.setVisible(generalStore.app.trayVisible)
     } finally {
       if (!attached) await menu.close()
     }
   }, { onError: error => console.error('Failed to update the tray menu.', error) })
 
   watch([
-    () => catStore.window.visible,
+    () => blockStore.window.visible,
     () => generalStore.broadcast.enabled,
     () => generalStore.broadcast.showOnDesktop,
-    () => catStore.activePet3dPreset.cameraZoomPercent,
-    () => catStore.activePet3dPreset.sceneRotationOffsetDegrees,
-    () => catStore.window.opacity,
-    () => catStore.window.keepInScreen,
+    () => blockStore.activePet3dPreset.cameraZoomPercent,
+    () => blockStore.activePet3dPreset.sceneRotationOffsetDegrees,
+    () => blockStore.window.opacity,
+    () => blockStore.window.keepInScreen,
     () => generalStore.appearance.language,
-    () => generalStore.app.trayVisible,
     () => editorsLocked.value,
   ], () => updates.enqueue(++generation), { immediate: true })
 
@@ -139,6 +142,7 @@ export function useTray(canEdit: () => boolean = () => true) {
     broadcastRestoreDisabled,
     confirmBroadcastRestore,
     cancelBroadcastRestore,
+    dismissBroadcastRestore,
     finishBroadcastPrompt,
   }
 }

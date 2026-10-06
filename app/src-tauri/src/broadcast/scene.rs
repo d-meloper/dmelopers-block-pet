@@ -90,7 +90,7 @@ fn number(value: &Value, min: f64, max: f64) -> bool {
 
 fn validate_preset(preset: &Value) -> Result<(), String> {
     let object = preset.as_object().ok_or("scene_invalid")?;
-    let optional = ["petHeadScalePercent", "deskTransparent", "deskHeightOffset", "deskColor", "lighting"];
+    let optional = ["petHeadScalePercent", "deskTransparent", "deskHeightOffset", "deskWidthOffset", "deskDepthOffset", "deskColor", "lighting"];
     if object.len() != 32 + optional.iter().filter(|key| object.contains_key(**key)).count() {
         return Err("scene_invalid".into());
     }
@@ -114,7 +114,7 @@ fn validate_preset(preset: &Value) -> Result<(), String> {
             "autoViewportPaddingPixels" => number(value, 0.0, 16.0),
             "viewportModeRevision" => number(value, 0.0, 9_007_199_254_740_991.0),
             "petHeadScalePercent" => number(value, 25.0, 200.0),
-            "deskHeightOffset" => number(value, -1.0, 1.0),
+            "deskHeightOffset" | "deskWidthOffset" | "deskDepthOffset" => number(value, -1.0, 1.0),
             "petRightArmBendPercent" | "petLeftArmBendPercent" => number(value, 0.0, 400.0),
             "petRightArmSpreadDegrees" | "petLeftArmSpreadDegrees" => number(value, -45.0, 45.0),
             "sceneRotationOffsetDegrees" => number(value, -360.0, 360.0),

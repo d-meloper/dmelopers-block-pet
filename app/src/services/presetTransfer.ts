@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type { PortablePetPreset } from '@/features/presets/transfer'
 import type { PresetCollection, PresetSnapshot } from '@/features/presets/types'
 
-import { isPresetSnapshot, validatePresetCollection } from '@/features/presets/model'
+import { isPresetSnapshot, migratePresetCollection, validatePresetCollection } from '@/features/presets/model'
 import { MAX_PET_PRESET_BYTES, parsePortablePreset, PresetTransferError, serializePortablePreset } from '@/features/presets/transfer'
 
 import type { SkinLibraryStoreRequest } from './skinLibrary'
@@ -44,7 +44,11 @@ export async function readPresetImport(): Promise<PresetImportJournal | undefine
     || !record.previous || typeof record.previous.visible !== 'boolean' || !isPresetSnapshot(record.previous.snapshot)) {
     throw new PresetTransferError('recovery')
   }
-  validatePresetCollection(record.previous.collection)
+  // Completed receipts retain historical rollback data. Validate a normalized
+  // copy while preserving the native receipt's original identity and contents.
+  validatePresetCollection(record.phase === 'committed'
+    ? migratePresetCollection(record.previous.collection)
+    : record.previous.collection)
   return record
 }
 

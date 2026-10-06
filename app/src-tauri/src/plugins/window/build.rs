@@ -6,6 +6,7 @@ const COMMANDS: &[&str] = &[
     "set_always_on_top",
     "set_color_picker_open",
     "set_taskbar_visibility",
+    "set_preference_caption_color",
 ];
 
 fn main() {

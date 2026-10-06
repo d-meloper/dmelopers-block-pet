@@ -114,6 +114,8 @@ describe('native mouse confirmation and input lifecycle', () => {
     assert.deepEqual(h.saves, [true, false])
     assert.equal(h.session.accepts(typing), true)
     assert.equal(h.session.accepts(click(2)), false)
+    assert.equal(h.session.accepts({ kind: 'pointer_activity', x: 0.2, y: 0.4, mouseGeneration: 2 }), true)
+    assert.equal(h.session.accepts({ kind: 'pointer_activity', x: 0.2, y: 0.4, mouseGeneration: 1 }), false)
   })
 
   it('serializes rapid OFF/ON and rejects old epochs after the final acknowledgement', async () => {
@@ -355,7 +357,7 @@ async function createPreferenceHarness() {
         }) },
         '@/composables/useSceneViewport': { useSceneViewport: () => ({}) },
         '@/composables/useThemeVars': { useThemeVars: () => ({ generateColorVars: () => { } }) },
-        '@/stores/cat': { useCatStore: () => store },
+        '@/stores/block': { useBlockStore: () => store },
         '@/stores/shortcut': { useShortcutStore: () => ({}) },
         '@/stores/general': { useGeneralStore: () => ({ appearance: { language: 'ko' } }) },
         '@/stores/performance': { usePerformanceStore: () => ({ start: async () => { }, stop: async () => { } }) },
@@ -562,13 +564,20 @@ function createComposableHarness(passThrough = false) {
   const nativeCalls: string[] = []
   const listenerStops: string[] = []
   const cursorIgnores: boolean[] = []
+  const styles = new Map<string, string>()
+  const timers = new Map<number, { due: number, fn: () => void }>()
+  const watchers: Array<() => void> = []
+  let now = 0
+  let timerId = 0
+  let cursorReads = 0
+  let cursor = async () => ({ x: 100, y: 25 })
   let nextFrame = 0
   let epoch = 0
   let commandWait = async (_command: string) => {}
   let monitor = async () => ({ position: { x: 0, y: 0 }, size: { width: 200, height: 100 } })
-  const store = { activePet3dPreset: { mouseEnabled: true }, window: { passThrough, visible: true, hideOnHover: false } }
+  const store = { activePet3dPreset: { mouseEnabled: true }, window: { passThrough, visible: true, hideOnHover: false, hideOnHoverDelay: 0 } }
   const exports = loadDevice({
-    'vue': { onMounted: (fn: () => unknown) => mounted.push(fn), onUnmounted: (fn: () => void) => unmounted.push(fn), watch: () => { } },
+    'vue': { onMounted: (fn: () => unknown) => mounted.push(fn), onUnmounted: (fn: () => void) => unmounted.push(fn), watch: (sources: Array<() => boolean>, fn: (values: boolean[]) => void) => watchers.push(() => fn(sources.map(read => read()))) },
     '@tauri-apps/api/core': {
       invoke: async (command: string, args: { enabled?: boolean, mouseEnabled?: boolean, active?: boolean } = {}) => {
         nativeCalls.push(command)
@@ -576,6 +585,10 @@ function createComposableHarness(passThrough = false) {
         return { mouseEnabled: args.active === false ? false : args.enabled ?? args.mouseEnabled ?? true, mouseGeneration: ++epoch }
       },
     },
+    '@tauri-apps/api/window': { cursorPosition: () => {
+      cursorReads++
+      return cursor()
+    } },
     '@tauri-apps/api/dpi': {
       PhysicalPosition: class {
         constructor(public x: number, public y: number) { }
@@ -598,13 +611,18 @@ function createComposableHarness(passThrough = false) {
       }),
     },
     'es-toolkit': { isNil: (value: unknown) => value == null },
-    '@/stores/app': { useAppStore: () => ({ windowState: {} }) },
-    '@/stores/cat': { useCatStore: () => store },
-    '@/utils/is': { inBetween: () => false },
+    '@/stores/app': { useAppStore: () => ({ windowState: { main: { x: 0, y: 0, width: 200, height: 100 } } }) },
+    '@/stores/block': { useBlockStore: () => store },
+    '@/utils/is': { inBetween: (value: number, minimum: number, maximum: number) => value >= minimum && value <= maximum },
     '@/utils/monitor': { getCursorMonitor: () => monitor() },
     '@/utils/three3d': { default: { setMouseEnabled: () => { }, setMouseInputActive: () => { }, setInputActive: () => { }, handleSemanticInput: (event: SemanticInputEvent) => dispatched.push(event) } },
   }, {
-    document: { body: { style: { setProperty: () => { } } } },
+    document: { body: { style: { setProperty: (name: string, value: string) => styles.set(name, value) } } },
+    setTimeout: (fn: () => void, delay: number) => {
+      timers.set(++timerId, { fn, due: now + delay })
+      return timerId
+    },
+    clearTimeout: (id: number) => timers.delete(id),
     requestAnimationFrame: (fn: () => void) => {
       frames.set(++nextFrame, fn)
       return nextFrame
@@ -618,6 +636,30 @@ function createComposableHarness(passThrough = false) {
     nativeCalls,
     listenerStops,
     cursorIgnores,
+    store,
+    opacity: () => styles.get('opacity'),
+    cursorReads: () => cursorReads,
+    setCursor: (fn: typeof cursor) => {
+      cursor = fn
+    },
+    hover(enabled: boolean, delay = 0, passThrough = false) {
+      Object.assign(store.window, { hideOnHover: enabled, hideOnHoverDelay: delay, passThrough })
+      watchers.forEach(run => run())
+    },
+    async advance(milliseconds: number) {
+      await flush()
+      const target = now + milliseconds
+      while (timers.size) {
+        const [id, timer] = [...timers].sort((a, b) => a[1].due - b[1].due)[0]
+        if (timer.due > target) break
+        now = timer.due
+        timers.delete(id)
+        timer.fn()
+        await flush()
+      }
+      now = target
+      await flush()
+    },
     frames,
     setMonitor: (fn: typeof monitor) => {
       monitor = fn
@@ -642,6 +684,201 @@ function createComposableHarness(passThrough = false) {
   }
 }
 describe('actual useDevice pointer dispatch', () => {
+  it('hides and restores on hover with pet mouse input OFF without enabling mouse buttons', async () => {
+    const h = createComposableHarness()
+    h.store.activePet3dPreset.mouseEnabled = false
+    h.hover(true)
+    try {
+      await h.mount()
+      await h.advance(1000)
+      assert.equal(h.device.getInputState().mouseEnabled, false)
+      assert.equal(h.opacity(), '0')
+      assert.equal(h.cursorIgnores.at(-1), true)
+      assert.deepEqual(h.dispatched, [])
+      h.setCursor(async () => ({ x: -10, y: -10 }))
+      await h.advance(100)
+      assert.equal(h.opacity(), 'unset')
+      assert.equal(h.cursorIgnores.at(-1), false)
+      assert.equal(h.device.getInputState().mouseEnabled, false)
+    } finally {
+      h.unmount()
+      await flush()
+    }
+  })
+
+  it('honors the hover delay and cancels it when the cursor leaves', async () => {
+    const h = createComposableHarness()
+    h.store.activePet3dPreset.mouseEnabled = false
+    h.hover(true, 0.3)
+    try {
+      await h.mount()
+      await h.advance(199)
+      assert.equal(h.opacity(), 'unset')
+      h.setCursor(async () => ({ x: 201, y: 25 }))
+      await h.advance(101)
+      assert.equal(h.opacity(), 'unset')
+      h.setCursor(async () => ({ x: 100, y: 25 }))
+      await h.advance(399)
+      assert.equal(h.opacity(), 'unset')
+      await h.advance(1)
+      assert.equal(h.opacity(), '0')
+    } finally {
+      h.unmount()
+      await flush()
+    }
+  })
+
+  it('polls only with hover enabled and restores while rendering is paused', async () => {
+    const h = createComposableHarness()
+    try {
+      await h.mount()
+      await h.advance(1000)
+      assert.equal(h.cursorReads(), 0)
+      h.hover(true)
+      await flush()
+      await h.advance(0)
+      assert.equal(h.opacity(), '0')
+      await h.device.setInputActive(false)
+      assert.equal(h.opacity(), 'unset')
+      assert.equal(h.cursorIgnores.at(-1), false)
+      const reads = h.cursorReads()
+      await h.advance(1000)
+      assert.equal(h.cursorReads(), reads)
+      await h.device.setInputActive(true)
+      await h.advance(0)
+      assert.equal(h.opacity(), '0')
+      h.hover(false)
+      assert.equal(h.opacity(), 'unset')
+      await h.advance(1000)
+      assert.equal(h.cursorReads(), reads + 1)
+    } finally {
+      h.unmount()
+      await flush()
+    }
+  })
+
+  it('preserves click-through and suspends hover detection when it is enabled', async () => {
+    const h = createComposableHarness()
+    h.hover(true)
+    try {
+      await h.mount()
+      await h.advance(0)
+      assert.equal(h.opacity(), '0')
+      h.hover(true, 0, true)
+      assert.equal(h.opacity(), 'unset')
+      assert.equal(h.cursorIgnores.at(-1), true)
+      const reads = h.cursorReads()
+      await h.advance(1000)
+      assert.equal(h.cursorReads(), reads)
+      h.hover(true, 0, false)
+      await flush()
+      await h.advance(0)
+      assert.equal(h.opacity(), '0')
+    } finally {
+      h.unmount()
+      await flush()
+    }
+  })
+
+  it('keeps hover hiding independent across pet mouse OFF/ON changes', async () => {
+    const h = createComposableHarness()
+    h.hover(true)
+    try {
+      await h.mount()
+      await h.advance(0)
+      assert.equal(h.opacity(), '0')
+      await h.device.requestMouseSetting(false)
+      assert.equal(h.opacity(), '0')
+      assert.equal(h.cursorIgnores.at(-1), true)
+      h.event({ kind: 'pointer_activity', x: -10, y: -10, mouseGeneration: h.device.getInputState().mouseGeneration })
+      assert.equal(h.opacity(), 'unset')
+      h.frame()
+      await flush()
+      assert.equal(h.dispatched.length, 1)
+      assert.equal(h.dispatched[0].kind, 'pointer_activity')
+      await h.device.requestMouseSetting(true)
+      assert.equal(h.opacity(), 'unset')
+      h.setCursor(async () => ({ x: -10, y: -10 }))
+      await h.advance(100)
+      assert.equal(h.opacity(), 'unset')
+    } finally {
+      h.unmount()
+      await flush()
+    }
+  })
+
+  it('ignores pending cursor reads after disable, pause or disposal', async () => {
+    for (const stop of ['disable', 'pause', 'dispose']) {
+      const h = createComposableHarness()
+      const cursor = deferred<{ x: number, y: number }>()
+      h.setCursor(() => cursor.promise)
+      h.hover(true)
+      try {
+        await h.mount()
+        await h.advance(1000)
+        assert.equal(h.cursorReads(), 1, 'only one cursor request may be in flight')
+        if (stop === 'disable') h.hover(false)
+        else if (stop === 'pause') await h.device.setInputActive(false)
+        else h.unmount()
+        const reads = h.cursorReads()
+        cursor.resolve({ x: 100, y: 25 })
+        await flush()
+        await h.advance(1000)
+        assert.equal(h.opacity(), 'unset', stop)
+        assert.equal(h.cursorIgnores.at(-1), false, stop)
+        assert.equal(h.cursorReads(), reads, stop)
+      } finally {
+        h.unmount()
+        await flush()
+      }
+    }
+  })
+
+  it('ignores a cursor read from before reactivation and resumes with a fresh one', async () => {
+    const h = createComposableHarness()
+    const cursor = deferred<{ x: number, y: number }>()
+    h.setCursor(() => cursor.promise)
+    h.hover(true)
+    try {
+      await h.mount()
+      await h.device.setInputActive(false)
+      await h.device.setInputActive(true)
+      assert.equal(h.cursorReads(), 1)
+      h.setCursor(async () => ({ x: -10, y: -10 }))
+      cursor.resolve({ x: 100, y: 25 })
+      await flush()
+      await h.advance(100)
+      assert.equal(h.opacity(), 'unset')
+      assert.equal(h.cursorReads(), 2)
+    } finally {
+      h.unmount()
+      await flush()
+    }
+  })
+
+  it('ignores a polled position older than a native pointer event', async () => {
+    const h = createComposableHarness()
+    const cursor = deferred<{ x: number, y: number }>()
+    h.setCursor(() => cursor.promise)
+    h.hover(true)
+    try {
+      await h.mount()
+      const mouseGeneration = h.device.getInputState().mouseGeneration
+      h.event({ kind: 'pointer_activity', x: 100, y: 25, mouseGeneration })
+      await h.advance(0)
+      assert.equal(h.opacity(), '0')
+      h.event({ kind: 'pointer_activity', x: -10, y: -10, mouseGeneration })
+      cursor.resolve({ x: 100, y: 25 })
+      await flush()
+      await h.advance(0)
+      assert.equal(h.opacity(), 'unset')
+      assert.equal(h.cursorIgnores.at(-1), false)
+    } finally {
+      h.unmount()
+      await flush()
+    }
+  })
+
   it('retains right-button animations and the window click-through choice across mouse toggles', async () => {
     for (const passThrough of [false, true]) {
       const h = createComposableHarness(passThrough)

@@ -9,16 +9,16 @@ import { installPresetSkinBrowser } from '@/features/presets/skin.test.utils'
 import { getRequiredPetAssetMutation } from '@/pages/main/petAssetSelection'
 import { getResolvedDmeloperSkinUrl, resolveDmeloperSkinUrl } from '@/services/dmeloperSkin'
 
-import { preparePetStateForSync, useCatStore } from './cat'
+import { preparePetStateForSync, useBlockStore } from './block'
 
 const entryId = 'a'.repeat(64)
 const userSkin = 'data:image/png;base64,oldskin'
 const wire = (value: unknown) => JSON.parse(JSON.stringify(value))
 function createStore() {
   setActivePinia(createPinia())
-  return useCatStore()
+  return useBlockStore()
 }
-function selectUserSkin(store: ReturnType<typeof useCatStore>) {
+function selectUserSkin(store: ReturnType<typeof useBlockStore>) {
   store.applySkinLibraryEntry({ entryId, source: 'java', canonicalNickname: 'jeb_', dataUrl: userSkin, skinModel: 'slim' })
 }
 
@@ -30,7 +30,7 @@ it('clears the old PNG across JSON and two webview stores and preserves the mate
       const preference = createStore()
       selectUserSkin(preference)
       preference.updateDmeloperPalmColor('#334455')
-      preference.presetCollection = createPresetCollection(capturePresetSnapshot(preference))
+      preference.presetCollection = { ...createPresetCollection(), activeId: 'saved', entries: [{ id: 'saved', name: 'Saved', favorite: false, snapshot: capturePresetSnapshot(preference) }] }
       const main = createStore()
       main.$patch(preparePetStateForSync(wire(preference.$state)))
       preference.handleSkinLibraryEntriesDeleted(bulk ? ['b'.repeat(64), entryId] : [entryId])

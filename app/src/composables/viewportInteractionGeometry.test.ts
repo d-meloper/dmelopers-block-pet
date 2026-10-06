@@ -9,19 +9,22 @@ import { describe, it } from 'node:test'
 import { runInNewContext } from 'node:vm'
 import { createPinia } from 'pinia'
 import ts from 'typescript'
-import { compile } from 'vue'
+import { compile, isRef, ref as vueRef, watch as vueWatch } from 'vue'
 
+import type { PetSkinChangeRequest } from '@/features/petRuntime/types'
 import type { PresetApplyResponse, PresetSnapshot } from '@/features/presets/types'
-import type { CatStore, Pet3dPresetSelectionPayload } from '@/stores/cat'
+import type { BlockStore, Pet3dPresetSelectionPayload } from '@/stores/block'
+import type { LoadedPetAssetState } from '@/utils/three3d'
 
+import { DEFAULT_PREFERENCE_SIZE, MIN_PREFERENCE_SIZE } from '@/config/window'
 import { LISTEN_KEY } from '@/constants'
 import { isCurrentSemanticInput } from '@/features/input/types'
-import { PET_RUNTIME_RESTART_REQUIRED } from '@/features/petRuntime/types'
+import { PET_RUNTIME_RESTART_REQUIRED, PET_SKIN_CHANGE } from '@/features/petRuntime/types'
 import { capturePresetSnapshot, createDefaultPresetSnapshot } from '@/features/presets/model'
 import { PRESET_APPLY_CANCEL, PRESET_APPLY_REQUEST, PRESET_APPLY_RESPONSE } from '@/features/presets/types'
 import { SCENE_VIEWPORT_REQUEST, SCENE_VIEWPORT_RESPONSE } from '@/features/scene/types'
 import { createWindowVisibilityQueue } from '@/plugins/windowVisibility'
-import { createDefaultPet3dPreset, useCatStore } from '@/stores/cat'
+import { createDefaultPet3dPreset, useBlockStore } from '@/stores/block'
 
 import type { ApplyMainViewportGeometryInput, WindowState } from './useWindowState'
 
@@ -49,7 +52,19 @@ interface SharedNativeWindow {
   writes: Array<{ owner: string, width: number, height: number }>
 }
 
-function createNativeHarness(options: { shared?: SharedNativeWindow, owner?: string, registration?: Promise<void>, label?: string } = {}) {
+function createNativeHarness(options: {
+  shared?: SharedNativeWindow
+  owner?: string
+  registration?: Promise<void>
+  label?: string
+  scaleFactor?: number
+  monitors?: Array<{
+    position: { x: number, y: number }
+    size: { width: number, height: number }
+    scaleFactor: number
+    workArea: { position: { x: number, y: number }, size: { width: number, height: number } }
+  }>
+} = {}) {
   const calls: string[] = []
   const mounted: Array<() => void> = []
   const disposed: Array<() => void> = []
@@ -58,7 +73,7 @@ function createNativeHarness(options: { shared?: SharedNativeWindow, owner?: str
   const timers: Array<() => Promise<void>> = []
   const listeners: Record<string, NativeEventListener> = {}
   const pauses: Partial<Record<'read' | 'sizeRead' | 'size' | 'position', Promise<void>>> = {}
-  const catStore = { window: { keepInScreen: false }, model: { mirror: false } }
+  const blockStore = { window: { keepInScreen: false }, model: { mirror: false } }
   const appStore = { windowState: {} as WindowState }
   const register = (event: string, callback: NativeEventListener) => {
     listeners[event] = callback
@@ -74,7 +89,7 @@ function createNativeHarness(options: { shared?: SharedNativeWindow, owner?: str
     isMinimized: async () => false,
     scaleFactor: async () => {
       await pauses.read
-      return 1
+      return options.scaleFactor ?? 1
     },
     outerPosition: async () => ({ x: 20, y: 30 }),
     outerSize: async () => ({ ...options.shared?.size ?? { width: 200, height: 200 } }),
@@ -100,7 +115,7 @@ function createNativeHarness(options: { shared?: SharedNativeWindow, owner?: str
   }
   const mocks: Record<string, unknown> = {
     '@tauri-apps/api/webviewWindow': { getCurrentWebviewWindow: () => appWindow },
-    '@tauri-apps/api/window': { availableMonitors: async () => [] },
+    '@tauri-apps/api/window': { availableMonitors: async () => options.monitors ?? [] },
     '@vueuse/core': {
       useDebounceFn: (callback: (...args: unknown[]) => Promise<void>) => (...args: unknown[]) => {
         timers.push(() => callback(...args))
@@ -113,7 +128,7 @@ function createNativeHarness(options: { shared?: SharedNativeWindow, owner?: str
       watch: () => {},
     },
     '@/stores/app': { useAppStore: () => appStore },
-    '@/stores/cat': { useCatStore: () => catStore },
+    '@/stores/block': { useBlockStore: () => blockStore },
   }
   const exports = {} as typeof import('./useWindowState')
   runInNewContext(compiled, {
@@ -138,6 +153,110 @@ function createNativeHarness(options: { shared?: SharedNativeWindow, owner?: str
 async function flushMicrotasks() {
   for (let index = 0; index < 30; index += 1) await Promise.resolve()
 }
+
+describe('preference default geometry', () => {
+  it('restores unusable saved sizes to defaults instead of reopening a zero client area', async () => {
+    for (const scaleFactor of [1, 1.5, 2]) {
+      for (const invalid of [0, -1, Number.NaN, Infinity]) {
+        const shared: SharedNativeWindow = { size: { width: 0, height: 0 }, listeners: new Set(), writes: [] }
+        const h = createNativeHarness({ shared, label: 'preference', scaleFactor })
+        h.appStore.windowState.preference = { width: invalid, height: invalid, x: 130, y: 130 }
+        await h.lifecycle.restoreState()
+        assert.deepEqual(shared.size, { width: 911 * scaleFactor, height: 692 * scaleFactor })
+        assert.equal(h.lifecycle.isRestored.value, true)
+        assert.equal(h.appStore.windowState.preference.width, shared.size.width)
+        assert.equal(h.appStore.windowState.preference.height, shared.size.height)
+        h.dispose()
+      }
+    }
+  })
+
+  it('does not persist empty resize events even if the window is no longer minimized when handled', async () => {
+    const h = createNativeHarness({ label: 'preference' })
+    h.appStore.windowState.preference = { width: 911, height: 692, x: 130, y: 130 }
+    for (const size of [
+      new PhysicalSize(0, 0),
+      new PhysicalSize(0, 692),
+      new PhysicalSize(911, 0),
+      new PhysicalSize(-1, 692),
+      new PhysicalSize(911, Number.NaN),
+      new PhysicalSize(Infinity, 692),
+    ]) {
+      await h.listeners.resized({ payload: size })
+      assert.equal(h.appStore.windowState.preference.width, 911)
+      assert.equal(h.appStore.windowState.preference.height, 692)
+    }
+    await h.listeners.resized({ payload: new PhysicalSize(800, 600) })
+    assert.equal(h.appStore.windowState.preference.width, 800)
+    assert.equal(h.appStore.windowState.preference.height, 600)
+    h.dispose()
+  })
+
+  it('keeps first-launch native defaults separate from the accepted minimum', () => {
+    const config = JSON.parse(readFileSync(new URL('../../src-tauri/tauri.conf.json', import.meta.url), 'utf8'))
+    const window = config.app.windows.find((item: { label: string }) => item.label === 'preference')
+    assert.deepEqual(DEFAULT_PREFERENCE_SIZE, { width: 911, height: 692 })
+    assert.deepEqual({ width: window.width, height: window.height }, DEFAULT_PREFERENCE_SIZE)
+    assert.deepEqual(MIN_PREFERENCE_SIZE, { width: 669, height: 458 })
+    assert.deepEqual({ width: window.minWidth, height: window.minHeight }, MIN_PREFERENCE_SIZE)
+  })
+
+  it('scales missing-state defaults at the current DPI, including no-monitor fallback', async () => {
+    for (const scaleFactor of [1, 1.5, 2]) {
+      const shared: SharedNativeWindow = { size: { width: 200, height: 200 }, listeners: new Set(), writes: [] }
+      const h = createNativeHarness({ shared, label: 'preference', scaleFactor })
+      await h.lifecycle.restoreState()
+      assert.deepEqual(shared.size, { width: 911 * scaleFactor, height: 692 * scaleFactor })
+      assert.equal(h.appStore.windowState.preference?.width, shared.size.width)
+      assert.equal(h.appStore.windowState.preference?.height, shared.size.height)
+      h.dispose()
+    }
+  })
+
+  it('preserves saved physical dimensions and clamps fresh defaults to the work area', async () => {
+    for (const saved of [true, false]) {
+      const shared: SharedNativeWindow = { size: { width: 200, height: 200 }, listeners: new Set(), writes: [] }
+      const h = createNativeHarness({
+        shared,
+        label: 'preference',
+        monitors: [{
+          position: { x: 0, y: 0 },
+          size: { width: 1920, height: 1080 },
+          scaleFactor: 1.5,
+          workArea: { position: { x: 0, y: 0 }, size: { width: 1200, height: 900 } },
+        }],
+      })
+      if (saved) h.appStore.windowState.preference = { width: 1100, height: 800 }
+      await h.lifecycle.restoreState()
+      assert.deepEqual(shared.size, saved ? { width: 1100, height: 800 } : { width: 1200, height: 840 })
+      h.dispose()
+    }
+  })
+})
+
+it('bounds undersized saved preference geometry by the DPI minimum and smaller work areas', async () => {
+  for (const scaleFactor of [1, 1.5, 2]) {
+    for (const compactWorkArea of [false, true]) {
+      const shared: SharedNativeWindow = { size: { width: 0, height: 0 }, listeners: new Set(), writes: [] }
+      const h = createNativeHarness({
+        shared,
+        label: 'preference',
+        monitors: [{
+          position: { x: 0, y: 0 },
+          size: { width: 3840, height: 2160 },
+          scaleFactor,
+          workArea: { position: { x: 0, y: 0 }, size: compactWorkArea ? { width: 600, height: 400 } : { width: 3840, height: 2160 } },
+        }],
+      })
+      h.appStore.windowState.preference = { width: 1, height: 1 }
+      await h.lifecycle.restoreState()
+      assert.deepEqual(shared.size, compactWorkArea
+        ? { width: 600, height: 400 - 40 * scaleFactor }
+        : { width: 669 * scaleFactor, height: 458 * scaleFactor })
+      h.dispose()
+    }
+  }
+})
 
 describe('native viewport interaction cancellation', () => {
   it('persists regular window geometry without enumerable Tauri class metadata', async () => {
@@ -379,7 +498,7 @@ describe('native viewport interaction cancellation', () => {
   })
 })
 
-function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: boolean, allowInitialize?: boolean } = {}) {
+function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: boolean, allowInitialize?: boolean, loadingPaint?: boolean } = {}) {
   const source = mainPageSource
     .split('<script setup lang="ts">')[1]
     .split('</script>')[0]
@@ -394,7 +513,7 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
   let viewportWatch: (() => void) | undefined
   let now = 0
   let nextTimer = 0
-  const timers = new Map<number, { due: number, callback: () => void }>()
+  const timers = new Map<number, { due: number, callback: () => void, frame?: boolean }>()
   const calls = {
     native: [] as number[],
     nativeRects: [] as Array<{ x: number, y: number, width: number, height: number }>,
@@ -407,11 +526,17 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
     drag: 0,
     dragContainment: [] as boolean[],
     padding: [] as number[],
+    inputResumeStarted: 0,
+    inputResumes: [] as boolean[],
   }
   const rect = { x: 0, y: 0, width: 200, height: 200 }
   let measuredRect = { ...rect }
   let snapshot = { sourceRect: rect, realizedSourceRect: rect, outputLogicalSize: rect, physicalSize: rect }
   let nativeWait = Promise.resolve()
+  let centerWait = Promise.resolve()
+  let inputResumeWait = Promise.resolve()
+  let inputRequestGeneration = 0
+  let pauseFramesWhenHidden = false
   let dragWait = Promise.resolve()
   let nativeFailure = false
   let nativeFailuresRemaining = 0
@@ -423,6 +548,11 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
   let initializationFailures = 0
   let initializationErrorName = 'Error'
   let resourceFailure: 'skin' | 'model' | undefined
+  const resourceWait = { skin: Promise.resolve(), model: Promise.resolve() }
+  let skinFailure = false
+  let skinWait = Promise.resolve()
+  let skinApplications = 0
+  let petPresentationVisible = true
   let health = true
   let automaticFrame = true
   let firstFrame: (() => void) | undefined
@@ -450,8 +580,13 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
   const presetResponses: PresetApplyResponse[] = []
   const sceneResponses: Array<{ requestId: string, success: boolean, state: { automatic: boolean, revision: number, rect: typeof rect } }> = []
   let measurementWait = Promise.resolve()
+  let loadedAssetState: LoadedPetAssetState = {
+    modelId: 'dmeloper',
+    dmeloperSkinModel: 'wide',
+    dmeloperSkinUrl: options.allowInitialize ? 'data:image/png;base64,default' : undefined,
+  }
   const store = {
-    sanitizePet3dPreset: useCatStore(createPinia()).sanitizePet3dPreset,
+    sanitizePet3dPreset: useBlockStore(createPinia()).sanitizePet3dPreset,
     window: { visible: true, keepInScreen: false, opacity: 100 },
     model: { mirror: false, eyebrowAnimationEnabled: true },
     customization3d: {
@@ -493,8 +628,24 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
       destructionCalls++
     },
     renderHealthFrame: () => health,
+    setPetPresentationVisible: (visible: boolean) => {
+      petPresentationVisible = visible
+    },
     getCompositionSize: () => ({ width: 400, height: 400 }),
-    getLoadedPetAssetState: () => ({ modelId: 'dmeloper', dmeloperSkinModel: 'wide', ...(options.allowInitialize ? { dmeloperSkinUrl: 'data:image/png;base64,default' } : {}) }),
+    getLoadedPetAssetState: () => loadedAssetState,
+    setDmeloperSkin: async (url: string, model: 'auto' | 'wide' | 'slim') => {
+      skinApplications++
+      await skinWait
+      if (skinFailure) {
+        skinFailure = false
+        const error = new Error('fixture skin load failure')
+        error.name = 'PetAssetLoadError'
+        throw error
+      }
+      const resolved = model === 'slim' ? 'slim' : 'wide'
+      loadedAssetState = { modelId: 'dmeloper', dmeloperSkinModel: resolved, dmeloperSkinUrl: url }
+      return resolved
+    },
     getPendingPetAssetState: () => undefined,
     getConservativeContentRect: () => ({ ...measuredRect }),
     setAutoViewportPadding: (pixels: number) => calls.padding.push(pixels),
@@ -550,28 +701,36 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
         },
       }),
       nextTick: () => nextTickWait,
-      ref: (value: unknown) => ({ value }),
-      watch: (source: unknown, callback: (value?: boolean) => void) => {
+      ref: vueRef,
+      watch: (source: unknown, callback: (value?: boolean) => void, options?: { immediate?: boolean, flush?: 'sync' }) => {
         if (source === editorGate) editorWatch = callback
         if (Array.isArray(source)) viewportWatch = callback
         if (typeof source === 'function' && source.toString().includes('.mouseEnabled')) mouseSettingWatch = callback
+        if (isRef(source)) unmounted.push(vueWatch(source, value => callback(value as boolean), options))
       },
       onMounted: () => {},
       onUnmounted: (callback: () => void) => unmounted.push(callback),
     },
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
-    '@/stores/cat': { useCatStore: () => store },
+    '@/stores/block': { useBlockStore: () => store },
     '@/stores/general': { useGeneralStore: () => general },
     '@/composables/useAppMenu': { useAppMenu: () => ({}) },
     '@/composables/useDevice': { useDevice: (options: { onMouseReset: () => void }) => ({
       getInputState: () => mouseState,
       acceptsInput: (event: Parameters<typeof isCurrentSemanticInput>[0]) => inputActive && isCurrentSemanticInput(event, mouseState),
       setInputActive: async (active: boolean, confirmNative = false) => {
+        const request = ++inputRequestGeneration
         if (confirmNative && inputFailure) {
           inputFailure = false
           throw new Error('fixture native input failure')
         }
+        if (active) {
+          calls.inputResumeStarted++
+          await inputResumeWait
+        }
+        if (request !== inputRequestGeneration) return
         inputActive = active
+        if (active) calls.inputResumes.push(nativeVisible)
         if (!active) options.onMouseReset()
       },
       requestMouseSetting: async (enabled?: boolean) => {
@@ -597,8 +756,10 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
         await monitorWait
         return monitorSize
       },
-      centerMainViewportGeometry: async () => {
+      centerMainViewportGeometry: async (isCurrent?: () => boolean) => {
         calls.center += 1
+        await centerWait
+        if (isCurrent?.() === false) return undefined
         return snapshot
       },
       applyMainViewportGeometry: async (input: ApplyMainViewportGeometryInput) => {
@@ -653,16 +814,19 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
       registerNativeDrain: () => {},
     },
     '@/utils/three3d': { default: renderer },
+    './loadingPaint': { createLoadingPaintBarrier: () => ({ wait: async () => {}, cancel: () => {} }) },
   }
   if (options.allowInitialize) {
     mocks['@tauri-apps/api/core'] = { convertFileSrc: (path: string) => path }
     mocks['@tauri-apps/api/path'] = { resolveResource: async (path: string) => {
+      await resourceWait.model
       if (resourceFailure === 'model') throw new Error('fixture resource resolution failed')
       return path
     } }
     mocks['@/services/dmeloperSkin'] = {
       getResolvedDmeloperSkinUrl: (url?: string) => url ?? 'data:image/png;base64,default',
       resolveDmeloperSkinUrl: async (url?: string) => {
+        await resourceWait.skin
         if (resourceFailure === 'skin') throw new Error('fixture bundled skin read failed')
         return url ?? 'data:image/png;base64,default'
       },
@@ -677,7 +841,7 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
     Date: { now: () => now },
     document: {
       documentElement: { classList: { remove: () => {} } },
-      createElement: () => ({ className: '', dataset: {} }),
+      createElement: () => ({ className: '', dataset: {}, remove() {} }),
     },
     setTimeout: (callback: () => void, delay: number) => {
       const id = ++nextTimer
@@ -687,7 +851,7 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
     clearTimeout: (id: number) => timers.delete(id),
     requestAnimationFrame: (callback: () => void) => {
       const id = ++nextTimer
-      timers.set(id, { due: now + 16, callback })
+      timers.set(id, { due: now + 16, callback, frame: true })
       return id
     },
     cancelAnimationFrame: (id: number) => timers.delete(id),
@@ -697,6 +861,14 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
     resetForTest: undefined as undefined | (() => Promise<boolean>),
     hologramForTest: undefined as undefined | (() => boolean),
     dragForTest: undefined as undefined | ((event: { button: number }) => Promise<void>),
+  }
+  if (options.loadingPaint) {
+    const paintExports = {}
+    runInNewContext(ts.transpileModule(readFileSync(
+      new URL('../pages/main/loadingPaint.ts', import.meta.url),
+      'utf8',
+    ), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { ...context, exports: paintExports })
+    mocks['./loadingPaint'] = paintExports
   }
   const schedulerExports = {}
   runInNewContext(ts.transpileModule(readFileSync(
@@ -713,6 +885,7 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
     void registerInputListeners();
     rendererReady = true;
     viewportRevealPending = false;
+    if (typeof presentationPending !== 'undefined') presentationPending = false;
     currentContentRect = { x: 0, y: 0, width: 200, height: 200 };
     desiredBoundsSignature = createVisibleBoundsSelectionSignature(getCurrentSelection());
     appliedBoundsSignature = desiredBoundsSignature;
@@ -756,6 +929,15 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
     waitForHide: (wait: Promise<void>) => {
       hideWait = wait
     },
+    waitForCenter: (wait: Promise<void>) => {
+      centerWait = wait
+    },
+    waitForInputResume: (wait: Promise<void>) => {
+      inputResumeWait = wait
+    },
+    pauseHiddenFrames: () => {
+      pauseFramesWhenHidden = true
+    },
     waitForInitialization: (wait: Promise<void>) => {
       initializationWait = wait
     },
@@ -775,6 +957,16 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
     failResource: (resource: 'skin' | 'model') => {
       resourceFailure = resource
     },
+    waitForResource: (resource: 'skin' | 'model', wait: Promise<void>) => {
+      resourceWait[resource] = wait
+    },
+    skinApplications: () => skinApplications,
+    waitForSkin: (wait: Promise<void>) => {
+      skinWait = wait
+    },
+    failSkin: () => {
+      skinFailure = true
+    },
     initializationCalls: () => initializationCalls,
     destructionCalls: () => destructionCalls,
     recoveryNotices,
@@ -786,7 +978,7 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
     },
     sceneResponses,
     presetResponses,
-    capturePreset: () => capturePresetSnapshot(store as unknown as CatStore),
+    capturePreset: () => capturePresetSnapshot(store as unknown as BlockStore),
     applyPreset: (snapshot: PresetSnapshot, requestId = 'preset-test', restoreVisibility?: boolean) => events[PRESET_APPLY_REQUEST]({ payload: { requestId, snapshot, restoreVisibility } }),
     cancelPreset: (requestId = 'preset-test') => events[PRESET_APPLY_CANCEL]({ payload: { requestId } }),
     failVisibility: (operation: typeof visibilityFailure) => {
@@ -802,17 +994,37 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
       nativeFailuresRemaining = 1
     },
     snapshot: () => snapshot,
+    petPresentationVisible: () => petPresentationVisible,
+    scenePresentation() {
+      const root = Reflect.apply(renderMainPage, undefined, [{
+        blockStore: store,
+        viewportHologramVisible: context.hologramForTest!(),
+        rendererError: context.runtimeStateForTest!().error,
+        rendererLoading: context.runtimeStateForTest!().loading,
+        handleMouseDown: context.dragForTest,
+        handleContextmenu: () => {},
+        t: (key: string) => key,
+      }, []]) as VNode
+      const children = root.children as VNode[]
+      const scene = children[0]
+      return {
+        sceneVisible: !scene.dirs?.some(directive => directive.value === false),
+        loadingVisible: children.some(child => child.props?.role === 'status'),
+        opacity: (scene.props?.style as { opacity: number }).opacity,
+        mirrored: String(scene.props?.class).includes('-scale-x-100'),
+      }
+    },
     hologram: () => context.hologramForTest!(),
     hologramClass() {
       const root = Reflect.apply(renderMainPage, undefined, [{
-        catStore: store,
+        blockStore: store,
         viewportHologramVisible: context.hologramForTest!(),
         rendererError: undefined,
         rendererLoading: false,
         handleMouseDown: context.dragForTest,
         handleContextmenu: () => {},
       }, []]) as VNode
-      return ((root.children as VNode[])[0].children as VNode[]).find(child => child.props?.['data-testid'] === 'viewport-hologram')?.props?.class as string
+      return ((root.children as VNode[])[0].children as VNode[]).find(child => String(child.props?.class ?? '').split(/\s+/).includes('viewport-hologram'))?.props?.class as string
     },
     drag: () => context.dragForTest!({ button: 0 }),
     waitForDrag: (wait: Promise<void>) => {
@@ -838,7 +1050,8 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
       Object.assign(store.activePet3dPreset, patch)
       events[LISTEN_KEY.PET_PRESET_CHANGED]({ payload: {
         modelId: 'dmeloper',
-        useDefaultDmeloperSkin: true,
+        useDefaultDmeloperSkin: store.customization3d.useDefaultDmeloperSkin,
+        dmeloperSkinDataUrl: store.customization3d.useDefaultDmeloperSkin ? undefined : store.customization3d.dmeloperSkinDataUrl,
         dmeloperSkinModel: 'wide',
         preset: { ...store.activePet3dPreset },
       } })
@@ -848,7 +1061,8 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
       store.activePet3dPreset.petRotationDegrees = rotation
       const selection: Pet3dPresetSelectionPayload = {
         modelId: 'dmeloper',
-        useDefaultDmeloperSkin: true,
+        useDefaultDmeloperSkin: store.customization3d.useDefaultDmeloperSkin,
+        dmeloperSkinDataUrl: store.customization3d.useDefaultDmeloperSkin ? undefined : store.customization3d.dmeloperSkinDataUrl,
         dmeloperSkinModel: 'wide',
         preset: { ...store.activePet3dPreset, petRotationDegrees: rotation },
       }
@@ -856,6 +1070,18 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
     },
     waitForMeasurement: (wait: Promise<void>) => {
       measurementWait = wait
+    },
+    skinChange: (request: PetSkinChangeRequest) => events[PET_SKIN_CHANGE]({ payload: request }),
+    changeSkin(url: string) {
+      store.customization3d.useDefaultDmeloperSkin = false
+      store.customization3d.dmeloperSkinDataUrl = url
+      events[LISTEN_KEY.PET_PRESET_CHANGED]({ payload: {
+        modelId: 'dmeloper',
+        useDefaultDmeloperSkin: false,
+        dmeloperSkinDataUrl: url,
+        dmeloperSkinModel: 'wide',
+        preset: { ...store.activePet3dPreset },
+      } })
     },
     measured: (value: typeof rect) => {
       measuredRect = { ...value }
@@ -888,6 +1114,7 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
       now += milliseconds
       for (const [id, timer] of timers) {
         if (timer.due > now) continue
+        if (timer.frame && pauseFramesWhenHidden && !nativeVisible) continue
         timers.delete(id)
         timer.callback()
       }
@@ -898,6 +1125,7 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
       store.window.visible = false
       return context.resetForTest!()
     },
+    reset: () => context.resetForTest!(),
     async hide() {
       store.window.visible = false
       await context.hideForTest?.()
@@ -1014,6 +1242,30 @@ describe('managed preset native acknowledgements', () => {
     }
   })
 
+  it('retains the surrounding canvas and saved styling while a preset waits for its skin', async () => {
+    const h = createMainPageHarness({ allowInitialize: true })
+    const skin = deferred()
+    try {
+      const snapshot = h.capturePreset()
+      snapshot.appearance.dmeloperSkinDataUrl = 'data:image/png;base64,preset-loading'
+      snapshot.opacity = 42
+      snapshot.mirror = true
+      h.waitForSkin(skin.promise)
+      h.applyPreset(snapshot)
+      await h.advance(1000)
+      assert.equal(h.runtimeState().loading, true)
+      assert.equal(h.petPresentationVisible(), false)
+      assert.deepEqual(h.scenePresentation(), { sceneVisible: true, loadingVisible: true, opacity: 0.42, mirrored: true })
+      skin.resolve()
+      assert.equal((await settlePresetResponse(h)).success, true)
+      assert.equal(h.petPresentationVisible(), true)
+      assert.equal(h.scenePresentation().loadingVisible, false)
+    } finally {
+      skin.resolve()
+      h.unmount()
+    }
+  })
+
   it('restores a previously hidden pet when showing the requested preset fails', async () => {
     const h = createMainPageHarness({ allowInitialize: true })
     try {
@@ -1102,6 +1354,60 @@ describe('managed preset native acknowledgements', () => {
 })
 
 describe('scene viewport initialization acknowledgement', () => {
+  for (const resource of ['skin', 'model'] as const) {
+    for (const automatic of [undefined, false]) {
+      it(`keeps the shared initialization pending when a preset arrives during ${resource} resolution (${automatic === undefined ? 'query' : 'manual'})`, async () => {
+        const h = createMainPageHarness({ allowInitialize: true })
+        const resolving = deferred()
+        const creating = deferred()
+        h.waitForResource(resource, resolving.promise)
+        h.waitForInitialization(creating.promise)
+        const initializing = h.initialize()
+        try {
+          await flushMicrotasks()
+          h.requestMode(automatic)
+          if (automatic === undefined) h.packet({ ...h.store.activePet3dPreset })
+          else h.selection(10)
+          resolving.resolve()
+          await flushMicrotasks()
+          assert.equal(h.sceneResponses.length, 0, 'superseded preparation is pending work, not native failure')
+          creating.resolve()
+          assert.equal(await initializing, true)
+          for (let attempt = 0; attempt < 20 && !h.sceneResponses.length; attempt++) await h.advance(120)
+          assert.equal(h.sceneResponses.length, 1)
+          assert.equal(h.sceneResponses[0].success, true)
+          assert.equal(h.sceneResponses[0].state.automatic, automatic ?? true)
+          assert.equal(h.runtimeState().error, undefined)
+        } finally {
+          resolving.resolve()
+          creating.resolve()
+          h.unmount()
+        }
+      })
+    }
+
+    it(`cancels resource preparation when hidden during ${resource} resolution`, async () => {
+      const h = createMainPageHarness({ allowInitialize: true })
+      const resolving = deferred()
+      h.waitForResource(resource, resolving.promise)
+      const initializing = h.initialize()
+      try {
+        await flushMicrotasks()
+        h.packet({ ...h.store.activePet3dPreset })
+        await h.hide()
+        resolving.resolve()
+        assert.equal(await initializing, false)
+        await h.advance(1000)
+        assert.equal(h.initializationCalls(), 0)
+        assert.equal(h.nativeVisible(), false)
+        assert.equal(h.runtimeState().error, undefined)
+      } finally {
+        resolving.resolve()
+        h.unmount()
+      }
+    })
+  }
+
   it('reports an actual initialization failure instead of treating queue idleness as success', async () => {
     const h = createMainPageHarness({ allowInitialize: true })
     try {
@@ -1876,6 +2182,38 @@ describe('main page interaction wiring', () => {
     assert.equal(h.snapshot().physicalSize.height, 240)
   })
 
+  for (const resetMethod of ['resetActivePet3dPreset', 'resetCustomization3d', 'resetAllSettings'] as const) {
+    it(`keeps reset defaults newer than a late manual-mode packet (${resetMethod})`, async () => {
+      const h = createMainPageHarness()
+      try {
+        h.requestMode(false, 'manual-before-reset')
+        await flushMicrotasks()
+        await h.advance(16)
+        const oldPreset = { ...h.store.activePet3dPreset }
+        assert.equal(oldPreset.viewportModeRevision, 1)
+        const store = useBlockStore(createPinia())
+        Object.assign(store.activePet3dPreset, oldPreset)
+        store[resetMethod]()
+        h.store.customization3d.preset = JSON.parse(JSON.stringify(store.activePet3dPreset))
+        const resetting = h.reset()
+        for (let index = 0; index < 10; index++) await h.advance(120)
+        assert.equal(await resetting, true)
+        h.requestMode(undefined, 'query-after-reset')
+        await flushMicrotasks()
+        const response = h.sceneResponses.at(-1)!
+        assert.equal(response.success, true)
+        assert.equal(response.state.automatic, true)
+        assert.ok(response.state.revision > oldPreset.viewportModeRevision)
+        h.packet(oldPreset)
+        await h.advance(120)
+        assert.equal(h.store.activePet3dPreset.autoViewportEnabled, true)
+        assert.equal(h.store.activePet3dPreset.viewportModeRevision, response.state.revision)
+      } finally {
+        h.unmount()
+      }
+    })
+  }
+
   it('discards a mode request superseded while waiting for monitor readback', async () => {
     const h = createMainPageHarness()
     const monitor = deferred()
@@ -1889,6 +2227,396 @@ describe('main page interaction wiring', () => {
     assert.equal(h.store.activePet3dPreset.autoViewportEnabled, true)
     assert.deepEqual(h.sceneResponses.map(response => response.requestId), ['latest'])
     assert.equal(h.sceneResponses[0].state.automatic, true)
+  })
+})
+
+describe('retired pet selection ownership', () => {
+  for (const packet of ['preset', 'skin'] as const) {
+    it(`ignores a retained ${packet} callback after the main page unmounts`, async () => {
+      const h = createMainPageHarness()
+      h.unmount()
+      const before = JSON.stringify(h.calls)
+      // Native unsubscribe may fail; this deliberately retained callback must
+      // have no authority over the replacement owner's shared window.
+      if (packet === 'skin') h.changeSkin('data:image/png;base64,replacement')
+      else h.packet({ ...h.store.activePet3dPreset })
+      await flushMicrotasks()
+      await h.advance(1000)
+      assert.equal(h.store.window.visible, true)
+      assert.equal(h.nativeVisible(), true)
+      assert.equal(h.runtimeState().pending, false)
+      assert.equal(JSON.stringify(h.calls), before)
+    })
+  }
+})
+
+describe('pet presentation survives superseded viewport work', () => {
+  it('keeps pet loading through Java preparation and hands it directly to the supplied skin', async () => {
+    const h = createMainPageHarness({ allowInitialize: true, loadingPaint: true })
+    const skin = deferred()
+    try {
+      h.skinChange({ requestId: 'java-cold', phase: 'prepare' })
+      await h.advance(1000)
+      assert.equal(h.runtimeState().loading, true)
+      assert.equal(h.inputActive(), false)
+      assert.equal(h.skinApplications(), 0)
+      assert.equal(h.petPresentationVisible(), false)
+      assert.deepEqual(h.scenePresentation(), { sceneVisible: true, loadingVisible: true, opacity: 1, mirrored: false })
+      h.changePreset({ petHeadScalePercent: 110 })
+      await h.advance(1000)
+      assert.equal(h.runtimeState().loading, true, 'ordinary packets must not end the nickname request')
+      h.waitForSkin(skin.promise)
+      h.skinChange({ requestId: 'java-cold', phase: 'finish', skin: {
+        dataUrl: 'data:image/png;base64,cold-java',
+        model: 'slim',
+        palmColor: '#445566',
+      } })
+      await h.advance(16)
+      await h.advance(16)
+      await h.advance(1000)
+      assert.equal(h.skinApplications(), 1, 'the finish packet must apply without waiting for a separate settings event')
+      assert.equal(h.runtimeState().loading, true)
+      assert.equal(h.petPresentationVisible(), false, 'new skin stays hidden while its bounds settle')
+      skin.resolve()
+      await flushMicrotasks()
+      await h.advance(1000)
+      assert.equal(h.runtimeState().loading, false)
+      assert.equal(h.inputActive(), true)
+      assert.equal(h.petPresentationVisible(), true)
+      assert.equal(h.scenePresentation().loadingVisible, false)
+    } finally {
+      skin.resolve()
+      h.unmount()
+    }
+  })
+
+  it('ignores stale preparation completion and restores the original pet on lookup failure', async () => {
+    const h = createMainPageHarness({ allowInitialize: true })
+    try {
+      h.skinChange({ requestId: 'old-java', phase: 'prepare' })
+      h.skinChange({ requestId: 'new-java', phase: 'prepare' })
+      h.skinChange({ requestId: 'old-java', phase: 'finish', skin: { dataUrl: 'data:image/png;base64,stale', model: 'wide', palmColor: '#445566' } })
+      await h.advance(1000)
+      assert.equal(h.runtimeState().loading, true)
+      h.skinChange({ requestId: 'new-java', phase: 'finish' })
+      await h.advance(1000)
+      assert.equal(h.runtimeState().loading, false)
+      assert.equal(h.skinApplications(), 0)
+      assert.equal(h.petPresentationVisible(), true, 'cancellation restores the already loaded pet')
+      assert.equal(h.nativeVisible(), true)
+      assert.equal(h.inputActive(), true)
+    } finally {
+      h.unmount()
+    }
+  })
+
+  it('preserves hiding and saving during preparation without showing a stale loading window', async () => {
+    const h = createMainPageHarness({ allowInitialize: true, loadingPaint: true })
+    try {
+      h.skinChange({ requestId: 'hide-java', phase: 'prepare' })
+      h.lockEditors(true)
+      await flushMicrotasks()
+      await h.hide()
+      h.skinChange({ requestId: 'hide-java', phase: 'finish' })
+      h.lockEditors(false)
+      await h.advance(1000)
+      assert.equal(h.runtimeState().loading, false)
+      assert.equal(h.skinApplications(), 0)
+      assert.equal(h.nativeVisible(), false)
+    } finally {
+      h.unmount()
+    }
+  })
+
+  it('gives the loading UI a paint opportunity before the cold first skin replacement', async () => {
+    const h = createMainPageHarness({ allowInitialize: true, loadingPaint: true })
+    try {
+      h.changeSkin('data:image/png;base64,cold-first')
+      await flushMicrotasks()
+      assert.equal(h.runtimeState().loading, true)
+      assert.equal(h.skinApplications(), 0, 'DOM flush alone must not start cold asset work before a paint opportunity')
+      await h.advance(16)
+      assert.equal(h.skinApplications(), 0, 'the first RAF callback still precedes its paint')
+      await h.advance(16)
+      assert.equal(h.skinApplications(), 1)
+      await h.advance(1000)
+      assert.equal(h.runtimeState().loading, false)
+      assert.equal(h.nativeVisible(), true)
+      assert.equal(h.inputActive(), true)
+    } finally {
+      h.unmount()
+    }
+  })
+
+  it('does not start cold asset work after hiding during the loading paint wait', async () => {
+    const h = createMainPageHarness({ allowInitialize: true, loadingPaint: true })
+    try {
+      h.changeSkin('data:image/png;base64,cancel-before-paint')
+      await flushMicrotasks()
+      await h.hide()
+      await h.advance(1000)
+      assert.equal(h.skinApplications(), 0)
+      assert.equal(h.runtimeState().loading, false)
+      assert.equal(h.nativeVisible(), false)
+    } finally {
+      h.unmount()
+    }
+  })
+
+  it('releases the cold loading paint wait when saving locks editors', async () => {
+    const h = createMainPageHarness({ allowInitialize: true, loadingPaint: true })
+    try {
+      h.changeSkin('data:image/png;base64,save-during-paint')
+      await flushMicrotasks()
+      assert.equal(h.skinApplications(), 0)
+      h.lockEditors(true)
+      await flushMicrotasks()
+      assert.equal(h.skinApplications(), 1, 'native drain must not wait for suspended paint callbacks')
+      h.lockEditors(false)
+      await h.advance(1000)
+    } finally {
+      h.unmount()
+    }
+  })
+
+  it('keeps the startup loading UI visible through a slow skin load and its bounds preparation', async () => {
+    const h = createMainPageHarness({ allowInitialize: true })
+    const skin = deferred()
+    const bounds = deferred()
+    try {
+      h.store.window.opacity = 0
+      h.store.model.mirror = true
+      h.waitForSkin(skin.promise)
+      h.waitForMeasurement(bounds.promise)
+      h.changeSkin('data:image/png;base64,slow')
+      await flushMicrotasks()
+      assert.equal(h.runtimeState().loading, true)
+      assert.equal(h.nativeVisible(), true)
+      assert.equal(h.inputActive(), false)
+      assert.equal(h.store.window.visible, true)
+      assert.equal(h.store.window.opacity, 0)
+      assert.equal(h.store.model.mirror, true)
+      skin.resolve()
+      await flushMicrotasks()
+      await h.advance(100)
+      assert.equal(h.runtimeState().loading, true, 'asset completion must not reveal before bounds are ready')
+      h.changePreset({ dmeloperPalmColor: '#abcdef' })
+      bounds.resolve()
+      await flushMicrotasks()
+      await h.advance(1000)
+      assert.equal(h.runtimeState().loading, false)
+      assert.equal(h.nativeVisible(), true)
+      assert.equal(h.inputActive(), true)
+      assert.equal(h.runtimeState().error, undefined)
+    } finally {
+      skin.resolve()
+      bounds.resolve()
+      h.unmount()
+    }
+  })
+
+  it('does not show loading for ordinary preference edits while the pet can keep rendering', async () => {
+    const h = createMainPageHarness({ allowInitialize: true })
+    const bounds = deferred()
+    try {
+      h.waitForMeasurement(bounds.promise)
+      h.changePreset({ cameraZoomPercent: 120, dmeloperPalmColor: '#abcdef' })
+      await flushMicrotasks()
+      await h.advance(100)
+      assert.equal(h.runtimeState().loading, false)
+      assert.equal(h.nativeVisible(), true)
+      bounds.resolve()
+      await flushMicrotasks()
+      await h.advance(1000)
+      assert.equal(h.runtimeState().loading, false)
+    } finally {
+      bounds.resolve()
+      h.unmount()
+    }
+  })
+
+  for (const action of ['hide', 'unmount'] as const) {
+    it(`clears skin loading on ${action} and ignores its late completion`, async () => {
+      const h = createMainPageHarness({ allowInitialize: true })
+      const skin = deferred()
+      try {
+        h.waitForSkin(skin.promise)
+        h.changeSkin('data:image/png;base64,slow')
+        await flushMicrotasks()
+        assert.equal(h.runtimeState().loading, true)
+        if (action === 'hide') await h.hide()
+        else h.unmount()
+        assert.equal(h.runtimeState().loading, false)
+        skin.resolve()
+        await flushMicrotasks()
+        await h.advance(1000)
+        assert.equal(h.runtimeState().loading, false)
+        if (action === 'hide') assert.equal(h.nativeVisible(), false)
+        assert.deepEqual(h.recoveryNotices, [])
+      } finally {
+        skin.resolve()
+        h.unmount()
+      }
+    })
+  }
+
+  it('shows the latest asset edit when another geometry packet arrives during input resume', async () => {
+    const h = createMainPageHarness({ allowInitialize: true })
+    const input = deferred()
+    try {
+      h.waitForInputResume(input.promise)
+      h.changeSkin('data:image/png;base64,edited')
+      await flushMicrotasks()
+      await h.advance(100)
+      for (let turn = 0; turn < 5; turn++) await flushMicrotasks()
+      assert.equal(h.calls.inputResumeStarted, 1)
+      h.selection(120)
+      input.resolve()
+      await flushMicrotasks()
+      await h.advance(1000)
+      assert.equal(h.nativeVisible(), true)
+      assert.equal(h.inputActive(), true)
+      assert.ok(h.calls.inputResumes.every(visible => visible), 'input may resume only after the native pet window is shown')
+      assert.equal(h.store.activePet3dPreset.petRotationDegrees, 120)
+    } finally {
+      input.resolve()
+      h.unmount()
+    }
+  })
+
+  it('passes the reset presentation to a packet arriving during native centering', async () => {
+    const h = createMainPageHarness()
+    const center = deferred()
+    try {
+      h.waitForCenter(center.promise)
+      const reset = h.reset()
+      await flushMicrotasks()
+      await h.advance(100)
+      for (let turn = 0; turn < 5; turn++) await flushMicrotasks()
+      assert.equal(h.calls.center, 1)
+      assert.equal(h.nativeVisible(), true)
+      assert.equal(h.runtimeState().loading, true)
+      h.selection(120)
+      center.resolve()
+      assert.equal(await reset, false, 'the old centering result was superseded')
+      await h.advance(1000)
+      assert.equal(h.nativeVisible(), true)
+      assert.equal(h.inputActive(), true)
+      assert.equal(h.store.activePet3dPreset.petRotationDegrees, 120)
+    } finally {
+      center.resolve()
+      h.unmount()
+    }
+  })
+
+  it('does not wait for a hidden webview RAF to finish a padding packet during input resume', async () => {
+    const h = createMainPageHarness({ allowInitialize: true })
+    const input = deferred()
+    try {
+      h.pauseHiddenFrames()
+      h.waitForInputResume(input.promise)
+      h.changeSkin('data:image/png;base64,edited')
+      await flushMicrotasks()
+      await h.advance(100)
+      for (let turn = 0; turn < 5; turn++) await flushMicrotasks()
+      assert.equal(h.calls.inputResumeStarted, 1)
+      h.measured({ x: 4, y: 4, width: 192, height: 192 })
+      h.changePreset({ autoViewportPaddingPixels: 12 })
+      input.resolve()
+      await flushMicrotasks()
+      await h.advance(1000)
+      assert.equal(h.nativeVisible(), true)
+      assert.equal(h.inputActive(), true)
+      assert.equal(h.store.activePet3dPreset.autoViewportPaddingPixels, 12)
+      assert.equal(h.snapshot().sourceRect.width, 192, 'the latest padding must reach the native viewport without a hidden RAF')
+    } finally {
+      input.resolve()
+      h.unmount()
+    }
+  })
+
+  it('requires the latest selection proof before an unrelated appearance edit can resume input', async () => {
+    const h = createMainPageHarness({ allowInitialize: true })
+    const proof = deferred()
+    try {
+      h.waitForVisibilityRead(proof.promise)
+      h.changeSkin('data:image/png;base64,edited')
+      await flushMicrotasks()
+      await h.advance(100)
+      for (let turn = 0; turn < 5; turn++) await flushMicrotasks()
+      assert.equal(h.calls.shown, 1)
+      assert.equal(h.calls.inputResumeStarted, 0)
+      h.changePreset({ dmeloperPalmColor: '#abcdef' })
+      await flushMicrotasks()
+      assert.equal(h.calls.inputResumeStarted, 0, 'an old native show cannot acknowledge the latest selection')
+      h.waitForVisibilityRead(Promise.resolve())
+      proof.resolve()
+      await flushMicrotasks()
+      await h.advance(1000)
+      assert.equal(h.calls.shown, 2)
+      assert.equal(h.nativeVisible(), true)
+      assert.equal(h.inputActive(), true)
+    } finally {
+      proof.resolve()
+      h.unmount()
+    }
+  })
+
+  for (const mode of ['pet', 'broadcast'] as const) {
+    it(`keeps a ${mode} hide after the old asset presentation acknowledges late`, async () => {
+      const h = createMainPageHarness({ allowInitialize: true })
+      const proof = deferred()
+      try {
+        h.waitForVisibilityRead(proof.promise)
+        h.changeSkin('data:image/png;base64,edited')
+        await flushMicrotasks()
+        await h.advance(100)
+        for (let turn = 0; turn < 5; turn++) await flushMicrotasks()
+        assert.equal(h.calls.shown, 1)
+        const hiding = mode === 'pet' ? h.hide() : h.setBroadcast(true, false)
+        await hiding
+        proof.resolve()
+        await flushMicrotasks()
+        await h.advance(1000)
+        assert.equal(h.nativeVisible(), false)
+        assert.equal(h.inputActive(), false)
+        assert.equal(h.calls.shown, 1)
+        assert.equal(h.runtimeState().recoveryUsed, false)
+        assert.deepEqual(h.recoveryNotices, [])
+      } finally {
+        proof.resolve()
+        h.unmount()
+      }
+    })
+  }
+
+  it('shows a known asset error without input and presents the next healthy selection', async () => {
+    const h = createMainPageHarness({ allowInitialize: true })
+    try {
+      h.failSkin()
+      h.changeSkin('data:image/png;base64,failed')
+      await flushMicrotasks()
+      await h.advance(100)
+      for (let turn = 0; turn < 5; turn++) await flushMicrotasks()
+      assert.equal(h.nativeVisible(), true)
+      assert.equal(h.runtimeState().error, 'pages.main.errors.modelLoad')
+      assert.equal(h.runtimeState().loading, false)
+      assert.equal(h.inputActive(), false)
+      assert.equal(h.calls.inputResumeStarted, 0)
+      assert.equal(h.runtimeState().recoveryUsed, false)
+      assert.deepEqual(h.recoveryNotices, [])
+      h.changeSkin('data:image/png;base64,recovered')
+      await flushMicrotasks()
+      await h.advance(100)
+      for (let turn = 0; turn < 5; turn++) await flushMicrotasks()
+      assert.equal(h.nativeVisible(), true)
+      assert.equal(h.runtimeState().error, undefined)
+      assert.equal(h.inputActive(), true)
+      assert.equal(h.runtimeState().recoveryUsed, false)
+      assert.deepEqual(h.recoveryNotices, [])
+    } finally {
+      h.unmount()
+    }
   })
 })
 
@@ -1965,6 +2693,8 @@ describe('pet presentation lifecycle and recovery', () => {
       await drain()
       assert.equal(h.nativeVisible(), true)
       assert.equal(h.runtimeState().loading, true)
+      assert.equal(h.petPresentationVisible(), false)
+      assert.deepEqual(h.scenePresentation(), { sceneVisible: true, loadingVisible: true, opacity: 0, mirrored: true })
       assert.equal(h.store.window.visible, true)
       assert.equal(h.store.window.opacity, 0)
       assert.equal(h.store.model.mirror, true)
@@ -1972,6 +2702,7 @@ describe('pet presentation lifecycle and recovery', () => {
       await showing
       assert.equal(h.runtimeState().loading, false)
       assert.equal(h.runtimeState().error, undefined)
+      assert.equal(h.petPresentationVisible(), true)
     } finally {
       h.unmount()
     }

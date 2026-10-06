@@ -3,12 +3,13 @@ import { Button, Flex, message, Progress } from 'ant-design-vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import ProListItem from '@/components/pro-list-item/index.vue'
 import { usePreferenceUpdates } from '@/composables/usePreferenceUpdates'
 import { APP_DISPLAY_NAME } from '@/constants/branding'
 import { reportDiagnostic } from '@/services/diagnostics'
 import { openStore } from '@/services/distribution'
 import { useAppStore } from '@/stores/app'
+
+import AppIdentity from './AppIdentity.vue'
 
 const { t } = useI18n()
 const app = useAppStore()
@@ -17,6 +18,7 @@ const openingStore = ref(false)
 const installAvailable = computed(() => (channel.value === 'github' || channel.value === 'test')
   && !failed.value && !!info.value?.available && !!info.value.version)
 const actionDisabled = computed(() => busy.value || openingStore.value || channel.value === 'development')
+const actionSpinning = computed(() => busy.value || openingStore.value)
 const actionLabel = computed(() => t(channel.value === 'store'
   ? 'storeUpdates.open'
   : installAvailable.value ? 'inAppUpdates.install' : 'inAppUpdates.check'))
@@ -50,22 +52,38 @@ async function runUpdateAction() {
 </script>
 
 <template>
-  <ProListItem
+  <AppIdentity
     :description="description"
+    :stack-actions="Boolean(phase)"
     :title="APP_DISPLAY_NAME"
   >
+    <template #developer>
+      <slot name="developer" />
+    </template>
     <template #description>
       <span
+        v-if="!phase"
         aria-live="polite"
         role="status"
       >{{ description }}</span>
+      <div
+        v-else
+        aria-live="polite"
+        class="update-progress-description"
+        role="status"
+      >
+        <span>{{ `v${app.version}` }}</span>
+        <span class="update-phase-text">{{ status }}</span>
+      </div>
       <Progress
         v-if="phase === 'downloading' || phase === 'verifying'"
+        class="update-progress-bar"
         :percent="percent"
       />
     </template>
     <Flex
       :gap="8"
+      justify="center"
       wrap="wrap"
     >
       <Button
@@ -78,11 +96,12 @@ async function runUpdateAction() {
       >
         <span
           aria-hidden="true"
-          class="size-4"
+          class="update-action-icon"
           :class="{
-            'i-lucide:download': installAvailable,
-            'i-lucide:refresh-cw': !installAvailable,
-            'animate-spin': checking || openingStore,
+            'i-lucide:loader-circle': actionSpinning,
+            'i-lucide:download': !actionSpinning && installAvailable,
+            'i-lucide:refresh-cw': !actionSpinning && !installAvailable,
+            'animate-spin': actionSpinning,
           }"
         />
       </Button>
@@ -94,15 +113,35 @@ async function runUpdateAction() {
         {{ t('inAppUpdates.cancel') }}
       </Button>
     </Flex>
-  </ProListItem>
+  </AppIdentity>
 </template>
 
 <style scoped>
+.update-progress-description {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.update-phase-text {
+  font-size: 14.4px;
+}
+
+.update-progress-bar {
+  width: min(100%, 320px);
+}
+
 .update-action {
   display: inline-flex;
-  width: 32px;
+  width: 25.6px;
+  height: 25.6px;
   align-items: center;
   justify-content: center;
   padding: 0;
+}
+
+.update-action-icon {
+  width: 12.8px;
+  height: 12.8px;
 }
 </style>

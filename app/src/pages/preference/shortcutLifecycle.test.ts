@@ -7,6 +7,7 @@ import { Window } from '@tauri-apps/api/window'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
+import { runInNewContext } from 'node:vm'
 import { createPinia, setActivePinia } from 'pinia'
 import ts from 'typescript'
 import * as Vue from 'vue'
@@ -18,7 +19,7 @@ import { isMouseSettingResponse } from '@/features/input/types'
 import { createAntialiasSettingOwner } from '@/features/performance/antialiasSetting'
 import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import { createPreferenceUpdates } from '@/features/updates/preferenceUpdates'
-import { useCatStore } from '@/stores/cat'
+import { useBlockStore } from '@/stores/block'
 import { useGeneralStore } from '@/stores/general'
 import { useShortcutStore } from '@/stores/shortcut'
 import { createLatestAsyncTaskQueue } from '@/utils/latestAsyncTask'
@@ -35,19 +36,124 @@ function element(): TestElement {
   return { children: [], parent: null, props: {}, scrollTop: 0 }
 }
 
+// Windows branch of tauri 2.11.1 src/window/scripts/drag.js, with upstream license.
+const TAURI_WINDOWS_DRAG_SCRIPT = [
+  '// Copyright 2019-2024 Tauri Programme within The Commons Conservancy',
+  '// SPDX-License-Identifier: Apache-2.0',
+  '// SPDX-License-Identifier: MIT',
+  '',
+  ';(function () {',
+  '  const TAURI_DRAG_REGION_ATTR = \'data-tauri-drag-region\'',
+  '  const CLICKABLE_TAGS = new Set([',
+  '    \'A\',',
+  '    \'BUTTON\',',
+  '    \'INPUT\',',
+  '    \'SELECT\',',
+  '    \'TEXTAREA\',',
+  '    \'LABEL\',',
+  '    \'SUMMARY\'',
+  '  ])',
+  '  const INTERACTIVE_ROLES = new Set([',
+  '    \'button\',',
+  '    \'link\',',
+  '    \'menuitem\',',
+  '    \'tab\',',
+  '    \'checkbox\',',
+  '    \'radio\',',
+  '    \'switch\',',
+  '    \'option\'',
+  '  ])',
+  '',
+  '  function isClickableElement(el) {',
+  '    return (',
+  '      CLICKABLE_TAGS.has(el.tagName)',
+  '      || (el.hasAttribute(\'contenteditable\')',
+  '        && el.getAttribute(\'contenteditable\') !== \'false\')',
+  '      || (el.hasAttribute(\'tabindex\') && el.getAttribute(\'tabindex\') !== \'-1\')',
+  '      || INTERACTIVE_ROLES.has(el.getAttribute(\'role\'))',
+  '    )',
+  '  }',
+  '',
+  '  // Walk the composed path from target upward.',
+  '  //',
+  '  // Supported values for data-tauri-drag-region:',
+  '  //   (bare / no value / "true") -> self: only direct clicks on this element trigger drag',
+  '  //   "deep"                   -> deep: clicks anywhere in the subtree trigger drag',
+  '  //   "false"                  -> disabled: drag is blocked here (and for ancestors)',
+  '  //',
+  '  // Clickable elements (buttons, links, etc.) normally block dragging,',
+  '  // but if they themselves carry data-tauri-drag-region they act as drag regions.',
+  '  function isDragRegion(composedPath) {',
+  '    for (const el of composedPath) {',
+  '      if (!(el instanceof HTMLElement)) continue',
+  '',
+  '      const attr = el.getAttribute(TAURI_DRAG_REGION_ATTR)',
+  '',
+  '      // clickable without explicit drag region → blocks drag',
+  '      if (isClickableElement(el) && attr === null) return false',
+  '      // no attr → keep walking up',
+  '      if (attr === null) continue',
+  '      // explicitly disabled',
+  '      if (attr === \'false\') return false',
+  '      // subtree drag — any descendant triggers',
+  '      if (attr === \'deep\') return true',
+  '      // bare or "true" attr — only direct clicks on this element',
+  '      if (attr === \'\' || attr === \'true\') return el === composedPath[0]',
+  '    }',
+  '',
+  '    return false',
+  '  }',
+  '',
+  '  document.addEventListener(\'mousedown\', (e) => {',
+  '    if (',
+  '      // was left mouse button',
+  '      e.button === 0',
+  '      // and was normal click to drag or double click to maximize',
+  '      && (e.detail === 1 || e.detail === 2)',
+  '      // and is drag region',
+  '      && isDragRegion(e.composedPath())',
+  '    ) {',
+  '      // prevents text cursor',
+  '      e.preventDefault()',
+  '',
+  '      // fix #2549: double click on drag region edge causes content to maximize without window sizing change',
+  '      // https://github.com/tauri-apps/tauri/issues/2549#issuecomment-1250036908',
+  '      e.stopImmediatePropagation()',
+  '',
+  '      // start dragging if the element has a `tauri-drag-region` data attribute and maximize on double-clicking it',
+  '      const cmd = e.detail === 2 ? \'internal_toggle_maximize\' : \'start_dragging\'',
+  '      window.__TAURI_INTERNALS__.invoke(\'plugin:window|\' + cmd)',
+  '    }',
+  '  })',
+  '',
+  '})()',
+  '',
+].join('\n')
+
+class DragElement {
+  constructor(readonly tagName = 'DIV', readonly dragRegion: string | null = null) {}
+  getAttribute(name: string) {
+    return name === 'data-tauri-drag-region' ? this.dragRegion : null
+  }
+
+  hasAttribute(name: string) {
+    return this.getAttribute(name) !== null
+  }
+}
+
 async function flush() {
   for (let index = 0; index < 60; index++) await Vue.nextTick()
 }
 
 function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAntialiasSubscription = false, existingTray = false) {
   setActivePinia(createPinia())
-  const catStore = useCatStore()
+  const blockStore = useBlockStore()
   const shortcutStore = useShortcutStore()
   const generalStore = useGeneralStore()
   generalStore.appearance.theme = theme
   generalStore.appearance.isDark = theme === 'dark'
   shortcutStore.$patch({
-    visibleCat: 'Control+KeyA',
+    visibleBlock: 'Control+KeyA',
     visiblePreference: 'Control+KeyB',
     mirrorMode: 'Control+KeyC',
     cycleZoom: 'Control+KeyK',
@@ -73,6 +179,11 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
   let visible = true
   let queryWindowState: (() => Promise<boolean>) | undefined
   const diagnostics: Array<{ level: string, operation: string }> = []
+  const warnings: string[] = []
+  let skinLibraryOpens = 0
+  const dragCommands: string[] = []
+  const nativeMouseListeners: Array<(event: MouseEvent) => void> = []
+  const capturedMouseListeners: Array<(event: MouseEvent) => void> = []
   const errors: string[] = []
   const performanceCalls = { start: 0, stop: 0, reset: 0 }
   let toggledPreference = 0
@@ -81,10 +192,15 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
   let destroyRequests = 0
   const themeListeners = new Set<(event: { payload: 'light' | 'dark' }) => void>()
   const nativeThemes: Array<'light' | 'dark' | null> = []
+  const nativeCaptionColors: boolean[] = []
+  let nativeThemeRequest: () => Promise<void> = async () => {}
   const classes = new Set<string>()
   const testWindow = {}
   const domListeners = new Map<string, Array<(event?: { target: object }) => void>>()
   const document = {
+    addEventListener: (name: string, handler: (event: MouseEvent) => void) => {
+      if (name === 'mousedown') nativeMouseListeners.push(handler)
+    },
     hidden: false,
     documentElement: { classList: {
       add: (name: string) => classes.add(name),
@@ -94,6 +210,23 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
   }
   const wrapper = Vue.defineComponent({ setup: (_, { slots }) => () => Vue.h('div', slots.default?.()) })
   const blank = Vue.defineComponent({ render: () => null })
+  const blockPage = Vue.defineComponent({
+    emits: ['openSkinLibrary'],
+    setup: (_, { emit }) => () => Vue.h('button', {
+      'data-open-library': true,
+      'onClick': () => emit('openSkinLibrary'),
+    }),
+  })
+  // About has a section plus two modal roots, so it cannot inherit listeners.
+  const aboutPage = Vue.defineComponent({ render: () => [Vue.h('section'), Vue.h('dialog')] })
+  // Retained Windows dispatch path from the Cargo.lock Tauri dependency.
+  runInNewContext(TAURI_WINDOWS_DRAG_SCRIPT, {
+    document,
+    HTMLElement: DragElement,
+    window: { __TAURI_INTERNALS__: { invoke: async (command: string) => {
+      dragCommands.push(command)
+    } } },
+  })
   const page = (name: string) => Vue.defineComponent({
     inheritAttrs: false,
     setup: (_, { attrs }) => () => Vue.h('section', { ...attrs, 'data-preference-page': name }),
@@ -136,12 +269,13 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     }).outputText
     // Actual SFCs and shortcut composable run with native registration stubbed.
     // eslint-disable-next-line no-new-func
-    new Function('require', 'module', 'exports', 'window', 'document', transformed)(
+    new Function('require', 'module', 'exports', 'window', 'document', 'HTMLElement', transformed)(
       (id: string) => id === 'vue' && mountedHooks ? Vue : resolve(id),
       module,
       module.exports,
       testWindow,
       document,
+      DragElement,
     )
     return module.exports
   }
@@ -167,6 +301,12 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
       }
     }
     if (id === '@tauri-apps/api/app') return { getVersion: async () => '1.0.0' }
+    if (id === '@tauri-apps/api/core') {
+      return { invoke: async (command: string, args: { dark: boolean }) => {
+        assert.equal(command, 'plugin:custom-window|set_preference_caption_color')
+        nativeCaptionColors.push(args.dark)
+      } }
+    }
     if (id === '@tauri-apps/api/path') return { resolveResource: async (path: string) => path }
     if (id === '@tauri-apps/api/tray') {
       return { TrayIcon: {
@@ -207,6 +347,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
         isMinimized: () => queryWindowState ? queryWindowState() : Promise.resolve(false),
         setTheme: async (value: 'light' | 'dark' | null) => {
           nativeThemes.push(value)
+          await nativeThemeRequest()
         },
         theme: async () => systemTheme,
         onThemeChanged: async (handler: (event: { payload: 'light' | 'dark' }) => void) => {
@@ -218,8 +359,11 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
       }) }
     }
     if (id === '@vueuse/core') {
-      return { useEventListener: (_target: unknown, events: string | string[], handler: (event?: { target: object }) => void) => {
+      return { useEventListener: (target: unknown, events: string | string[], handler: (event?: { target: object }) => void, options?: { capture?: boolean }) => {
         for (const event of typeof events === 'string' ? [events] : events) {
+          if (target === document && event === 'mousedown' && options?.capture) {
+            capturedMouseListeners.push(handler as (event: MouseEvent) => void)
+          }
           const handlers = domListeners.get(event) ?? []
           handlers.push(handler)
           domListeners.set(event, handlers)
@@ -227,7 +371,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
       } }
     }
     if (id === 'ant-design-vue') return { ConfigProvider: wrapper, Flex: wrapper, Modal: page('broadcast-prompt'), Select: wrapper, SelectOption: wrapper, message: { error: (text: string) => errors.push(text) } }
-    if (id === '@/stores/cat') return { useCatStore: () => catStore }
+    if (id === '@/stores/block') return { useBlockStore: () => blockStore }
     if (id === '@/stores/shortcut.ts' || id === '@/stores/shortcut') return { useShortcutStore: () => shortcutStore }
     if (id === '@/stores/general') return { useGeneralStore: () => generalStore }
     if (id === '@/stores/performance') {
@@ -337,9 +481,15 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     }
     if (id === '@/features/presets/types') return { PRESET_EDIT_REQUEST }
     if (id === '@/features/scene/types') return {}
-    if (id === './navigation') return { usePreferenceNavigation: () => ({ current, innerView, closeInnerView: () => {}, openSkinLibrary: () => {} }) }
+    if (id === './navigation') {
+      return { usePreferenceNavigation: () => ({ current, innerView, closeInnerView: () => {}, openSkinLibrary: () => {
+        skinLibraryOpens++
+      } }) }
+    }
     if (id === './performanceLifecycle') return { shouldMonitorPreferencePerformance: () => false }
     if (id === './components/shortcut/index.vue') return { default: shortcutComponent }
+    if (id === './components/block/index.vue') return { default: blockPage }
+    if (id === './components/about/index.vue') return { default: aboutPage }
     if (id === './components/general/index.vue') return { default: Vue.defineComponent({ render: () => Vue.h(themeComponent) }) }
     if (id === './components/scene/index.vue') return { default: scenePage }
     if (id === './components/environment/index.vue') return { default: environmentPage }
@@ -362,18 +512,21 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     patchProp: (node, key, _previous, value) => {
       node.props[key] = value
     },
-    insert: (node, parent) => {
+    insert: (node, parent, anchor) => {
+      if (node.parent) node.parent.children.splice(node.parent.children.indexOf(node), 1)
       node.parent = parent
-      parent.children.push(node)
+      const position = anchor ? parent.children.indexOf(anchor) : parent.children.length
+      parent.children.splice(position, 0, node)
     },
     remove: (node) => {
       if (node.parent) node.parent.children.splice(node.parent.children.indexOf(node), 1)
       node.parent = null
     },
     parentNode: node => node.parent,
-    nextSibling: () => null,
+    nextSibling: node => node.parent?.children[node.parent.children.indexOf(node) + 1] ?? null,
   })
   const app = renderer.createApp(preferenceComponent)
+  app.config.warnHandler = warning => warnings.push(warning)
   app.config.globalProperties.$t = (key: string) => key
   const root = element()
   app.mount(root)
@@ -392,6 +545,30 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
   }
   return {
     app,
+    warnings,
+    skinLibraryOpens: () => skinLibraryOpens,
+    dragClick: (detail: number, target: DragElement, ancestors: DragElement[] = [], button = 0) => {
+      let stopped = false
+      let prevented = false
+      const event = {
+        detail,
+        button,
+        target,
+        composedPath: () => [target, ...ancestors],
+        preventDefault: () => {
+          prevented = true
+        },
+        stopPropagation: () => {
+          stopped = true
+        },
+        stopImmediatePropagation: () => {
+          stopped = true
+        },
+      } as unknown as MouseEvent
+      capturedMouseListeners.forEach(handler => handler(event))
+      if (!stopped) nativeMouseListeners.forEach(handler => handler(event))
+      return { prevented, commands: dragCommands.splice(0) }
+    },
     updates: () => preferenceUpdates,
     preferenceShows: () => preferenceShows,
     clickTray: () => trayAction?.({
@@ -425,11 +602,23 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     nodes: () => flatten(root),
     scrollContainer,
     shortcutStore,
-    catStore,
+    blockStore,
     emitted,
     generalStore,
     classes,
     nativeThemes,
+    nativeCaptionColors,
+    holdNextTheme: () => {
+      let release!: () => void
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      nativeThemeRequest = () => {
+        nativeThemeRequest = async () => {}
+        return held
+      }
+      return release
+    },
     themeListeners,
     beginRecording: () => {
       const begin = keyPressModule.beginShortcutRecording as (cancel: () => void) => () => void
@@ -467,11 +656,17 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
 }
 
 describe('preference tab identities', () => {
-  it('orders Objects before Scene while retaining route identities, component inputs and saved scroll positions', async () => {
+  it('places Objects below Screen with separate input owners while retaining tab identities and scroll', async () => {
     const h = mountPreferences()
     try {
       await flush()
       const tabs = () => h.nodes().filter(node => node.props.role === 'tab')
+      const tabNames = ['block', 'scene', 'environment', 'presets', 'performance', 'general', 'shortcut', 'about']
+      tabs().forEach((tab, index) => {
+        const label = `pages.preference.${tabNames[index]}.title`
+        assert.equal(tab.props['aria-label'], label)
+        assert.equal(tab.props.title, label)
+      })
       const selectedIds: number[] = []
       for (const tab of tabs()) {
         ;(tab.props.onClick as () => void)()
@@ -480,26 +675,33 @@ describe('preference tab identities', () => {
         assert.equal(tab.props['aria-selected'], true)
         assert.equal(tabs().filter(node => node.props['aria-selected']).length, 1)
       }
-      assert.deepEqual(selectedIds, [0, 1, 3, 2, 4, 5, 6, 7])
-      for (const [id, name, input, otherInput, position] of [
-        [2, 'scene', 'requestViewportMode', 'requestMouseEnabled', 240],
-        [3, 'environment', 'requestMouseEnabled', 'requestViewportMode', 360],
-      ] as const) {
-        h.current.value = id
-        await flush()
-        const content = h.nodes().find(node => node.props['data-preference-page'] === name)!
-        assert.ok(content)
-        assert.equal(typeof content.props[input], 'function')
-        assert.ok(!(otherInput in content.props))
-        h.scrollContainer().scrollTop = position
-      }
-      ;(tabs()[3].props.onClick as () => void)()
+      assert.deepEqual(selectedIds, [1, 2, 3, 0, 4, 6, 5, 7])
+      h.current.value = 2
+      await flush()
+      const content = h.nodes().find(node => node.props['data-preference-page'] === 'scene')!
+      assert.equal(typeof content.props.requestViewportMode, 'function')
+      assert.equal(content.props.requestMouseEnabled, undefined)
+      assert.equal(content.props.refreshMouseSetting, undefined)
+      h.current.value = 3
+      await flush()
+      const objects = h.nodes().find(node => node.props['data-preference-page'] === 'environment')!
+      assert.equal(typeof objects.props.requestMouseEnabled, 'function')
+      assert.equal(typeof objects.props.refreshMouseSetting, 'function')
+      assert.equal(objects.props.requestViewportMode, undefined)
+      assert.equal(tabs().length, 8)
+      h.current.value = 2
+      await flush()
+      h.scrollContainer().scrollTop = 240
+      ;(tabs()[0].props.onClick as () => void)()
+      await flush()
+      h.scrollContainer().scrollTop = 360
+      ;(tabs()[1].props.onClick as () => void)()
       await flush()
       assert.equal(h.current.value, 2)
       assert.equal(h.scrollContainer().scrollTop, 240)
-      ;(tabs()[2].props.onClick as () => void)()
+      ;(tabs()[0].props.onClick as () => void)()
       await flush()
-      assert.equal(h.current.value, 3)
+      assert.equal(h.current.value, 1)
       assert.equal(h.scrollContainer().scrollTop, 360)
       h.presetBusy.value = true
       await flush()
@@ -517,6 +719,42 @@ describe('preference tab identities', () => {
 })
 
 describe('preference window query diagnostics', () => {
+  it('routes the library event only to Block without fragment listener warnings in About', async () => {
+    const h = mountPreferences()
+    try {
+      h.current.value = 7
+      await flush()
+      assert.deepEqual(h.warnings, [])
+      h.current.value = 1
+      await flush()
+      const button = h.nodes().find(node => node.props['data-open-library'])!
+      ;(button.props.onClick as () => void)()
+      assert.equal(h.skinLibraryOpens(), 1)
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
+  })
+
+  it('keeps native dragging but never sends denied maximization from preference drag regions', async () => {
+    const h = mountPreferences()
+    try {
+      await flush()
+      for (const value of ['', 'true']) {
+        const region = new DragElement('DIV', value)
+        assert.deepEqual(h.dragClick(1, region), { prevented: true, commands: ['plugin:window|start_dragging'] })
+        assert.deepEqual(h.dragClick(2, region), { prevented: true, commands: [] })
+        assert.deepEqual(h.dragClick(2, new DragElement('BUTTON'), [region]), { prevented: false, commands: [] })
+        assert.deepEqual(h.dragClick(2, new DragElement(), [region]), { prevented: false, commands: [] })
+        assert.deepEqual(h.dragClick(2, region, [], 2), { prevented: false, commands: [] })
+      }
+      assert.deepEqual(h.dragClick(2, new DragElement('DIV', 'false')), { prevented: false, commands: [] })
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
+  })
+
   it('cancels the actual Tauri close default so hiding never requests window destruction', async () => {
     const h = mountPreferences()
     try {
@@ -551,7 +789,7 @@ describe('preference window query diagnostics', () => {
         rejectPending = reject
       })
       h.queryWindowState(() => pending)
-      h.current.value = 3
+      h.current.value = 1
       await flush()
       h.queryWindowState()
       h.current.value = 2
@@ -674,8 +912,8 @@ describe('preference shortcut lifetime', () => {
       assert.equal(h.current.value, 0)
       assert.equal(h.active.size, 12)
       h.respondMouse(true, true)
-      h.catStore.window.hideOnHoverDelay = 321
-      const initialAlwaysOnTop = h.catStore.window.alwaysOnTop
+      h.blockStore.window.hideOnHoverDelay = 321
+      const initialAlwaysOnTop = h.blockStore.window.alwaysOnTop
       h.hide()
       h.fire('Control+KeyA')
       h.fire('Control+KeyB')
@@ -695,16 +933,16 @@ describe('preference shortcut lifetime', () => {
       assert.ok(h.emitted.some(value => value.event === PRESET_EDIT_REQUEST && (value.payload as { cycle?: string }).cycle === 'cameraZoomPercent'))
       assert.ok(h.emitted.some(value => value.event === PRESET_EDIT_REQUEST && (value.payload as { cycle?: string }).cycle === 'sceneRotationOffsetDegrees'))
       assert.equal(h.toggledPreference(), 1)
-      assert.equal(h.catStore.window.passThrough, true)
-      assert.equal(h.catStore.window.alwaysOnTop, !initialAlwaysOnTop)
+      assert.equal(h.blockStore.window.passThrough, true)
+      assert.equal(h.blockStore.window.alwaysOnTop, !initialAlwaysOnTop)
       assert.equal(h.generalStore.broadcast.enabled, true)
       assert.ok(h.emitted.some(value => value.event === PRESET_EDIT_REQUEST && (value.payload as { showDisplayArea?: boolean }).showDisplayArea === true))
-      assert.equal(h.catStore.window.keepInScreen, false)
-      assert.equal(h.catStore.window.hideOnHover, true)
-      assert.equal(h.catStore.window.hideOnHoverDelay, 321)
+      assert.equal(h.blockStore.window.keepInScreen, false)
+      assert.equal(h.blockStore.window.hideOnHover, true)
+      assert.equal(h.blockStore.window.hideOnHoverDelay, 321)
       assert.equal(h.mouseRequests().at(-1)?.enabled, false)
       h.respondMouse(true, false)
-      assert.equal(h.catStore.activePet3dPreset.mouseEnabled, false)
+      assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, false)
       assert.equal(h.presetEdits(), 1)
     } finally {
       h.app.unmount()
@@ -746,17 +984,17 @@ describe('preference shortcut lifetime', () => {
       h.fire('Control+KeyH')
       await flush()
       assert.equal(h.mouseRequests().length, 2)
-      assert.equal(h.catStore.activePet3dPreset.mouseEnabled, true)
+      assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, true)
       h.respondMouse(false)
-      assert.equal(h.catStore.activePet3dPreset.mouseEnabled, true)
+      assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, true)
       assert.equal(h.presetEdits(), 0)
       h.fire('Control+KeyH')
       await flush()
       assert.equal(h.mouseRequests().length, 3)
       h.respondMouse(true, false, 'stale-request')
-      assert.equal(h.catStore.activePet3dPreset.mouseEnabled, true)
+      assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, true)
       h.respondMouse(true, false)
-      assert.equal(h.catStore.activePet3dPreset.mouseEnabled, false)
+      assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, false)
       assert.equal(h.presetEdits(), 1)
     } finally {
       h.app.unmount()
@@ -782,12 +1020,12 @@ describe('preference shortcut lifetime', () => {
         await flush()
         assert.equal(h.mouseRequests().at(-1)?.enabled, false)
         assert.equal(h.nativeEdits.value, 1)
-        assert.equal(h.catStore.activePet3dPreset.mouseEnabled, true)
+        assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, true)
         assert.equal(await requestMouse(true), false, 'a new ordinary request stays blocked while closing')
         assert.equal(h.mouseRequests().length, 2)
         h.respondMouse(true, false)
         assert.equal(await request, true)
-        assert.equal(h.catStore.activePet3dPreset.mouseEnabled, false)
+        assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, false)
         assert.equal(h.nativeEdits.value, 0)
         assert.equal(h.presetEdits(), 1)
         h.respondMouse(true, false)
@@ -817,7 +1055,7 @@ describe('preference shortcut lifetime', () => {
         assert.equal(await request, false)
         assert.equal(h.nativeEdits.value, 0)
         h.respondMouse(true, false)
-        assert.equal(h.catStore.activePet3dPreset.mouseEnabled, true)
+        assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, true)
         assert.equal(h.presetEdits(), 0)
       } finally {
         if (boundary !== 'unmount') h.app.unmount()
@@ -840,7 +1078,7 @@ describe('preference shortcut lifetime', () => {
       h.respondMouse(false)
       await flush()
       assert.equal(h.mouseRequests().length, 2)
-      assert.equal(h.catStore.activePet3dPreset.mouseEnabled, true)
+      assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, true)
       h.fire('Control+KeyH')
       await flush()
       assert.equal(h.mouseRequests().length, 3)
@@ -849,7 +1087,7 @@ describe('preference shortcut lifetime', () => {
       assert.equal(h.mouseRequests().length, 4)
       assert.equal(h.mouseRequests().at(-1)?.enabled, false)
       h.respondMouse(true, false)
-      assert.equal(h.catStore.activePet3dPreset.mouseEnabled, false)
+      assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, false)
       assert.equal(h.presetEdits(), 1)
     } finally {
       h.app.unmount()
@@ -898,13 +1136,13 @@ describe('antialias failure ownership', () => {
       await flush()
       h.holdAntialiasReplies()
       h.current.value = 6
-      h.catStore.model.antialiasEnabled = false
+      h.blockStore.model.antialiasEnabled = false
       h.hide()
       await flush()
       const starts = h.performanceCalls.start
       const failure = { ...h.antialiasRequests().at(-1)!, actual: true, success: false }
       h.emitNative(performanceConfig.ANTIALIAS_SETTING_RESPONSE, failure)
-      assert.equal(h.catStore.model.antialiasEnabled, true)
+      assert.equal(h.blockStore.model.antialiasEnabled, true)
       assert.equal(h.performanceCalls.reset, 1)
       assert.equal(h.performanceCalls.start, starts)
       assert.deepEqual(h.errors, ['pages.preference.performance.errors.antialiasFailed'])
@@ -922,15 +1160,15 @@ describe('antialias failure ownership', () => {
     try {
       await flush()
       h.holdAntialiasReplies()
-      h.catStore.model.antialiasEnabled = false
+      h.blockStore.model.antialiasEnabled = false
       await flush()
       const stale = h.antialiasRequests().at(-1)!
-      h.catStore.model.antialiasEnabled = true
+      h.blockStore.model.antialiasEnabled = true
       await flush()
       for (const payload of [null, {}, { ...stale, actual: 'true', success: false }, { ...stale, actual: true, success: false }]) {
         h.emitNative(performanceConfig.ANTIALIAS_SETTING_RESPONSE, payload)
       }
-      assert.equal(h.catStore.model.antialiasEnabled, true)
+      assert.equal(h.blockStore.model.antialiasEnabled, true)
       assert.equal(h.performanceCalls.reset, 0)
       assert.deepEqual(h.errors, [])
     } finally {
@@ -938,7 +1176,7 @@ describe('antialias failure ownership', () => {
       await flush()
     }
     h.emitNative(performanceConfig.ANTIALIAS_SETTING_RESPONSE, { ...h.antialiasRequests().at(-1)!, actual: false, success: false })
-    assert.equal(h.catStore.model.antialiasEnabled, true)
+    assert.equal(h.blockStore.model.antialiasEnabled, true)
     assert.equal(h.performanceCalls.reset, 0)
     assert.deepEqual(h.errors, [])
   })
@@ -978,6 +1216,7 @@ describe('preference theme lifetime', () => {
       await flush()
       assert.equal(h.classes.has('dark'), true)
       assert.equal(h.nativeThemes.at(-1), 'dark')
+      assert.equal(h.nativeCaptionColors.at(-1), true)
       assert.equal(h.generalStore.appearance.isDark, true)
     } finally {
       h.app.unmount()
@@ -996,6 +1235,7 @@ describe('preference theme lifetime', () => {
       h.changeSystemTheme('dark')
       await flush()
       assert.equal(h.classes.has('dark'), true)
+      assert.equal(h.nativeCaptionColors.at(-1), true)
       h.current.value = 6
       await flush()
       assert.equal(h.themeListeners.size, 1)
@@ -1004,6 +1244,7 @@ describe('preference theme lifetime', () => {
       h.changeSystemTheme('dark')
       await flush()
       assert.equal(h.classes.has('dark'), false)
+      assert.equal(h.nativeCaptionColors.at(-1), false)
       h.current.value = 7
       await flush()
       h.generalStore.reset()
@@ -1016,6 +1257,58 @@ describe('preference theme lifetime', () => {
     }
     assert.equal(h.themeListeners.size, 0)
   })
+
+  it('retains the queued return to auto mode when an earlier native request emits a late theme event', async () => {
+    const h = mountPreferences('light')
+    await flush()
+    const release = h.holdNextTheme()
+    try {
+      h.generalStore.appearance.theme = 'dark'
+      await flush()
+      h.generalStore.appearance.theme = 'auto'
+      await flush()
+      h.changeSystemTheme('light')
+      release()
+      await flush()
+      assert.equal(h.nativeThemes.at(-1), null)
+      assert.equal(h.nativeCaptionColors.at(-1), false)
+      assert.equal(h.classes.has('dark'), false)
+    } finally {
+      release()
+      h.app.unmount()
+      await flush()
+    }
+  })
+
+  it('serializes theme changes and skips obsolete or disposed caption continuations', async () => {
+    const h = mountPreferences('light')
+    await flush()
+    let release = h.holdNextTheme()
+    try {
+      h.generalStore.appearance.theme = 'dark'
+      await flush()
+      h.generalStore.appearance.theme = 'light'
+      await flush()
+      assert.equal(h.nativeThemes.at(-1), 'dark', 'the second native theme waits for the first request')
+      const colors = h.nativeCaptionColors.length
+      release()
+      await flush()
+      assert.equal(h.nativeThemes.at(-1), 'light')
+      assert.deepEqual(h.nativeCaptionColors.slice(colors), [false])
+      release = h.holdNextTheme()
+      h.generalStore.appearance.theme = 'dark'
+      await flush()
+      const beforeDispose = h.nativeCaptionColors.length
+      h.app.unmount()
+      release()
+      await flush()
+      assert.equal(h.nativeCaptionColors.length, beforeDispose)
+    } finally {
+      release()
+      if (h.themeListeners.size) h.app.unmount()
+      await flush()
+    }
+  })
 })
 
 describe('tray broadcast prompt in the mounted preference window', () => {
@@ -1027,8 +1320,8 @@ describe('tray broadcast prompt in the mounted preference window', () => {
       h.hide()
       h.generalStore.broadcast.enabled = true
       h.generalStore.broadcast.showOnDesktop = false
-      h.catStore.window.visible = false
-      const before = JSON.stringify(h.catStore.activePet3dPreset)
+      h.blockStore.window.visible = false
+      const before = JSON.stringify(h.blockStore.activePet3dPreset)
       h.clickTray()
       await flush()
       h.updates().reminderVersion.value = '1.0.2'
@@ -1045,16 +1338,16 @@ describe('tray broadcast prompt in the mounted preference window', () => {
       await flush()
       assert.equal((prompt().props['ok-button-props'] as { disabled: boolean }).disabled, true)
       ;(prompt().props.onOk as () => void)()
-      assert.equal(h.catStore.window.visible, false)
+      assert.equal(h.blockStore.window.visible, false)
       assert.equal(h.generalStore.broadcast.showOnDesktop, false)
       h.presetBusy.value = false
       await flush()
       ;(prompt().props.onOk as () => void)()
       await flush()
-      assert.equal(h.catStore.window.visible, true)
+      assert.equal(h.blockStore.window.visible, true)
       assert.equal(h.generalStore.broadcast.showOnDesktop, true)
       assert.equal(h.generalStore.broadcast.enabled, true)
-      assert.equal(JSON.stringify(h.catStore.activePet3dPreset), before)
+      assert.equal(JSON.stringify(h.blockStore.activePet3dPreset), before)
       assert.equal(prompt().props.open, false)
       assert.equal(reminder().props.version, undefined)
       ;(prompt().props['after-close'] as () => void)()

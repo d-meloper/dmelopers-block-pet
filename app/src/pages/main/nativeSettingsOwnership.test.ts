@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 import { parse } from 'vue/compiler-sfc'
 
+import { BLOCK_STORE_ID } from '@/config/persistedNames'
 import { WINDOW_LABEL } from '@/constants'
 import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import { SCENE_VIEWPORT_STATE } from '@/features/scene/types'
@@ -27,7 +28,7 @@ describe('desktop native settings confirmations', () => {
       presetApplyInProgress: false,
       WINDOW_LABEL,
       PRESET_EDIT_REQUEST,
-      catStore: { setDmeloperSkinModel: (model: string) => local.push(model) },
+      blockStore: { setDmeloperSkinModel: (model: string) => local.push(model) },
       emitTo: (...args: unknown[]) => {
         sent.push(clone(args))
         return Promise.resolve()
@@ -57,7 +58,7 @@ describe('desktop native settings confirmations', () => {
       desiredManualViewportRect: { ...requested },
       acceptedViewportMode: { automatic: false, revision: 7, rect: { ...requested } },
       manualViewportCorrection: undefined,
-      catStore: { activePet3dPreset: { manualViewportRect: { ...requested } } },
+      blockStore: { activePet3dPreset: { manualViewportRect: { ...requested } } },
       getMainViewportMonitorSize: async () => monitorSize,
       getMainViewportSnapshot: () => undefined,
       getFullContentRect: () => requested,
@@ -80,14 +81,14 @@ describe('desktop native settings confirmations', () => {
       globalThis.publish = publishSceneViewportState`, context)
     await context.resolve!()
     await context.publish!()
-    assert.deepEqual(clone(context.catStore.activePet3dPreset.manualViewportRect), applied)
+    assert.deepEqual(clone(context.blockStore.activePet3dPreset.manualViewportRect), applied)
     assert.deepEqual((events.at(-1)![2] as { manualCorrection: unknown }).manualCorrection, { requested, applied })
-    context.catStore.activePet3dPreset.manualViewportRect = { ...requested, width: 800, height: 600 }
+    context.blockStore.activePet3dPreset.manualViewportRect = { ...requested, width: 800, height: 600 }
     await context.publish!()
     assert.equal((events.at(-1)![2] as { manualCorrection?: unknown }).manualCorrection, undefined)
   })
 
-  it('uses only the preference Cat snapshot as the durable authority for startup and quit barriers', () => {
+  it('uses only the preference Block snapshot as the durable authority for startup and quit barriers', () => {
     const appSource = parse(readFileSync(new URL('../../App.vue', import.meta.url), 'utf8')).descriptor.scriptSetup!.content
     const registration = appSource.slice(appSource.indexOf('registerStateSnapshots(() =>'), appSource.indexOf('const { isRestored'))
     for (const label of ['main', 'preference']) {
@@ -95,7 +96,8 @@ describe('desktop native settings confirmations', () => {
       run(registration, {
         appWindow: { label },
         WINDOW_LABEL,
-        ...Object.fromEntries(['app', 'cat', 'general', 'shortcut'].map(id => [`${id}Store`, { $id: id, $state: { value: id } }])),
+        BLOCK_STORE_ID,
+        ...Object.fromEntries(['app', 'cat', 'general', 'shortcut'].map(id => [`${id === BLOCK_STORE_ID ? 'block' : id}Store`, { $id: id, $state: { value: id } }])),
         registerStateSnapshots: (callback: typeof read) => {
           read = callback
         },

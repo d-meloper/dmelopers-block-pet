@@ -173,7 +173,10 @@ async fn browser_diagnostics_do_not_change_readiness_scene_or_input_demand() {
 #[test]
 fn projection_rejects_extra_private_fields_and_invalid_values_or_skin() {
     let valid = scene();
-    assert_eq!(valid.preset.as_object().unwrap().len(), 32);
+    // Legacy scene fixtures gain only the authored lighting projection on read.
+    assert_eq!(valid.preset.as_object().unwrap().len(), 33);
+    let defaults: Value = crate::settings_defaults::section("preset").unwrap();
+    assert_eq!(valid.preset["lighting"], defaults["lighting"]);
     valid.validate(None).unwrap();
     let mut private = valid.clone();
     private.preset["username"] = json!("must never leave the app");
@@ -618,6 +621,8 @@ fn desk_broadcast_settings_accept_legacy_and_partial_scenes_but_reject_malformed
     candidate.preset["deskColor"] = json!("#123aBC");
     for height in [-1.0, 0.0, 1.0] {
         candidate.preset["deskHeightOffset"] = json!(height);
+        candidate.preset["deskWidthOffset"] = json!(height);
+        candidate.preset["deskDepthOffset"] = json!(-height);
         candidate.validate(None).unwrap();
         let restored: BroadcastScene = serde_json::from_value(serde_json::to_value(&candidate).unwrap()).unwrap();
         assert_eq!(restored, candidate);
@@ -626,6 +631,8 @@ fn desk_broadcast_settings_accept_legacy_and_partial_scenes_but_reject_malformed
         ("deskTransparent", vec![json!(null), json!(1), json!("false")]),
         ("deskColor", vec![json!(null), json!(true), json!("red"), json!("#12345"), json!("#GGGGGG")]),
         ("deskHeightOffset", vec![json!(null), json!(false), json!("0"), json!(-1.01), json!(1.01)]),
+        ("deskWidthOffset", vec![json!(null), json!(false), json!("0"), json!(-1.01), json!(1.01)]),
+        ("deskDepthOffset", vec![json!(null), json!(false), json!("0"), json!(-1.01), json!(1.01)]),
         ("deskEnabled", vec![json!(true)]),
     ] {
         for value in values {

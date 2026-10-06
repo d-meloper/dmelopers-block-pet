@@ -8,7 +8,7 @@ import { beginShortcutRecording } from '@/composables/useKeyPress'
 import { keys, modifierKeys, standardKeys } from '@/utils/keyboard'
 import { shortcutIdentity } from '@/utils/shortcutIdentity'
 
-const props = defineProps<{ reservedShortcuts?: string[] }>()
+const props = defineProps<{ reservedShortcuts?: string[], label?: string }>()
 const modelValue = defineModel<string>()
 const shortcutInputRef = useTemplateRef('shortcutInput')
 const isFocusing = ref(false)
@@ -130,7 +130,9 @@ function handleKeyUp(event: KeyboardEvent) {
   <div class="flex flex-col gap-1">
     <div
       ref="shortcutInput"
+      :aria-label="label"
       class="relative h-8 min-w-32 flex cursor-text items-center justify-center b b-color-1 rounded-md b-solid px-2.5 text-color-3 outline-none transition focus:(b-primary shadow-[0_0_0_2px_rgba(58,167,109,0.18)]) hover:b-primary-5"
+      role="group"
       :tabindex="0"
       @blur="handleBlur"
       @focus="handleFocus"

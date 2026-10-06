@@ -2,7 +2,9 @@
 //! No installer, update metadata, program rollback, or worker is reachable here.
 mod general_defaults;
 mod shortcuts;
+mod startup_stores;
 pub(crate) use general_defaults::initialize_store as initialize_general_defaults;
+pub(crate) use startup_stores::validate as validate_startup_stores;
 #[cfg(test)]
 mod tests;
 use serde_json::Value;

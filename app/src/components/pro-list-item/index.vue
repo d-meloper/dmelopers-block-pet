@@ -26,10 +26,14 @@ const hasDescription = computed(() => {
     <Flex
       align="center"
       class="flex-1"
+      :gap="slots.leading ? 12 : undefined"
     >
+      <slot name="leading" />
       <Flex vertical>
         <div class="text-sm font-medium">
-          {{ title }}
+          <slot name="title">
+            {{ title }}
+          </slot>
         </div>
 
         <div

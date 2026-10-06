@@ -1,5 +1,0 @@
-LIBRARY block_pet_installer_utils
-EXPORTS
-FindProcess
-RunAsUser
-SemverCompare

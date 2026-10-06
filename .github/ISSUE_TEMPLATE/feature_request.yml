@@ -1,23 +1,23 @@
-name: Feature request
-description: Propose a focused improvement.
+name: Feature request / 기능 제안
+description: Suggest a feature or improvement. 필요한 기능이나 개선점을 알려 주세요.
 title: "[Feature] "
 labels: ["enhancement"]
 body:
   - type: textarea
     id: problem
     attributes:
-      label: Problem
-      description: Explain the user problem rather than only the proposed implementation.
+      label: What would you like to do? / 어떤 점이 불편한가요?
+      description: Describe what you want to do and what gets in the way. 무엇을 하려는지, 어떤 점이 불편한지 적어 주세요.
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed behavior
+      label: Suggested change / 제안하는 변경
     validations:
       required: true
   - type: textarea
     id: assets
     attributes:
-      label: Asset provenance
-      description: If media or models are involved, identify their source and redistribution license.
+      label: Image or model sources / 이미지·모델 출처
+      description: If your suggestion includes images or models, include their sources and redistribution licenses. 이미지나 모델이 필요하다면 출처와 재배포 가능한 라이선스를 적어 주세요.

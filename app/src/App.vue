@@ -12,6 +12,7 @@ import { RouterView, useRouter } from 'vue-router'
 import { createMenuViewportSettingHandler } from './composables/menuViewportSetting'
 import { useTauriListen } from './composables/useTauriListen'
 import { useWindowState } from './composables/useWindowState'
+import { BLOCK_STORE_ID } from './config/persistedNames'
 import { APP_DISPLAY_NAME, LANGUAGE, LISTEN_KEY, WINDOW_LABEL } from './constants'
 import { isDesktopPetVisible } from './features/broadcast/visibility'
 import { PET_RUNTIME_SHOW } from './features/petRuntime/types'
@@ -22,19 +23,23 @@ import { markStoresReady, registerStateSnapshots } from './features/stateSafety/
 import { hideWindow, showWindow } from './plugins/window'
 import { createShowWindowRequestHandler } from './plugins/windowNavigation'
 import { useAppStore } from './stores/app'
-import { useCatStore } from './stores/cat'
+import { useBlockStore } from './stores/block'
 import { useGeneralStore } from './stores/general'
 import { useShortcutStore } from './stores/shortcut.ts'
 
 const appStore = useAppStore()
-const catStore = useCatStore()
+const blockStore = useBlockStore()
 const generalStore = useGeneralStore()
 const shortcutStore = useShortcutStore()
-registerStateSnapshots(() => [appStore, catStore, generalStore, shortcutStore].map(store => ({
+const appWindow = getCurrentWebviewWindow()
+// Block's durable owner is Preferences. Main keeps acknowledged renderer/runtime
+// state while the owner's flush and backend readback protect saved Block settings.
+registerStateSnapshots(() => [appStore, blockStore, generalStore, shortcutStore].filter(store => (
+  appWindow.label !== WINDOW_LABEL.MAIN || store.$id !== BLOCK_STORE_ID
+)).map(store => ({
   id: store.$id,
   state: JSON.parse(JSON.stringify(store.$state)) as Record<string, unknown>,
 })))
-const appWindow = getCurrentWebviewWindow()
 const { isRestored, restoreState } = useWindowState()
 const { locale } = useI18n()
 const router = useRouter()
@@ -48,8 +53,8 @@ async function restoreSettings() {
   await appStore.$tauri.start()
   await appStore.init()
   if (appWindow.label === WINDOW_LABEL.MAIN) await appWindow.setTitle(APP_DISPLAY_NAME)
-  await catStore.$tauri.start()
-  initializePetForStartup(catStore)
+  await blockStore.$tauri.start()
+  initializePetForStartup(blockStore)
   await generalStore.$tauri.start()
   await generalStore.init()
   await shortcutStore.$tauri.start()
@@ -76,7 +81,7 @@ const handleShowWindowRequest = createShowWindowRequestHandler({
   show: async () => {
     if (appWindow.label === WINDOW_LABEL.MAIN) {
       await settingsReady
-      if (disposed || !isDesktopPetVisible(catStore.window.visible, generalStore.broadcast)) return
+      if (disposed || !isDesktopPetVisible(blockStore.window.visible, generalStore.broadcast)) return
       await emitTo(WINDOW_LABEL.MAIN, PET_RUNTIME_SHOW)
       return
     }

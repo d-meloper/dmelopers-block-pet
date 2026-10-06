@@ -6,7 +6,9 @@
   "author": "DMeloper",
   "license": "MIT",
   "scripts": {
-    "dev": "run-s build:icon build:broadcast dev:vite",
+    "dev": "run-s dev:icon dev:broadcast dev:vite",
+    "dev:icon": "tsx scripts/buildIcon.ts --cached",
+    "dev:broadcast": "tsx scripts/buildBroadcast.ts --cached",
     "build": "run-s build:*",
     "dev:vite": "vite",
     "build:vite": "vite build",

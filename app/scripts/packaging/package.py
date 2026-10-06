@@ -8,6 +8,7 @@ can carry release provenance. Receipts prove inputs, not reproducible CI bytes.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -22,8 +23,9 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = 'x86_64-pc-windows-msvc'
 MAIN = 'dmelopers-block-pet.exe'
-NSIS_CLI_VERSION = 'tauri-cli 2.11.4'
-NSIS_PAYLOAD_DIRECTORY = 'github-packaged'
+STORE_DISPLAY_NAME = "DMeloper's Block Pet (Store)"
+MINIMUM_WINDOWS_VERSION = '10.0.19045.3448'
+MAXIMUM_WINDOWS_VERSION_TESTED = '10.0.26100.0'
 SYNTHETIC = {'name': 'Dmeloper.BlockPet.BuildValidation',
              'publisher': 'CN=BuildValidationOnly', 'publisherDisplayName': 'DMeloper',
              'storeProductId': '9SYNTHETIC00'}
@@ -59,29 +61,6 @@ def record(path):
     return {'name': path.name, 'bytes': path.stat().st_size, 'sha256': digest(path)}
 
 
-def expected_nsis_image(data, cli_version, authenticode='absent'):
-    """Pinned Tauri 2.11.4 bundle.rs patches the first token, then restores raw.
-
-    This is an expected package image, not independent installer extraction or
-    security evidence. Refuse ambiguous markers and signed inputs.
-    """
-    require(cli_version == NSIS_CLI_VERSION, 'Unreviewed Tauri NSIS transformation version')
-    require(authenticode == 'absent', 'NSIS transformation requires absent Authenticode')
-    require(len(data) >= 64 and data[:2] == b'MZ', 'Invalid native PE image')
-    pe = int.from_bytes(data[60:64], 'little')
-    optional = pe + 24
-    require(pe >= 64 and optional + 152 <= len(data) and data[pe:pe+4] == b'PE\0\0'
-            and data[pe+4:pe+6] == b'\x64\x86'
-            and int.from_bytes(data[pe+20:pe+22], 'little') >= 152
-            and data[optional:optional+2] == b'\x0b\x02'
-            and int.from_bytes(data[optional+108:optional+112], 'little') >= 5,
-            'Expected x64 PE32+ certificate directory')
-    require(data[optional+144:optional+152] == b'\0'*8,
-            'Authenticode certificate directory must be empty')
-    unknown, nsis = b'__TAURI_BUNDLE_TYPE_VAR_UNK', b'__TAURI_BUNDLE_TYPE_VAR_NSS'
-    require(data.count(unknown) == 1 and data.count(b'__TAURI_BUNDLE_TYPE_VAR_') == 1,
-            'Expected exactly one unpatched Tauri bundle marker')
-    return data.replace(unknown, nsis, 1)
 
 
 def write(path, value):
@@ -133,27 +112,27 @@ def manifest(store, app_version):
     add(package, 'Identity', {'Name': store['name'], 'Publisher': store['publisher'],
                              'Version': version(app_version), 'ProcessorArchitecture': 'x64'})
     properties = add(package, 'Properties')
-    add(properties, 'DisplayName', text="DMeloper's Block Pet")
+    add(properties, 'DisplayName', text=STORE_DISPLAY_NAME)
     add(properties, 'PublisherDisplayName', text='DMeloper')
     add(properties, 'Logo', text='StoreAssets\\StoreLogo.png')
     add(properties, 'uap17:UpdateWhileInUse', text='defer')
     dependencies = add(package, 'Dependencies')
-    add(dependencies, 'TargetDeviceFamily', {'Name': 'Windows.Desktop', 'MinVersion': '10.0.26100.0',
-                                           'MaxVersionTested': '10.0.26100.0'})
+    add(dependencies, 'TargetDeviceFamily', {'Name': 'Windows.Desktop', 'MinVersion': MINIMUM_WINDOWS_VERSION,
+                                           'MaxVersionTested': MAXIMUM_WINDOWS_VERSION_TESTED})
     resources = add(package, 'Resources')
     for language in ('en-US', 'ko-KR'):
         add(resources, 'Resource', {'Language': language})
     apps = add(package, 'Applications')
     app = add(apps, 'Application', {'Id': 'App', 'Executable': MAIN,
         tag('uap10:RuntimeBehavior'): 'packagedClassicApp', tag('uap10:TrustLevel'): 'mediumIL'})
-    add(app, 'uap:VisualElements', {'DisplayName': "DMeloper's Block Pet", 'Description': 'Desktop pet',
+    add(app, 'uap:VisualElements', {'DisplayName': STORE_DISPLAY_NAME, 'Description': 'Desktop pet',
         'BackgroundColor': 'transparent', 'Square150x150Logo': 'StoreAssets\\Square150x150Logo.png',
         'Square44x44Logo': 'StoreAssets\\Square44x44Logo.png'})
     extensions = add(app, 'Extensions')
     extension = add(extensions, 'desktop:Extension', {'Category': 'windows.startupTask',
         'Executable': MAIN, 'EntryPoint': 'Windows.FullTrustApplication'})
     add(extension, 'desktop:StartupTask', {'TaskId': 'BlockPetStartup', 'Enabled': 'false',
-                                         'DisplayName': "DMeloper's Block Pet"})
+                                         'DisplayName': STORE_DISPLAY_NAME})
     capabilities = add(package, 'Capabilities')
     add(capabilities, 'rescap:Capability', {'Name': 'runFullTrust'})
     return ET.tostring(package, encoding='utf-8', xml_declaration=True)
@@ -299,7 +278,7 @@ def executable_tool_inputs(node, cli):
     return result
 
 
-def verify_msix(path, app_version, store):
+def verify_msix(path, app_version, store, *, expected_minimum_windows=None):
     with zipfile.ZipFile(path) as archive:
         names = archive.namelist()
         require(len(names) == len(set(x.casefold() for x in names)), 'Duplicate MSIX members')
@@ -308,14 +287,78 @@ def verify_msix(path, app_version, store):
         found = node.find('{' + NS[''] + '}Identity')
         require(found is not None and found.attrib == {'Name': store['name'], 'Publisher': store['publisher'],
                 'Version': version(app_version), 'ProcessorArchitecture': 'x64'}, 'MSIX identity drift')
+        if expected_minimum_windows is not None:
+            family = node.find('{' + NS[''] + '}Dependencies/{' + NS[''] + '}TargetDeviceFamily')
+            require(family is not None and family.attrib == {'Name': 'Windows.Desktop',
+                    'MinVersion': expected_minimum_windows,
+                    'MaxVersionTested': MAXIMUM_WINDOWS_VERSION_TESTED}, 'MSIX Windows requirements drift')
+            defer = node.find('{' + NS[''] + '}Properties/{' + NS['uap17'] + '}UpdateWhileInUse')
+            require(defer is not None and defer.text == 'defer'
+                    and 'uap17' in node.get('IgnorableNamespaces', '').split(),
+                    'MSIX update deferral must remain optional on older supported Windows')
         require(not any(x.lower().endswith(('uninstall.exe', 'setup.exe', '.sig')) for x in names),
-                'NSIS/update artifacts cannot enter the Store package')
+                'Installer/update artifacts cannot enter the Store package')
         return [{'path': name, 'bytes': len(archive.read(name)),
                  'sha256': hashlib.sha256(archive.read(name)).hexdigest()}
                 for name in sorted(names) if not name.endswith('/')]
 
 
+def checked_cache_path(path):
+    path = Path(path)
+    require(path.is_absolute(), 'Compiler cache must use an absolute path')
+    for item in (path, *path.parents):
+        if os.path.lexists(item):
+            require(not item.is_symlink() and not (getattr(item.lstat(), 'st_file_attributes', 0) & 0x400),
+                    'Compiler cache cannot traverse a reparse point')
+    return path.resolve()
+
+
+@contextmanager
+def compiler_cache(path, output):
+    if path is None:
+        yield None
+        return
+    root = checked_cache_path(path)
+    source = ROOT.parent if ROOT.name == 'app' else ROOT
+    output = Path(output).resolve()
+    require(not root.is_relative_to(source.resolve()) and not source.resolve().is_relative_to(root),
+            'Compiler cache must be separate from source')
+    require(not root.is_relative_to(output) and not output.is_relative_to(root),
+            'Compiler cache and candidate output must be separate')
+    root.mkdir(parents=True, exist_ok=True)
+    lock_path = checked_cache_path(root / '.build.lock')
+    with lock_path.open('a+b') as lock:
+        lock.seek(0, os.SEEK_END)
+        if lock.tell() == 0:
+            lock.write(b'0')
+            lock.flush()
+        lock.seek(0)
+        import msvcrt
+        try:
+            msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError as error:
+            raise ValueError('Compiler cache is already in use') from error
+        try:
+            yield root
+        finally:
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def cache_target(root, channel, tools, flags, store):
+    require(channel in ('github', 'store'), 'Unsupported compiler cache channel')
+    inputs = {'contract': 1, 'target': TARGET, 'channel': channel, 'tools': tools,
+              'flags': flags, 'storeIdentity': store if channel == 'store' else None}
+    key = hashlib.sha256(json.dumps(inputs, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    return checked_cache_path(root / (channel + '-' + key))
+
+
 def build(args):
+    with compiler_cache(getattr(args, 'cache_root', None), args.output) as cache:
+        return build_packages(args, cache)
+
+
+def build_packages(args, cache):
     require(os.name == 'nt', 'Packaging requires Windows x64')
     store = identity(args.identity, args.validation)
     source = source_identity(args.reviewed_public_commit, args.validation)
@@ -355,8 +398,8 @@ def build(args):
         require(json.loads(args.tool_lock.read_text(encoding='utf-8')) == pinned_tools, 'Release tool inputs differ from lock')
     write(output / 'observed-tool-lock.json', pinned_tools)
     outputs, payloads = {}, {}
-    for channel in ('github', 'store'):
-        target = output / ('target-' + channel)
+    for channel in ('store',):
+        target = cache_target(cache, channel, pinned_tools, rust_flags, store) if cache else output / ('target-' + channel)
         env['CARGO_TARGET_DIR'] = str(target)
         for key in ('DMELOPER_STORE_IDENTITY_NAME', 'DMELOPER_STORE_PUBLISHER', 'DMELOPER_STORE_PRODUCT_ID'):
             env.pop(key, None)
@@ -369,68 +412,48 @@ def build(args):
         run(command, env, output / ('build-' + channel + '.log'))
         assert_source_state(source['publicCommit'], 'after ' + channel + ' native build')
         commands.append([Path(x).name if str(ROOT) in x else x for x in command])
+        compiled = target / TARGET / 'release' / MAIN
+        require(compiled.is_file(), 'Expected channel executable missing')
+        # Retained payloads and packaging tools never live in the mutable compiler cache.
+        target = output / ('target-' + channel)
         binary = target / TARGET / 'release' / MAIN
-        require(binary.is_file(), 'Expected channel executable missing')
+        if compiled != binary:
+            binary.parent.mkdir(parents=True)
+            shutil.copyfile(compiled, binary)
+        env['CARGO_TARGET_DIR'] = str(target)
         screen_private_paths(binary.read_bytes(), [ROOT, ROOT.parent, Path.home(),
             Path(os.environ.get('CARGO_HOME', str(Path.home() / '.cargo'))),
             Path(os.environ.get('RUSTUP_HOME', str(Path.home() / '.rustup')))])
-        if channel == 'github':
-            payloads['githubCompiled'] = record(binary)
-            expected_image = expected_nsis_image(binary.read_bytes(), tool_versions['tauri'])
-            sys.path.insert(0, str(ROOT / 'tools'))
-            import prepare_installer_toolchain as nsis
-            tools = nsis.prepare(output, target)
-            config = output / 'bundle-config.json'
-            write(config, {'bundle': {'useLocalToolsDir': True,
-                'windows': {'certificateThumbprint': None, 'signCommand': None}}})
-            run([node, str(cli), 'bundle', '--ci', '--target', TARGET, '--bundles', 'nsis',
-                 '--config', str(ROOT / 'src-tauri/tauri.github.conf.json'), '--config', str(config)],
-                env, output / 'bundle-github.log')
-            assert_source_state(source['publicCommit'], 'after GitHub NSIS bundle')
-            nsis.verify_unchanged(target, tools)
-            require(record(binary) == payloads['githubCompiled'], 'Tauri did not restore the compiled image')
-            require('Failed to add bundler type' not in (output / 'bundle-github.log').read_text(encoding='utf-8'),
-                    'Tauri failed to apply the expected NSIS transformation')
-            packaged = output / NSIS_PAYLOAD_DIRECTORY / MAIN
-            packaged.parent.mkdir()
-            packaged.write_bytes(expected_image)
-            payloads['github'] = record(packaged)
-            installers = list((target / TARGET / 'release/bundle/nsis').glob('*_x64-setup.exe'))
-            require(len(installers) == 1, 'Expected exactly one NSIS output')
-            final = output / f'dmelopers-block-pet_{app_version}_x64-setup.exe'
-            shutil.copyfile(installers[0], final)
-            outputs['github'] = record(final)
-        else:
-            payloads[channel] = record(binary)
-            stage = output / 'msix-stage'
-            stage.mkdir()
-            shutil.copyfile(binary, stage / MAIN)
-            for relative in json.loads((ROOT / 'src-tauri/tauri.conf.json').read_text())['bundle']['resources']:
-                destination = stage / relative
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(ROOT / 'src-tauri' / relative, destination)
-            icons = output / 'store-icons'
-            run([node, str(cli), 'icon', str(ROOT / 'public/logo.png'), '--output', str(icons)],
-                env, output / 'store-icons.log')
-            (stage / 'StoreAssets').mkdir()
-            for name in ('StoreLogo.png', 'Square150x150Logo.png', 'Square44x44Logo.png'):
-                shutil.copyfile(icons / name, stage / 'StoreAssets' / name)
-            (stage / 'AppxManifest.xml').write_bytes(manifest(store, app_version))
-            final = output / f'dmelopers-block-pet_{app_version}_x64.msix'
-            run([str(sdk), 'pack', '/d', str(stage), '/p', str(final), '/o'], env, output / 'makeappx.log')
-            payloads['msixMembers'] = verify_msix(final, app_version, store)
-            outputs['storeSubmittedPackage'] = record(final)
-    assert_source_state(source['publicCommit'], 'after both packages')
-    receipt = {'schemaVersion': 1, 'kind': 'block-pet-dual-channel-build', **source,
+        payloads[channel] = record(binary)
+        stage = output / 'msix-stage'
+        stage.mkdir()
+        shutil.copyfile(binary, stage / MAIN)
+        for relative in json.loads((ROOT / 'src-tauri/tauri.conf.json').read_text())['bundle']['resources']:
+            destination = stage / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / 'src-tauri' / relative, destination)
+        icons = output / 'store-icons'
+        run([node, str(cli), 'icon', str(ROOT / 'public/logo.png'), '--output', str(icons)],
+            env, output / 'store-icons.log')
+        (stage / 'StoreAssets').mkdir()
+        for name in ('StoreLogo.png', 'Square150x150Logo.png', 'Square44x44Logo.png'):
+            shutil.copyfile(icons / name, stage / 'StoreAssets' / name)
+        (stage / 'AppxManifest.xml').write_bytes(manifest(store, app_version))
+        final = output / f'dmelopers-block-pet_{app_version}_x64.msix'
+        run([str(sdk), 'pack', '/d', str(stage), '/p', str(final), '/o'], env, output / 'makeappx.log')
+        payloads['msixMembers'] = verify_msix(final, app_version, store,
+                expected_minimum_windows=MINIMUM_WINDOWS_VERSION)
+        outputs['storeSubmittedPackage'] = record(final)
+    assert_source_state(source['publicCommit'], 'after Store package')
+    receipt = {'schemaVersion': 1, 'kind': 'block-pet-store-build', **source,
         'version': app_version, 'storeVersion': version(app_version), 'storeIdentity': store,
         'projection': projection, 'toolLock': record(output / 'observed-tool-lock.json'),
         'tools': tool_versions, 'makeappx': record(sdk), 'commands': commands,
         'rustFlags': rust_flags,
-        'installerToolchain': record(output / 'installer-toolchain.json'),
         'inputs': {name: digest(ROOT / name) for name in ('Cargo.lock', 'pnpm-lock.yaml',
                    'src-tauri/tauri.conf.json', 'src-tauri/tauri.github.conf.json',
                    'src-tauri/tauri.store.conf.json', 'src-tauri/update-trust.json',
-                   'src-tauri/windows/github-installer.nsi', 'scripts/packaging/package.py')},
+                   'scripts/packaging/package.py')},
         'outputs': outputs, 'payloads': payloads, 'ciByteIdentityClaimed': False,
         'nativePrivatePathsScreened': True,
         'authenticode': 'absent', 'storeInstalledIdentity': None,
@@ -446,6 +469,7 @@ def main():
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--reviewed-public-commit', required=True)
     parser.add_argument('--identity', type=Path)
+    parser.add_argument('--cache-root', type=Path, help='Optional external compiler cache; exclusively locked and channel/tool separated')
     parser.add_argument('--projection-manifest', type=Path)
     parser.add_argument('--tool-lock', type=Path)
     parser.add_argument('--validation', action='store_true')

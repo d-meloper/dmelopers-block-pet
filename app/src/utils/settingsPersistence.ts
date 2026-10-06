@@ -1,5 +1,6 @@
 import { isEqual } from 'es-toolkit'
 
+import { serializeSettingsState } from '@/config/persistedNames'
 import { reportDiagnostic } from '@/services/diagnostics'
 
 export interface SettingsSnapshot {
@@ -17,6 +18,15 @@ export interface SettingsPersistenceSteps {
   timeoutMs?: number
   /** Quiescence only: edits are locked, but a peer's queued state may still arrive. */
   followFrontendChanges?: boolean
+  /** Autosave only: a newer edit supersedes this attempt without a save error. */
+  isCurrent?: () => boolean
+}
+
+export class SettingsSnapshotSupersededError extends Error {
+  constructor() {
+    super('Settings snapshot was superseded.')
+    this.name = 'SettingsSnapshotSupersededError'
+  }
 }
 
 function containsSnapshot(actual: Record<string, unknown>, expected: Record<string, unknown>): boolean {
@@ -37,7 +47,7 @@ export async function saveSynchronizedSettings(steps: SettingsPersistenceSteps):
   try {
     await synchronizeSettings(steps)
   } catch (error) {
-    reportDiagnostic('error', 'settings.persist', error)
+    if (!(error instanceof SettingsSnapshotSupersededError)) reportDiagnostic('error', 'settings.persist', error)
     throw error
   }
 }
@@ -46,12 +56,21 @@ async function synchronizeSettings(steps: SettingsPersistenceSteps): Promise<voi
   const now = steps.now ?? (() => performance.now())
   const wait = steps.wait ?? (() => new Promise(resolve => setTimeout(resolve, 25)))
   const deadline = now() + (steps.timeoutMs ?? 5000)
+  const checkCurrent = () => {
+    if (steps.isCurrent?.() === false) throw new SettingsSnapshotSupersededError()
+  }
+  checkCurrent()
   await steps.flushFrontend()
+  checkCurrent()
   // Match the JSON representation sent through Tauri, including omitted undefined fields.
-  const readSnapshots = () => JSON.parse(JSON.stringify(steps.snapshots())) as SettingsSnapshot[]
+  const readSnapshots = () => JSON.parse(JSON.stringify(steps.snapshots().map(({ id, state }) => ({
+    id,
+    state: serializeSettingsState(id, state),
+  })))) as SettingsSnapshot[]
   let snapshots = readSnapshots()
   while (true) {
     const backendStates = await Promise.all(snapshots.map(({ id }) => steps.readBackend(id)))
+    checkCurrent()
     if (steps.followFrontendChanges) {
       // A native read can race the peer's incoming Pinia patch. Observe its
       // actual frontend completion, never adopt the backend as the desired state.
@@ -66,6 +85,7 @@ async function synchronizeSettings(steps: SettingsPersistenceSteps): Promise<voi
     }
     if (snapshots.every(({ state }, index) => containsSnapshot(backendStates[index], state))) {
       await steps.saveNow()
+      checkCurrent()
       return
     }
     if (now() >= deadline) throw new Error('Settings synchronization was not acknowledged.')

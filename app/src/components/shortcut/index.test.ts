@@ -47,7 +47,7 @@ const require = createRequire(import.meta.url)
 function mountShortcuts() {
   setActivePinia(createPinia())
   const store = useShortcutStore()
-  store.visibleCat = 'Control+Shift+A'
+  store.visibleBlock = 'Control+Shift+A'
   store.mirrorMode = 'Control+B'
   const wrapper = Vue.defineComponent({ setup: (_, { slots }) => () => Vue.h('div', slots.default?.()) })
   let dataBridge: Record<string, unknown>
@@ -106,7 +106,7 @@ function mountShortcuts() {
   const showPanel = Vue.ref(true)
   const owner = Vue.defineComponent({
     setup: () => {
-      keyPress.useKeyPress(Vue.toRef(store, 'visibleCat'), () => calls.push('visibleCat'))
+      keyPress.useKeyPress(Vue.toRef(store, 'visibleBlock'), () => calls.push('visibleBlock'))
       keyPress.useKeyPress(Vue.toRef(store, 'mirrorMode'), () => calls.push('mirrorMode'))
       return () => showPanel.value ? Vue.h(panel) : null
     },
@@ -178,7 +178,7 @@ describe('shortcut recording conflicts', () => {
     try {
       await h.record(5, [['Shift', 'ShiftLeft'], ['Control', 'ControlLeft'], ['a', 'KeyA']])
       assert.equal(h.store.mirrorMode, 'Control+B')
-      assert.equal(h.store.visibleCat, 'Control+Shift+A')
+      assert.equal(h.store.visibleBlock, 'Control+Shift+A')
       assert.equal(h.errors().length, 1)
       await h.record(5, [['Control', 'ControlLeft'], ['c', 'KeyC']])
       assert.equal(h.store.mirrorMode, 'Control+C')
@@ -193,7 +193,7 @@ describe('shortcut recording conflicts', () => {
     try {
       await h.record(5, [['Control', 'ControlLeft'], ['b', 'KeyB']])
       assert.equal(h.store.mirrorMode, 'Control+B')
-      assert.equal(h.store.visibleCat, 'Control+Shift+A')
+      assert.equal(h.store.visibleBlock, 'Control+Shift+A')
       assert.equal(h.errors().length, 0)
     } finally {
       h.app.unmount()
@@ -224,7 +224,7 @@ describe('native shortcut actions during recording', () => {
         assert.equal(h.errors().length, 1)
         if (delivery !== 'released before blur') h.fire('Control+Shift+A', 'Released')
         h.fire('Control+Shift+A')
-        assert.deepEqual(h.calls, ['visibleCat'])
+        assert.deepEqual(h.calls, ['visibleBlock'])
       } finally {
         h.app.unmount()
         await flush()
@@ -257,8 +257,8 @@ describe('native shortcut actions during recording', () => {
       assert.deepEqual(h.calls, [])
       h.fire('Control+Shift+A', 'Released')
       h.fire('Control+Shift+A')
-      assert.deepEqual(h.calls, ['visibleCat'])
-      assert.equal(h.store.visibleCat, 'Control+Shift+A')
+      assert.deepEqual(h.calls, ['visibleBlock'])
+      assert.equal(h.store.visibleBlock, 'Control+Shift+A')
     } finally {
       h.app.unmount()
       await flush()
@@ -274,7 +274,7 @@ describe('native shortcut actions during recording', () => {
       h.showPanel.value = false
       await flush()
       h.fire('Control+Shift+A')
-      assert.deepEqual(h.calls, ['visibleCat'])
+      assert.deepEqual(h.calls, ['visibleBlock'])
     } finally {
       h.app.unmount()
       await flush()
@@ -290,7 +290,7 @@ describe('native shortcut actions during recording', () => {
       h.cancelRecording()
       h.fire('Control+Shift+A')
       assert.equal(h.store.mirrorMode, 'Control+B')
-      assert.deepEqual(h.calls, ['visibleCat'])
+      assert.deepEqual(h.calls, ['visibleBlock'])
     } finally {
       h.app.unmount()
       await flush()
@@ -303,13 +303,13 @@ describe('native shortcut actions during recording', () => {
       await flush()
       h.focus(5)
       h.fire('Control+Shift+A')
-      h.store.visibleCat = ''
+      h.store.visibleBlock = ''
       await flush()
       h.cancelRecording()
-      h.store.visibleCat = 'Control+Shift+A'
+      h.store.visibleBlock = 'Control+Shift+A'
       await flush()
       h.fire('Control+Shift+A')
-      assert.deepEqual(h.calls, ['visibleCat'])
+      assert.deepEqual(h.calls, ['visibleBlock'])
     } finally {
       h.app.unmount()
       await flush()
@@ -321,10 +321,10 @@ describe('shortcut cancellation and complete panel', () => {
   it('adds empty cycle defaults when restoring legacy shortcut state', () => {
     setActivePinia(createPinia())
     const store = useShortcutStore()
-    store.$patch({ visibleCat: 'Control+A', mirrorMode: 'F2' })
+    store.$patch({ visibleBlock: 'Control+A', mirrorMode: 'F2' })
     assert.equal(store.cycleZoom, '')
     assert.equal(store.cycleRotation, '')
-    assert.equal(store.visibleCat, 'Control+A')
+    assert.equal(store.visibleBlock, 'Control+A')
     assert.equal(store.mirrorMode, 'F2')
   })
 
@@ -345,10 +345,10 @@ describe('shortcut cancellation and complete panel', () => {
         assert.equal(h.store.mirrorMode, existing ? 'Control+B' : '')
         assert.equal(h.errors().length, 0)
         h.fire('Control+Shift+A')
-        assert.deepEqual(h.calls, ['visibleCat'])
+        assert.deepEqual(h.calls, ['visibleBlock'])
         if (existing) {
           h.fire('Control+B')
-          assert.deepEqual(h.calls, ['visibleCat', 'mirrorMode'])
+          assert.deepEqual(h.calls, ['visibleBlock', 'mirrorMode'])
         }
         await h.record(5, [['Control', 'ControlLeft'], ['c', 'KeyC']])
         await flush()
@@ -362,13 +362,15 @@ describe('shortcut cancellation and complete panel', () => {
     })
   }
 
-  it('renders all twelve actions in order and checks new bindings against all other actions', async () => {
+  it('labels all twelve recorder groups and checks new bindings against all other actions', async () => {
     const h = mountShortcuts()
-    const keys = ['visibleCat', 'toggleBroadcast', 'visiblePreference', 'showDisplayArea', 'mouseEnabled', 'mirrorMode', 'cycleZoom', 'cycleRotation', 'keepInScreen', 'penetrable', 'hideOnHover', 'alwaysOnTop'] as const
+    const keys = ['visibleBlock', 'toggleBroadcast', 'visiblePreference', 'showDisplayArea', 'mouseEnabled', 'mirrorMode', 'cycleZoom', 'cycleRotation', 'keepInScreen', 'penetrable', 'hideOnHover', 'alwaysOnTop'] as const
     try {
       assert.equal(h.inputs().length, keys.length)
+      assert.ok(h.inputs().every(input => input.props.role === 'group'))
+      assert.deepEqual(h.inputs().map(input => input.props['aria-label']), h.rows().map(row => row.props.title))
       assert.deepEqual(h.rows().map(row => row.props.description), [
-        'pages.preference.shortcut.hints.toggleCat',
+        'pages.preference.shortcut.hints.toggleBlock',
         'pages.preference.shortcut.hints.toggleBroadcast',
         'pages.preference.shortcut.hints.togglePreferences',
         'pages.preference.scene.hints.showDisplayArea',
@@ -384,6 +386,8 @@ describe('shortcut cancellation and complete panel', () => {
       for (const [index, key] of keys.entries()) {
         await h.record(index, [[`F${index + 1}`, `F${index + 1}`]])
         assert.equal(h.store[key], `F${index + 1}`)
+        const clear = walk(h.inputs()[index]).find(node => node.props['aria-label'] === 'components.shortcut.buttons.clear')
+        assert.equal(clear?.props.type, 'button')
       }
       await h.record(6, [['F8', 'F8']])
       assert.equal(h.store.cycleZoom, 'F7')

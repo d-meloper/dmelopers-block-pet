@@ -20,8 +20,10 @@ import type { NormalizedVoxelSkin } from '@/utils/three3d/voxelSkin'
 
 import { getSkinSelectionId } from '@/config/skinIdentity'
 import { onPresetSelectionChange } from '@/features/presets/editIntent'
+import { beginPresetNativeEdit } from '@/features/presets/operations'
+import { editorsLocked } from '@/features/stateSafety/bridge'
 import { reportDiagnostic } from '@/services/diagnostics'
-import { BUILTIN_DMELOPER_SKIN, resolveDefaultDmeloperPalmColor, resolveDmeloperSkinThumbnailUrl } from '@/services/dmeloperSkin'
+import { BUILTIN_DMELOPER_SKIN, resolveDefaultDmeloperColors, resolveDmeloperSkinThumbnailUrl } from '@/services/dmeloperSkin'
 import {
   createMinecraftSkinBlob,
   createMinecraftSkinDataUrl,
@@ -29,6 +31,7 @@ import {
   LatestRequestGate,
   MinecraftSkinError,
 } from '@/services/minecraftSkin'
+import { beginPetSkinChange } from '@/services/petSkinChange'
 import {
   cleanupSkinLibrary,
   deleteSkinLibraryEntries,
@@ -41,7 +44,7 @@ import {
   SkinLibraryError,
   storeSkinLibraryEntry,
 } from '@/services/skinLibrary'
-import { useCatStore } from '@/stores/cat'
+import { useBlockStore } from '@/stores/block'
 import {
   importSkinLibraryBatch,
   planSkinLibraryOverwrites,
@@ -59,17 +62,17 @@ import {
   createSkinFaceThumbnailPngBase64,
   createSkinThumbnailDataUrl,
 } from '@/utils/skinThumbnail'
-import { decodeVoxelSkin } from '@/utils/three3d/voxelSkin'
+import { decodeVoxelSkin, suggestVoxelSkinHeadTopColor } from '@/utils/three3d/voxelSkin'
 
 const emit = defineEmits<{
   back: []
 }>()
 
-const catStore = useCatStore()
+const blockStore = useBlockStore()
 const { t } = useI18n()
 const entries = ref<SkinLibraryEntry[]>([])
 const selection = ref<SkinLibrarySelectionState>(
-  createSkinLibrarySelectionState(getSkinSelectionId(catStore.customization3d)),
+  createSkinLibrarySelectionState(getSkinSelectionId(blockStore.customization3d)),
 )
 const loading = ref(true)
 const busy = ref(false)
@@ -107,7 +110,7 @@ const selectedIds = computed(() => selection.value.selectedIds)
 const selected = computed(() => new Set(selectedIds.value))
 const multiMode = computed(() => selection.value.multiSelect)
 const activeEntryId = computed(
-  () => getSkinSelectionId(catStore.customization3d),
+  () => getSkinSelectionId(blockStore.customization3d),
 )
 const defaultActive = computed(() => activeEntryId.value === BUILTIN_DMELOPER_SKIN.id)
 const defaultSelected = computed(
@@ -126,9 +129,9 @@ function readSkinFileDataUrl(file: File): Promise<string> {
     const reader = new FileReader()
     reader.onload = () => typeof reader.result === 'string'
       ? resolve(reader.result)
-      : reject(new Error(t('pages.preference.cat.errors.skinRead')))
+      : reject(new Error(t('pages.preference.block.errors.skinRead')))
     reader.onerror = () => reject(
-      reader.error ?? new Error(t('pages.preference.cat.errors.skinRead')),
+      reader.error ?? new Error(t('pages.preference.block.errors.skinRead')),
     )
     reader.readAsDataURL(file)
   })
@@ -143,14 +146,14 @@ function getPngBase64(dataUrl: string): string {
     || markerIndex < 'data:'.length
     || dataUrl.length === contentStart
   ) {
-    throw new Error(t('pages.preference.cat.errors.skinRead'))
+    throw new Error(t('pages.preference.block.errors.skinRead'))
   }
   return dataUrl.slice(contentStart)
 }
 
 async function readPickedSkinFile(file: File): Promise<LocalSkinFileResponse> {
   if (!file.name.toLowerCase().endsWith('.png')) {
-    throw new Error(t('pages.preference.cat.errors.pngOnly'))
+    throw new Error(t('pages.preference.block.errors.pngOnly'))
   }
   if (file.size > MAX_SKIN_LIBRARY_PNG_BYTES) {
     throw new SkinLibraryError('TOO_LARGE')
@@ -170,23 +173,56 @@ async function readImportCandidate(
     : readLocalSkinFile(candidate.filePath)
 }
 
+let activeSkinChange: ReturnType<typeof beginPetSkinChange> | undefined
+function cancelSkinApplication() {
+  const change = activeSkinChange
+  activeSkinChange = undefined
+  void change?.finish().catch(error => reportDiagnostic('warn', 'skin_library.loading', error))
+}
+
+async function runSkinApplication(generation: number, apply: () => Promise<boolean | undefined>) {
+  const change = beginPetSkinChange()
+  activeSkinChange = change
+  let applied = false
+  try {
+    await change.ready
+    if (!applyRequestGate.isCurrent(generation)) return
+    applied = Boolean(await apply())
+  } finally {
+    if (activeSkinChange === change) activeSkinChange = undefined
+    const skin = applied && applyRequestGate.isCurrent(generation)
+      ? {
+          dataUrl: blockStore.customization3d.dmeloperSkinDataUrl,
+          model: blockStore.customization3d.dmeloperSkinModel === 'slim' ? 'slim' as const : 'wide' as const,
+          palmColor: blockStore.activePet3dPreset.dmeloperPalmColor,
+        }
+      : undefined
+    await change.finish(skin).catch(error => reportDiagnostic('warn', 'skin_library.loading', error))
+  }
+}
+
 async function selectCard(entryId: string) {
-  if (busy.value) return
+  if (!mounted || busy.value || editorsLocked.value) return
   if (entryId === BUILTIN_DMELOPER_SKIN.id) {
+    const release = beginPresetNativeEdit()
     const generation = applyRequestGate.begin()
     applying.value = true
     cancelNameEdit()
     try {
-      const palmColor = await resolveDefaultDmeloperPalmColor()
-      if (!applyRequestGate.isCurrent(generation)) return
-      catStore.resetDmeloperSkinToDefault(palmColor)
-      selection.value = createSkinLibrarySelectionState(BUILTIN_DMELOPER_SKIN.id)
+      await runSkinApplication(generation, async () => {
+        const colors = await resolveDefaultDmeloperColors()
+        if (!applyRequestGate.isCurrent(generation)) return
+        blockStore.resetDmeloperSkinToDefault(colors.palmColor, colors.eyebrowColor)
+        selection.value = createSkinLibrarySelectionState(BUILTIN_DMELOPER_SKIN.id)
+        return true
+      })
     } catch (error) {
       if (applyRequestGate.isCurrent(generation)) {
         reportDiagnostic('error', 'skin_library.apply_default', error)
         message.error(t('pages.preference.skinLibrary.errors.apply'))
       }
     } finally {
+      release()
       if (applyRequestGate.isCurrent(generation)) applying.value = false
     }
     return
@@ -243,7 +279,7 @@ function cancelNameEdit() {
 
 async function saveEditedName(entry: SkinLibraryEntry) {
   if (
-    editingEntryId.value !== entry.id
+    !mounted || editorsLocked.value || editingEntryId.value !== entry.id
     || renaming.value
     || busy.value
     || applying.value
@@ -265,6 +301,7 @@ async function saveEditedName(entry: SkinLibraryEntry) {
 
   busy.value = true
   renaming.value = true
+  const release = beginPresetNativeEdit()
   let shouldRetry = false
   try {
     const renamed = await renameSkinLibraryEntry(entry.id, displayName)
@@ -278,6 +315,7 @@ async function saveEditedName(entry: SkinLibraryEntry) {
     message.error(t('pages.preference.skinLibrary.errors.rename'))
     shouldRetry = true
   } finally {
+    release()
     renaming.value = false
     if (shouldRetry) await focusRenameInput()
     busy.value = false
@@ -455,7 +493,8 @@ function showImportResult(
 }
 
 async function importCandidates(candidates: readonly SkinLibraryImportCandidate[]) {
-  if (candidates.length === 0 || busy.value || applying.value || loading.value) return
+  if (!mounted || editorsLocked.value || candidates.length === 0 || busy.value || applying.value || loading.value) return
+  const release = beginPresetNativeEdit()
   const generation = applyRequestGate.begin()
   busy.value = true
   importing.value = true
@@ -488,7 +527,7 @@ async function importCandidates(candidates: readonly SkinLibraryImportCandidate[
       applyLast: (imported) => {
         if (!applyRequestGate.isCurrent(generation)) return
         applyDecodedEntry(imported.entry, imported.pngBase64, imported.decoded)
-        catStore.completeSkinLibraryMigration(imported.entry.id)
+        blockStore.completeSkinLibraryMigration(imported.entry.id)
         selection.value = createSkinLibrarySelectionState(imported.entry.id)
       },
     })
@@ -505,6 +544,7 @@ async function importCandidates(candidates: readonly SkinLibraryImportCandidate[
       }))
     }
   } finally {
+    release()
     if (applyRequestGate.isCurrent(generation)) {
       busy.value = false
       importing.value = false
@@ -545,29 +585,29 @@ async function cleanupLibraryFiles() {
 }
 
 async function deleteSelected(entryIds: readonly string[], generation: number) {
-  if (!applyRequestGate.isCurrent(generation) || busy.value || applying.value || cleaningUp.value) return
+  if (!mounted || editorsLocked.value || !applyRequestGate.isCurrent(generation) || busy.value || applying.value || cleaningUp.value) return
+  const release = beginPresetNativeEdit()
   const originalSkinId = activeEntryId.value
-  const originalPresetId = catStore.presetCollection?.activeId
   const isCurrent = () => mounted && applyRequestGate.isCurrent(generation)
   busy.value = true
   try {
     // Prepare the complete fallback before committing the catalog deletion.
-    const defaultPalmColor = originalSkinId && entryIds.includes(originalSkinId)
-      ? await resolveDefaultDmeloperPalmColor()
+    const defaultColors = originalSkinId && entryIds.includes(originalSkinId)
+      ? await resolveDefaultDmeloperColors()
       : undefined
     if (!isCurrent()) return
     const response = await deleteSkinLibraryEntries(entryIds)
     if (!mounted) return
     if (!isCurrent()) {
-      // Native deletion may have committed while a new preset took ownership.
-      // Refresh the catalog without resetting that preset's embedded skin.
+      // Native deletion may have committed while a newer application invalidated this request.
+      // Refresh the catalog without resetting the newer current skin.
       await loadEntries()
       await cleanupLibraryFiles()
       return
     }
     cleanupPending.value = response.cleanupPending
-    if (activeEntryId.value === originalSkinId && catStore.presetCollection?.activeId === originalPresetId) {
-      catStore.handleSkinLibraryEntriesDeleted(response.deletedEntryIds, defaultPalmColor)
+    if (activeEntryId.value === originalSkinId) {
+      blockStore.handleSkinLibraryEntriesDeleted(response.deletedEntryIds, defaultColors?.palmColor, defaultColors?.eyebrowColor)
     }
     selection.value = createSkinLibrarySelectionState(activeEntryId.value)
     await loadEntries()
@@ -577,6 +617,7 @@ async function deleteSelected(entryIds: readonly string[], generation: number) {
       message.error(t('pages.preference.skinLibrary.errors.delete'))
     }
   } finally {
+    release()
     // A stale completion must not unlock a newer import/apply/delete operation.
     if (isCurrent()) busy.value = false
   }
@@ -605,13 +646,14 @@ function applyDecodedEntry(
   pngBase64: string,
   decoded: NormalizedVoxelSkin,
 ) {
-  const applied = catStore.applySkinLibraryEntry({
+  const applied = blockStore.applySkinLibraryEntry({
     entryId: entry.id,
     source: entry.source,
     dataUrl: createMinecraftSkinDataUrl(pngBase64),
     canonicalNickname: entry.canonicalNickname,
     skinModel: decoded.model,
     palmColor: decoded.suggestedPalmColor,
+    eyebrowColor: suggestVoxelSkinHeadTopColor(decoded.data),
   })
   if (!applied) throw new Error('The selected library skin could not be applied.')
 }
@@ -622,6 +664,7 @@ async function applyLocalEntry(entry: SkinLibraryEntry, generation: number) {
   const decoded = await decodeLibrarySkin(content.pngBase64, content.model)
   if (!applyRequestGate.isCurrent(generation)) return
   applyDecodedEntry(entry, content.pngBase64, decoded)
+  return true
 }
 
 async function applyJavaEntry(entry: SkinLibraryEntry, generation: number) {
@@ -653,26 +696,32 @@ async function applyJavaEntry(entry: SkinLibraryEntry, generation: number) {
   if (!applyRequestGate.isCurrent(generation)) return
   applyDecodedEntry(storedEntry, response.pngBase64, decoded)
   await loadEntries()
+  return true
 }
 
 async function applyEntry(entryId: string) {
+  if (!mounted || editorsLocked.value) return
   const entry = entries.value.find(candidate => candidate.id === entryId)
   if (!entry) return
   const generation = applyRequestGate.begin()
   if (activeEntryId.value === entry.id) {
+    cancelSkinApplication()
     applying.value = false
     return
   }
+  const release = beginPresetNativeEdit()
   applying.value = true
   try {
-    if (entry.source === 'java') await applyJavaEntry(entry, generation)
-    else await applyLocalEntry(entry, generation)
+    await runSkinApplication(generation, () => entry.source === 'java'
+      ? applyJavaEntry(entry, generation)
+      : applyLocalEntry(entry, generation))
   } catch (error) {
     if (applyRequestGate.isCurrent(generation)) {
       reportDiagnostic('error', 'skin_library.apply', error)
       message.error(t('pages.preference.skinLibrary.errors.apply'))
     }
   } finally {
+    release()
     if (applyRequestGate.isCurrent(generation)) applying.value = false
   }
 }
@@ -719,6 +768,7 @@ onMounted(() => {
   void listenForSkinFileDrops()
 })
 const stopPresetSelectionListener = onPresetSelectionChange(() => {
+  cancelSkinApplication()
   applyRequestGate.invalidate()
   applying.value = false
   busy.value = false
@@ -727,6 +777,7 @@ const stopPresetSelectionListener = onPresetSelectionChange(() => {
 onBeforeUnmount(stopPresetSelectionListener)
 onBeforeUnmount(() => {
   mounted = false
+  cancelSkinApplication()
   dropActive.value = false
   unlistenDragDrop?.()
   unlistenDragDrop = undefined
@@ -912,7 +963,7 @@ onBeforeUnmount(() => {
           >
             <span>{{ $t('pages.preference.skinLibrary.sources.builtin') }}</span>
             <span aria-hidden="true">·</span>
-            <span>{{ $t(`pages.preference.cat.options.dmeloperSkinModel.${BUILTIN_DMELOPER_SKIN.model}`) }}</span>
+            <span>{{ $t(`pages.preference.block.options.dmeloperSkinModel.${BUILTIN_DMELOPER_SKIN.model}`) }}</span>
           </Flex>
           <div
             v-if="defaultThumbnailError"
@@ -1012,7 +1063,7 @@ onBeforeUnmount(() => {
           >
             <span>{{ $t(`pages.preference.skinLibrary.sources.${entry.source}`) }}</span>
             <span aria-hidden="true">·</span>
-            <span>{{ $t(`pages.preference.cat.options.dmeloperSkinModel.${entry.model}`) }}</span>
+            <span>{{ $t(`pages.preference.block.options.dmeloperSkinModel.${entry.model}`) }}</span>
           </Flex>
         </div>
       </div>

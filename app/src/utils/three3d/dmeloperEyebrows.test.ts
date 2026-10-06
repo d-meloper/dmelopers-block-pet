@@ -40,6 +40,32 @@ function eyebrowModel() {
   }
 }
 
+type EyebrowController = NonNullable<ReturnType<typeof createDmeloperEyebrowController>>
+
+function pressKey(controller: EyebrowController, key: string, timestamp: number) {
+  controller.setKeyPressed(key, true, timestamp)
+  controller.setKeyPressed(key, false, timestamp + 1)
+}
+
+function click(controller: EyebrowController, button: 'Left' | 'Right', timestamp: number) {
+  controller.setMouseButtonPressed(button, true, timestamp)
+  controller.setMouseButtonPressed(button, false, timestamp + 1)
+}
+
+function enterKeyboardFocus(controller: EyebrowController, start = 0) {
+  for (let index = 0; index < 15; index++) pressKey(controller, `key-${index}`, start + index * 50)
+  pressKey(controller, 'key-0', start + 850)
+  controller.update(start + 920)
+}
+
+function enterMixedFocus(controller: EyebrowController) {
+  for (let index = 0; index < 13; index++) pressKey(controller, `key-${index}`, index * 50)
+  click(controller, 'Left', 650)
+  click(controller, 'Right', 700)
+  click(controller, 'Left', 850)
+  controller.update(920)
+}
+
 describe('Dmeloper eyebrow controller', () => {
   it('combines static offsets and dimensions without changing depth', () => {
     const time = 0
@@ -89,46 +115,27 @@ describe('Dmeloper eyebrow controller', () => {
     assert.equal((left.material as MeshStandardMaterial).color.getHexString(), '010203')
   })
 
-  it('starts neutral, enters focus after eight distinct keys, and eases neutral after 1s', () => {
-    let time = 0
+  it('requires fifteen presses and begins a 220 ms return exactly after 400 ms of silence', () => {
     const { root, left, right } = eyebrowModel()
-    const controller = createDmeloperEyebrowController(root, {
-      now: () => time,
-      random: () => 0,
-    })!
+    const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
     const baseY = left.position.y
-    for (let index = 0; index < 8; index += 1) {
-      time = index * 100
-      controller.setKeyPressed(`key-${index}`, true, time)
-      controller.setKeyPressed(`key-${index}`, false, time + 1)
-    }
-    time += 220
-    controller.update(time)
+    for (let index = 0; index < 14; index++) controller.setKeyPressed(`key-${index}`, true, index * 50)
+    controller.update(690)
+    assert.equal(left.quaternion.z, 0, 'fourteen presses do not enter focus')
+    controller.setKeyPressed('key-14', true, 700)
+    controller.setKeyPressed('extra', true, 850)
+    controller.update(920)
     assert.ok(left.position.y < baseY - 0.09)
-    assert.ok(right.position.y < baseY - 0.09)
-    assert.ok(left.quaternion.z > 0)
-    assert.ok(right.quaternion.z < 0)
-
-    time = 1699
-    controller.update(time)
+    assert.ok(left.quaternion.z > 0 && right.quaternion.z < 0)
+    controller.setKeyPressed('extra', true, 1240)
+    controller.setKeyPressed('key-14', false, 1245)
+    controller.update(1249)
     assert.ok(left.position.y < baseY - 0.09)
-
-    time = 1700
-    controller.update(time)
-    assert.ok(left.position.y < baseY - 0.09)
-    assert.ok(right.position.y < baseY - 0.09)
-
-    time = 1810
-    controller.update(time)
-    assert.ok(left.position.y > baseY - 0.06)
-    assert.ok(left.position.y < baseY - 0.04)
-    assert.ok(right.position.y > baseY - 0.06)
-    assert.ok(right.position.y < baseY - 0.04)
-
-    time = 1920
-    controller.update(time)
-    assert.ok(Math.abs(left.position.y - baseY) < 1e-6)
-    assert.ok(Math.abs(right.position.y - baseY) < 1e-6)
+    controller.update(1250)
+    controller.update(1360)
+    assert.ok(left.position.y > baseY - 0.06 && left.position.y < baseY - 0.04)
+    controller.update(1470)
+    assert.equal(left.position.y, baseY)
     assert.equal(left.quaternion.z, 0)
     assert.equal(right.quaternion.z, 0)
   })
@@ -147,179 +154,219 @@ describe('Dmeloper eyebrow controller', () => {
     assert.ok(left.position.y > baseY + 0.07)
   })
 
-  it('ignores ordinary clicks and enters keyboard-equivalent focus after four rapid clicks', () => {
+  it('combines repeated keyboard presses and clicks in one fifteen-press window', () => {
     const { root, left, right } = eyebrowModel()
-    const controller = createDmeloperEyebrowController(root, {
-      now: () => 0,
-      random: () => 0,
-    })!
-    const baseY = left.position.y
+    const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
+    for (let index = 0; index < 7; index++) {
+      pressKey(controller, 'Left', index * 100)
+      click(controller, 'Left', index * 100 + 50)
+    }
+    controller.update(690)
+    assert.equal(left.quaternion.z, 0, 'seven key presses plus seven clicks remain below the threshold')
+    pressKey(controller, 'Left', 700)
+    click(controller, 'Left', 850)
+    controller.update(920)
+    assert.ok(left.quaternion.z > 0 && right.quaternion.z < 0)
+    controller.update(1250)
+    controller.update(1470)
+    assert.equal(left.quaternion.z, 0)
+  })
 
-    for (const timestamp of [0, 200, 400]) {
+  it('ignores held-key and held-button repeats and unmatched releases', () => {
+    const { root, left, right } = eyebrowModel()
+    const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
+    for (let timestamp = 0; timestamp <= 3000; timestamp += 30) {
+      controller.setKeyPressed('held', true, timestamp)
       controller.setMouseButtonPressed('Left', true, timestamp)
-      controller.setMouseButtonPressed('Left', false, timestamp + 1)
-      controller.update(timestamp + 100)
-      assert.equal(left.position.y, baseY)
-      assert.equal(right.position.y, baseY)
+      controller.setKeyPressed('released', false, timestamp)
+      controller.setMouseButtonPressed('Right', false, timestamp)
+      controller.update(timestamp + 10)
       assert.equal(left.quaternion.z, 0)
       assert.equal(right.quaternion.z, 0)
     }
-
-    controller.setMouseButtonPressed('Left', true, 600)
-    controller.setMouseButtonPressed('Left', false, 601)
-    controller.update(820)
-    assert.ok(left.position.y < baseY - 0.09)
-    assert.ok(right.position.y < baseY - 0.09)
-    assert.ok(left.quaternion.z > 0)
-    assert.ok(right.quaternion.z < 0)
-
-    controller.update(1599)
-    assert.ok(left.position.y < baseY - 0.09)
-    controller.update(1600)
-    assert.ok(left.position.y < baseY - 0.09)
-    controller.update(1710)
-    assert.ok(left.position.y > baseY - 0.06)
-    assert.ok(left.position.y < baseY - 0.04)
-    controller.update(1820)
-    assert.equal(left.position.y, baseY)
-    assert.equal(right.position.y, baseY)
-    assert.equal(left.quaternion.z, 0)
-    assert.equal(right.quaternion.z, 0)
   })
 
-  it('does not count held-button repeats or slow clicks as rapid clicks', () => {
-    const { root, left, right } = eyebrowModel()
-    const controller = createDmeloperEyebrowController(root, {
-      now: () => 0,
-      random: () => 0,
-    })!
-    const baseY = left.position.y
-
-    controller.setMouseButtonPressed('Left', true, 0)
-    controller.setMouseButtonPressed('Left', true, 100)
-    controller.setMouseButtonPressed('Left', true, 200)
-    controller.setMouseButtonPressed('Left', true, 300)
-    controller.setMouseButtonPressed('Left', false, 301)
-    for (const timestamp of [900, 1800, 2700]) {
-      controller.setMouseButtonPressed('Left', true, timestamp)
-      controller.setMouseButtonPressed('Left', false, timestamp + 1)
+  it('counts repeated fresh presses of one key or either mouse button', () => {
+    for (const source of ['keyboard', 'Left', 'Right'] as const) {
+      const { root, left, right } = eyebrowModel()
+      const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
+      const press = (timestamp: number) => source === 'keyboard'
+        ? pressKey(controller, 'repeated', timestamp)
+        : click(controller, source, timestamp)
+      for (let index = 0; index < 14; index++) press(index * 50)
+      controller.update(690)
+      assert.equal(left.quaternion.z, 0, `${source}: fourteen fresh presses`)
+      press(700)
+      press(850)
+      controller.update(920)
+      assert.ok(left.quaternion.z > 0 && right.quaternion.z < 0, source)
+      controller.update(1249)
+      assert.ok(left.quaternion.z > 0, source)
+      controller.update(1250)
+      controller.update(1470)
+      assert.equal(left.quaternion.z, 0, `${source}: silence returns to neutral`)
     }
-    controller.update(2920)
-    assert.equal(left.position.y, baseY)
-    assert.equal(right.position.y, baseY)
-    assert.equal(left.quaternion.z, 0)
-    assert.equal(right.quaternion.z, 0)
   })
 
-  it('clears mouse focus on OFF, ignores late clicks, and requires fresh clicks after ON', () => {
-    const { root, left, right } = eyebrowModel()
-    const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
-    const baseY = left.position.y
-    const click = (timestamp: number) => {
-      controller.setMouseButtonPressed('Left', true, timestamp)
-      controller.setMouseButtonPressed('Left', false, timestamp + 1)
+  it('counts the exact 1.5-second boundary and discards presses beyond it', () => {
+    for (const source of ['keyboard', 'mouse']) {
+      for (const timestamp of [1500, 1501]) {
+        const { root, left } = eyebrowModel()
+        const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
+        const press = (pressedAt: number) => source === 'keyboard'
+          ? pressKey(controller, 'repeated', pressedAt)
+          : click(controller, 'Left', pressedAt)
+        for (let index = 0; index < 14; index++) press(index * 100)
+        press(timestamp)
+        controller.update(timestamp + 100)
+        assert.equal(left.quaternion.z > 0, timestamp === 1500, source)
+      }
     }
-    for (const timestamp of [0, 100, 200]) click(timestamp)
-    controller.setMouseButtonPressed('Left', true, 300)
-    controller.update(520)
-    assert.ok(left.position.y < baseY - 0.09)
-    controller.setMouseEnabled(false, 520)
-    controller.update(630)
-    assert.ok(left.position.y > baseY - 0.06 && left.position.y < baseY - 0.04)
-    for (const timestamp of [540, 590, 640, 690]) click(timestamp)
-    controller.update(740)
-    assert.equal(left.position.y, baseY)
-    assert.equal(right.quaternion.z, 0)
-    controller.setMouseButtonPressed('Right', true, 750)
-    controller.setMouseEnabled(true, 800)
-    controller.update(900)
-    assert.equal(left.position.y, baseY)
-    // The held Left at OFF was cleared even though its release was ignored.
-    for (const timestamp of [900, 1000, 1100]) click(timestamp)
-    controller.update(1320)
-    assert.equal(left.position.y, baseY)
-    click(1400)
-    controller.update(1620)
-    assert.ok(left.position.y < baseY - 0.09)
-    assert.ok(right.quaternion.z < 0)
   })
 
-  it('keeps keyboard focus and held keys while removing mouse focus extensions', () => {
+  it('retains the latest qualifying presses during sustained repeated input and expires them later', () => {
+    for (const source of ['keyboard', 'mouse']) {
+      const { root, left } = eyebrowModel()
+      const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
+      const press = (timestamp: number) => source === 'keyboard'
+        ? pressKey(controller, 'repeated', timestamp)
+        : click(controller, 'Left', timestamp)
+      for (let index = 0; index < 30; index++) press(index * 50)
+      controller.update(1500)
+      assert.ok(left.quaternion.z > 0, source)
+      controller.update(1850)
+      controller.update(2070)
+      assert.equal(left.quaternion.z, 0, source)
+      press(2080)
+      press(2230)
+      controller.update(2300)
+      assert.ok(left.quaternion.z > 0, 'the most recent fifteen presses still qualify')
+      controller.update(2630)
+      controller.update(2850)
+      press(3731)
+      controller.update(3800)
+      assert.equal(left.quaternion.z, 0, 'expired press history cannot requalify focus')
+    }
+  })
+
+  it('extends focus at 399 ms but expires before a new press at 400 ms in either event order', () => {
+    for (const source of ['keyboard', 'mouse']) {
+      for (const frameFirst of [false, true]) {
+        for (const inputAt of [1749, 1750]) {
+          const { root, left } = eyebrowModel()
+          const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
+          for (let index = 0; index < 3; index++) pressKey(controller, `key-${index}`, index)
+          for (let index = 3; index < 13; index++) pressKey(controller, `key-${index}`, 650 + (index - 3) * 50)
+          click(controller, 'Left', 1150)
+          click(controller, 'Right', 1200)
+          click(controller, 'Left', 1350)
+          controller.update(1420)
+          assert.ok(left.quaternion.z > 0)
+          if (frameFirst) controller.update(inputAt)
+          if (source === 'keyboard') pressKey(controller, 'key-12', inputAt)
+          else click(controller, 'Right', inputAt)
+          if (!frameFirst) controller.update(inputAt)
+          controller.update(inputAt + 220)
+          assert.equal(left.quaternion.z > 0, inputAt === 1749, 'fourteen remaining presses can extend only unexpired focus')
+        }
+      }
+    }
+  })
+
+  it('retains recent presses across an ordinary quiet return', () => {
     const { root, left } = eyebrowModel()
     const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
-    const baseY = left.position.y
-    for (let index = 0; index < 8; index += 1) {
-      controller.setKeyPressed(`key-${index}`, true, index * 100)
-    }
-    controller.update(920)
-    controller.setMouseButtonPressed('Right', true, 1400)
-    controller.setMouseEnabled(false, 1500)
-    // Repeated key-downs remain repeats across OFF and cannot extend focus.
-    controller.setKeyPressed('key-7', true, 1600)
-    controller.update(1699)
-    assert.ok(left.position.y < baseY - 0.09)
+    enterMixedFocus(controller)
+    controller.update(1250)
+    controller.update(1470)
+    assert.equal(left.quaternion.z, 0)
+    pressKey(controller, 'key-0', 1480)
+    click(controller, 'Left', 1630)
     controller.update(1700)
-    controller.update(1920)
-    assert.equal(left.position.y, baseY)
-    assert.equal(left.quaternion.z, 0)
-    controller.setKeyPressed('key-7', false, 1930)
-    controller.setKeyPressed('key-7', true, 1940)
-    controller.update(2000)
-    assert.ok(left.position.y > baseY + 0.07)
+    assert.ok(left.quaternion.z > 0, 'enough recent presses remain within the rolling window')
   })
 
-  it('preserves a key pulse during mouse reset and keyboard history toward focus', () => {
+  it('clears mixed mouse contributions on OFF and requires fresh clicks after ON', () => {
+    const { root, left, right } = eyebrowModel()
+    const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
+    enterMixedFocus(controller)
+    assert.ok(left.quaternion.z > 0)
+    controller.setMouseButtonPressed('Left', true, 930)
+    controller.setMouseEnabled(false, 940)
+    click(controller, 'Left', 1000)
+    click(controller, 'Right', 1100)
+    controller.update(1160)
+    assert.equal(left.quaternion.z, 0)
+    assert.equal(right.quaternion.z, 0)
+    controller.setMouseEnabled(true, 1160)
+    controller.setMouseButtonPressed('Left', true, 1180)
+    controller.setMouseButtonPressed('Left', true, 1190)
+    controller.update(1195)
+    assert.equal(left.quaternion.z, 0, 'one fresh button leaves thirteen keys plus one button')
+    click(controller, 'Right', 1200)
+    controller.setMouseButtonPressed('Left', false, 1349)
+    click(controller, 'Left', 1350)
+    controller.update(1420)
+    assert.ok(left.quaternion.z > 0 && right.quaternion.z < 0)
+  })
+
+  it('keeps keyboard-qualified focus and held keys while removing mouse extensions', () => {
+    const { root, left } = eyebrowModel()
+    const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
+    for (let index = 0; index < 15; index++) controller.setKeyPressed(`key-${index}`, true, index * 50)
+    controller.setKeyPressed('extra', true, 850)
+    controller.update(920)
+    assert.ok(left.quaternion.z > 0)
+    controller.setMouseButtonPressed('Right', true, 950)
+    controller.setMouseEnabled(false, 1000)
+    controller.setKeyPressed('extra', true, 1240)
+    controller.update(1249)
+    assert.ok(left.quaternion.z > 0)
+    controller.update(1250)
+    controller.update(1470)
+    assert.equal(left.quaternion.z, 0, 'the mouse extension must not survive reset')
+    controller.setKeyPressed('extra', false, 1480)
+    controller.setKeyPressed('extra', true, 1490)
+    controller.update(1550)
+    assert.ok(left.quaternion.z > 0, 'fresh input requalifies using the recent keyboard window')
+  })
+
+  it('preserves keyboard history and its current pulse during mouse reset', () => {
     const { root, left } = eyebrowModel()
     const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
     const baseY = left.position.y
-    for (const timestamp of [0, 100, 200, 300]) {
-      controller.setMouseButtonPressed('Left', true, timestamp)
-      controller.setMouseButtonPressed('Left', false, timestamp + 1)
-    }
-    controller.update(520)
-    controller.setMouseEnabled(false, 520)
-    controller.setKeyPressed('first', true, 600)
+    for (let index = 0; index < 13; index++) pressKey(controller, `key-${index}`, index * 50)
+    click(controller, 'Left', 650)
     controller.update(660)
     assert.ok(left.position.y > baseY)
     controller.resetMouseInput(660)
     assert.ok(left.position.y > baseY)
-    controller.setKeyPressed('first', true, 700)
-    controller.update(720)
-    assert.ok(left.position.y <= baseY)
-    for (let index = 1; index < 7; index += 1) {
-      controller.setKeyPressed(`key-${index}`, true, 800 + index * 50)
-      controller.setKeyPressed(`key-${index}`, false, 801 + index * 50)
-    }
-    controller.resetMouseInput(1150)
-    controller.setMouseEnabled(true, 1160)
-    controller.setKeyPressed('eighth', true, 1200)
-    controller.update(1420)
-    assert.ok(left.position.y < baseY - 0.09)
+    pressKey(controller, 'fourteenth', 700)
+    controller.resetMouseInput(720)
+    assert.equal(left.quaternion.z, 0)
+    pressKey(controller, 'fifteenth', 750)
+    pressKey(controller, 'key-0', 900)
+    controller.update(970)
+    assert.ok(left.quaternion.z > 0)
   })
 
-  it('does not promote a single key during mouse focus into keyboard focus on reset', () => {
+  it('does not promote mixed focus to keyboard-only focus without fifteen keyboard presses', () => {
     const { root, left } = eyebrowModel()
     const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
     const baseY = left.position.y
-    for (const timestamp of [0, 100, 200, 300]) {
-      controller.setMouseButtonPressed('Left', true, timestamp)
-      controller.setMouseButtonPressed('Left', false, timestamp + 1)
-    }
-    controller.update(520)
-    controller.setKeyPressed('held', true, 540)
-    controller.resetMouseInput(550)
-    controller.update(600)
-    // The pulse at its 60 ms peak remains visible over the neutral transition.
-    assert.ok(left.position.y > baseY - 0.01)
-    controller.update(770)
-    assert.equal(left.position.y, baseY)
+    enterMixedFocus(controller)
+    controller.setKeyPressed('held', true, 940)
+    controller.resetMouseInput(950)
+    controller.update(1000)
+    assert.ok(left.position.y > baseY - 0.01, 'the current keyboard pulse survives the neutral transition')
+    controller.update(1170)
     assert.equal(left.quaternion.z, 0)
-    controller.setKeyPressed('held', true, 800)
-    controller.update(860)
+    controller.setKeyPressed('held', true, 1200)
+    controller.update(1260)
     assert.equal(left.position.y, baseY)
-    controller.setKeyPressed('held', false, 870)
-    controller.setKeyPressed('held', true, 880)
-    controller.update(940)
+    controller.setKeyPressed('held', false, 2470)
+    controller.setKeyPressed('held', true, 2480)
+    controller.update(2540)
     assert.ok(left.position.y > baseY + 0.07)
   })
 
@@ -328,7 +375,7 @@ describe('Dmeloper eyebrow controller', () => {
     const { root, left, right } = eyebrowModel()
     const controller = createDmeloperEyebrowController(root, { now: () => time, random: () => 0 })!
     const baseY = left.position.y
-    for (const timestamp of [0, 100, 200]) {
+    for (let timestamp = 0; timestamp < 210; timestamp += 15) {
       controller.setMouseButtonPressed('Right', true, timestamp)
       controller.setMouseButtonPressed('Right', false, timestamp + 1)
     }
@@ -355,11 +402,11 @@ describe('Dmeloper eyebrow controller', () => {
     controller.setMouseEnabled(false)
     controller.setPreset({ ...createDefaultDmeloperEyebrowPreset(), enabled: false })
     controller.setPreset(createDefaultDmeloperEyebrowPreset())
-    for (const timestamp of [0, 100, 200, 300]) {
+    for (let timestamp = 0; timestamp < 400; timestamp += 20) {
       controller.setMouseButtonPressed('Left', true, timestamp)
       controller.setMouseButtonPressed('Left', false, timestamp + 1)
     }
-    controller.update(520)
+    controller.update(500)
     assert.equal(left.position.y, baseY)
     controller.dispose()
     controller.resetMouseInput()
@@ -420,11 +467,8 @@ describe('Dmeloper eyebrow controller', () => {
       thicknessPixels: 1,
     }
     controller.setPreset(preset)
-    for (const timestamp of [0, 100, 200, 300]) {
-      controller.setMouseButtonPressed('Left', true, timestamp)
-      controller.setMouseButtonPressed('Left', false, timestamp + 1)
-    }
-    time = 520
+    enterKeyboardFocus(controller)
+    time = 920
     controller.update(time)
     assert.ok(left.quaternion.z > 0)
     controller.setAnimationEnabled(false)
@@ -486,8 +530,8 @@ describe('Dmeloper eyebrow controller', () => {
     const { root, left, right } = eyebrowModel()
     const controller = createDmeloperEyebrowController(root, { now: () => time, random: () => 0 })!
     const baseY = left.position.y
-    for (let index = 0; index < 7; index += 1) {
-      controller.setKeyPressed(`held-${index}`, true, index * 100)
+    for (let index = 0; index < 11; index += 1) {
+      controller.setKeyPressed(`held-${index}`, true, index * 60)
     }
     for (const timestamp of [300, 400]) {
       controller.setMouseButtonPressed('Left', true, timestamp)
@@ -547,13 +591,15 @@ it('moves both eyebrow front faces from nearly flush to their authored depth, in
     }
     controller.setKeyPressed('KeyA', false, time + 70)
   }
-  for (const key of ['KeyA', 'KeyB', 'KeyC', 'KeyD', 'KeyE', 'KeyF', 'KeyG', 'KeyH']) controller.setKeyPressed(key, true, time + 80)
-  controller.update(time + 400)
+  for (let index = 0; index < 15; index++) controller.setKeyPressed(`focus-${index}`, true, time + 80)
+  controller.update(time + 180)
   assert.notEqual(left.quaternion.z, 0, 'focus tilt remains enabled at zero depth')
   assert.ok(Math.abs(left.position.z + 0.325 - 4 - 0.03095) < 1e-10)
   controller.setAnimationEnabled(false, time + 401)
-  controller.setPreset(createDefaultDmeloperEyebrowPreset())
-  assert.ok(Math.abs(left.position.z + 0.325 - 4 - 0.315475) < 1e-10, '100% is the new midpoint default')
+  const defaults = createDefaultDmeloperEyebrowPreset()
+  controller.setPreset(defaults)
+  const defaultProtrusion = 0.03095 + (0.6 - 0.03095) * defaults.depthPercent / 200
+  assert.ok(Math.abs(left.position.z + 0.325 - 4 - defaultProtrusion) < 1e-10, 'reset follows the authored depth default')
   controller.setPreset({ ...createDefaultDmeloperEyebrowPreset(), depthPercent: 200 })
   assert.equal(left.position.z, 4.275, '200% restores the exact authored center')
   assert.equal(right.position.z, 4.275)

@@ -6,7 +6,7 @@ import { inflateSync } from 'node:zlib'
 
 const metadataLimit = 1024 * 1024
 const fileLimit = 16 * 1024 * 1024
-const pngPaths = new Set(['app/public/logo.png', 'app/src-tauri/assets/tray.png', 'app/src-tauri/assets/models/dmeloper/default.png'])
+const pngPaths = new Set(['assets/hero.png', 'app/public/logo.png', 'app/src-tauri/assets/tray.png', 'app/src-tauri/assets/models/dmeloper/default.png'])
 const glbPath = 'app/src-tauri/assets/models/dmeloper/dmeloper.glb'
 
 export function inspectText(bytes, path) {

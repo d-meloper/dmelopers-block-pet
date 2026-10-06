@@ -40,7 +40,7 @@ export function createBroadcastView(container: HTMLElement, assetBase: URL) {
     view.canvas.style.transform = scene.mirror ? 'scaleX(-1)' : ''
     view.canvas.style.opacity = String(scene.opacity / 100)
     renderer.setInputActive(true)
-    renderer.setMouseInputActive(scene.preset.mouseEnabled)
+    renderer.setMouseInputActive(true)
   }
   const clear = () => {
     loading?.renderer.destroy()
@@ -88,6 +88,9 @@ export function createBroadcastView(container: HTMLElement, assetBase: URL) {
         }
         configure(view, scene)
         if (replacement) view.renderer.renderStillFrame()
+        // Settings reach the damped rig on update. Measure the new pose without
+        // rewinding live input to the deterministic thumbnail clock.
+        else if (scene.preset.autoViewportEnabled) view.renderer.renderStillFrame(performance.now())
         const measured = scene.preset.autoViewportEnabled ? await view.renderer.measureVisibleContentRect() : undefined
         if (!isCurrent()) {
           if (replacement) view.renderer.destroy()
@@ -119,7 +122,7 @@ export function createBroadcastView(container: HTMLElement, assetBase: URL) {
       if (!current) return
       current.renderer.setInputActive(false)
       current.renderer.setInputActive(true)
-      current.renderer.setMouseInputActive(current.scene.preset.mouseEnabled)
+      current.renderer.setMouseInputActive(true)
     },
     clear,
     dispose() {

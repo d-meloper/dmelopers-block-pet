@@ -2,8 +2,10 @@ import { isEqual } from 'es-toolkit'
 
 import { DESK_SETTING_KEYS, migrateDeskSettings } from '@/config/desk'
 import { DMELOPER_EYEBROW_LIMITS, migrateDmeloperEyebrowDepth } from '@/config/dmeloperEyebrows'
+import { isLightingSettings, migratePresetLighting } from '@/config/lighting'
 import { DEFAULT_PET_MODEL_ID } from '@/config/model3d'
 import { normalizePetArmPoseSettings } from '@/config/petArmPose'
+import presetRanges from '@/config/presetRanges.json'
 import { normalizeAutoViewportPadding, normalizeManualViewport } from '@/features/scene/viewportSettings'
 import { createMinecraftSkinBlob, createMinecraftSkinDataUrl, fetchMinecraftSkin, isMinecraftUsername } from '@/services/minecraftSkin'
 import { createSkinFaceThumbnailPngBase64 } from '@/utils/skinThumbnail'
@@ -19,7 +21,7 @@ export const PET_PRESET_FORMAT = 'dmeloper.petpreset'
 export const PET_PRESET_VERSION = 1
 export const MAX_PET_PRESET_BYTES = 4 * 1024 * 1024
 export const MAX_PRESET_PNG_BYTES = 2 * 1024 * 1024
-export type PresetExportMode = 'image' | 'nickname'
+export type PresetExportMode = 'image' | 'nickname' | 'default'
 export type PresetTransferPhase = 'reading' | 'skin' | 'applying' | 'saving' | 'exporting'
 
 export interface PortablePetPreset {
@@ -53,28 +55,24 @@ function exactKeys(value: unknown, required: readonly string[], optional: readon
 
 export function validatePortableSettings(value: unknown): asserts value is PortablePetPreset['settings'] {
   if (!exactKeys(value, ['preset', 'mirror', 'opacity', 'eyebrowAnimationEnabled'])
-    || !exactKeys(value.preset, PRESET_SETTING_KEYS.filter(key => !(DESK_SETTING_KEYS as readonly string[]).includes(key)), DESK_SETTING_KEYS)) {
+    || !exactKeys(value.preset, PRESET_SETTING_KEYS.filter(key => key !== 'lighting' && !(DESK_SETTING_KEYS as readonly string[]).includes(key)), [...DESK_SETTING_KEYS, 'lighting'])) {
     reject('invalidSettings')
   }
-  const snapshot = { ...value, preset: migrateDeskSettings(value.preset), appearance: createDefaultPresetSnapshot().appearance }
+  const snapshot = { ...value, preset: migratePresetLighting(migrateDeskSettings(value.preset)), appearance: createDefaultPresetSnapshot().appearance }
   if (!isPresetSnapshot(snapshot)) reject('invalidSettings')
+  if (!isLightingSettings(snapshot.preset.lighting)) reject('invalidSettings')
   const p = snapshot.preset
-  const ranges: Partial<Record<keyof typeof p, readonly [number, number]>> = {
-    petHeadScalePercent: [25, 200],
-    petRotationDegrees: [-180, 180],
-    petDeskOffset: [-1.5, 1.5],
-    sceneRotationOffsetDegrees: [-360, 360],
-    cameraHorizontalOffset: [-1.5, 1.5],
-    cameraVerticalOffset: [-1.5, 1.5],
-    cameraZoomPercent: [25, 200],
-    mouseBaseXOffset: [-1.5, 1.5],
-    mouseBaseZOffset: [-1.5, 1.5],
-    mouseScalePercent: [50, 200],
-    keyboardBaseXOffset: [-1.5, 1.5],
-    keyboardBaseZOffset: [-1.5, 1.5],
-    keyboardScalePercent: [50, 200],
+  const ranges: Partial<Record<keyof typeof p, { min: number, max: number }>> = {
+    ...presetRanges.preset,
+    petHeadScalePercent: { min: 25, max: 200 },
+    sceneRotationOffsetDegrees: { min: -360, max: 360 },
+    cameraHorizontalOffset: { min: -1.5, max: 1.5 },
+    cameraVerticalOffset: { min: -1.5, max: 1.5 },
+    cameraZoomPercent: { min: 25, max: 200 },
+    mouseScalePercent: { min: 50, max: 200 },
+    keyboardScalePercent: { min: 50, max: 200 },
   }
-  for (const [key, [min, max]] of Object.entries(ranges)) {
+  for (const [key, { min, max }] of Object.entries(ranges)) {
     const n = p[key as keyof typeof p]
     if (typeof n !== 'number' || n < min || n > max) reject('invalidSettings')
   }
@@ -135,7 +133,7 @@ export function parsePortablePreset(bytes: Uint8Array): PortablePetPreset {
     reject('invalidFormat')
   }
   validatePortablePreset(value)
-  value.settings.preset = migrateDeskSettings(value.settings.preset)
+  value.settings.preset = migratePresetLighting(migrateDeskSettings(value.settings.preset))
   value.settings.preset.dmeloperEyebrows = migrateDmeloperEyebrowDepth(value.settings.preset.dmeloperEyebrows)
   return value
 }
@@ -143,7 +141,7 @@ export function parsePortablePreset(bytes: Uint8Array): PortablePetPreset {
 export function serializePortablePreset(value: PortablePetPreset): string {
   validatePortablePreset(value)
   const normalized = clonePreset(value)
-  normalized.settings.preset = migrateDeskSettings(normalized.settings.preset)
+  normalized.settings.preset = migratePresetLighting(migrateDeskSettings(normalized.settings.preset))
   normalized.settings.preset.dmeloperEyebrows = migrateDmeloperEyebrowDepth(normalized.settings.preset.dmeloperEyebrows)
   const text = `${JSON.stringify(normalized, null, 2)}\n`
   if (new TextEncoder().encode(text).byteLength > MAX_PET_PRESET_BYTES) reject('tooLarge')
@@ -151,13 +149,20 @@ export function serializePortablePreset(value: PortablePetPreset): string {
 }
 
 export async function exportPortablePreset(name: string, snapshot: PresetSnapshot, mode: PresetExportMode): Promise<PortablePetPreset> {
-  const { appearance } = snapshot
+  const source = mode === 'default' ? clonePreset(snapshot) : snapshot
+  if (mode === 'default') {
+    const defaults = createDefaultPresetSnapshot()
+    source.appearance = defaults.appearance
+    source.preset.dmeloperEyebrows.color = defaults.preset.dmeloperEyebrows.color
+    source.preset.dmeloperPalmColor = defaults.preset.dmeloperPalmColor
+  }
+  const { appearance } = source
   // Construct the portable projection explicitly; never serialize a local catalog.
   const settings = clonePreset({
-    preset: Object.fromEntries(PRESET_SETTING_KEYS.map(key => [key, snapshot.preset[key]])) as PresetSnapshot['preset'],
-    mirror: snapshot.mirror,
-    opacity: snapshot.opacity,
-    eyebrowAnimationEnabled: snapshot.eyebrowAnimationEnabled,
+    preset: Object.fromEntries(PRESET_SETTING_KEYS.map(key => [key, source.preset[key]])) as PresetSnapshot['preset'],
+    mirror: source.mirror,
+    opacity: source.opacity,
+    eyebrowAnimationEnabled: source.eyebrowAnimationEnabled,
   })
   const nickname = appearance.minecraftSkinUsername
   let skin: PortablePetPreset['skin']
@@ -165,7 +170,7 @@ export async function exportPortablePreset(name: string, snapshot: PresetSnapsho
     if (!nickname || !isMinecraftUsername(nickname)) reject('invalidNickname')
     skin = { mode, nickname }
   } else {
-    const prepared = await preparePresetSkin(snapshot)
+    const prepared = await preparePresetSkin(source)
     skin = {
       mode: 'image',
       pngBase64: prepared.appearance.dmeloperSkinDataUrl!.slice('data:image/png;base64,'.length),
@@ -192,7 +197,7 @@ export async function resolvePortablePreset(value: PortablePetPreset) {
   const snapshot: PresetSnapshot = {
     ...clonePreset(value.settings),
     preset: {
-      ...migrateDeskSettings(clonePreset(value.settings.preset)),
+      ...migratePresetLighting(migrateDeskSettings(clonePreset(value.settings.preset))),
       dmeloperEyebrows: migrateDmeloperEyebrowDepth(clonePreset(value.settings.preset.dmeloperEyebrows)),
     },
     appearance: {

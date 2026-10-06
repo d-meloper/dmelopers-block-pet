@@ -11,7 +11,7 @@ import * as vue from 'vue'
 
 import type { BroadcastConfiguration, BroadcastStatus } from '@/features/broadcast/types'
 
-import { useCatStore } from '@/stores/cat'
+import { useBlockStore } from '@/stores/block'
 import { useGeneralStore } from '@/stores/general'
 
 import type { useBroadcast } from './useBroadcast'
@@ -23,7 +23,7 @@ const source = ts.transpileModule(readFileSync(new URL('./useBroadcast.ts', impo
 
 async function harness(enabled = false, listenerFails = false, statusQuery?: () => Promise<BroadcastStatus>) {
   setActivePinia(createPinia())
-  const cat = useCatStore()
+  const block = useBlockStore()
   const general = useGeneralStore()
   general.broadcast.enabled = enabled
   const ready = vue.ref(false)
@@ -62,7 +62,7 @@ async function harness(enabled = false, listenerFails = false, statusQuery?: () 
           }
         } }
       }
-      if (id === '@/stores/cat') return { useCatStore: () => cat }
+      if (id === '@/stores/block') return { useBlockStore: () => block }
       if (id === '@/stores/general') return { useGeneralStore: () => general }
       if (id.startsWith('@/')) return require(fileURLToPath(new URL(`../${id.slice(2)}`, import.meta.url)))
       return require(id)
@@ -79,7 +79,7 @@ async function harness(enabled = false, listenerFails = false, statusQuery?: () 
   const mountedDone = Promise.all(mounted.map(mount => mount()))
   if (!statusQuery) await mountedDone
   return {
-    cat,
+    block,
     general,
     controller,
     mountedDone,
@@ -170,7 +170,7 @@ describe('broadcast preference owner', () => {
           h.event({ enabled: true, clients: scenario === 'event' ? 1 : -1 })
         } else {
           if (scenario === 'configure-error') h.fail(true)
-          else h.cat.customization3d.dmeloperSkinDataUrl = 'invalid-image'
+          else h.block.customization3d.dmeloperSkinDataUrl = 'invalid-image'
           h.ready.value = true
           await h.flush()
         }
@@ -197,10 +197,10 @@ describe('broadcast preference owner', () => {
       await h.flush()
       assert.equal(h.calls.length, 1)
       h.busy.value = true
-      h.cat.customization3d.preset.cameraZoomPercent = 125
+      h.block.customization3d.preset.cameraZoomPercent = 125
       await h.flush()
-      h.cat.model.mirror = true
-      h.cat.window.opacity = 40
+      h.block.model.mirror = true
+      h.block.window.opacity = 40
       await h.flush()
       assert.equal(h.calls.length, 1)
       h.busy.value = false
@@ -209,20 +209,20 @@ describe('broadcast preference owner', () => {
       assert.equal(h.calls[1].scene?.preset.cameraZoomPercent, 125)
       assert.equal(h.calls[1].scene?.mirror, true)
       assert.equal(h.calls[1].scene?.opacity, 40)
-      h.cat.window.visible = false
-      h.cat.window.hideOnHover = true
+      h.block.window.visible = false
+      h.block.window.hideOnHover = true
       h.general.broadcast.showOnDesktop = false
       h.general.app.taskbarVisible = false
       await h.flush()
       assert.equal(h.calls.length, 2, 'desktop-only changes must not restart a broadcast scene')
-      h.cat.model.antialiasEnabled = false
+      h.block.model.antialiasEnabled = false
       await h.flush()
       assert.equal(h.calls.length, 3)
       assert.equal(h.calls.at(-1)?.scene?.performance.antialiasEnabled, false)
-      h.cat.model.pixelFilterEnabled = true
+      h.block.model.pixelFilterEnabled = true
       await h.flush()
       assert.equal(h.calls.at(-1)?.scene?.performance.pixelFilterEnabled, true)
-      h.cat.customization3d.preset.mouseEnabled = false
+      h.block.customization3d.preset.mouseEnabled = false
       await h.flush()
       assert.equal(h.calls.at(-1)?.scene?.preset.mouseEnabled, false)
       h.busy.value = true

@@ -11,13 +11,13 @@ defineProps<{
 
 const anchor = ref<HTMLElement>()
 const tooltip = ref<{ forcePopupAlign: () => void }>()
-const width = ref(500)
+const maxWidth = ref(500)
 const open = ref(false)
 
 async function updateBounds() {
   if (!anchor.value) return
   const availableWidth = document.documentElement.clientWidth - anchor.value.getBoundingClientRect().left - 16
-  width.value = Math.max(1, Math.min(500, availableWidth))
+  maxWidth.value = Math.max(1, Math.min(500, availableWidth))
   if (open.value) {
     await nextTick()
     tooltip.value?.forcePopupAlign()
@@ -45,7 +45,7 @@ useEventListener(window, 'scroll', updateBounds, { capture: true, passive: true 
       ref="tooltip"
       :auto-adjust-overflow="{ adjustX: 0, adjustY: 1 }"
       :overlay-inner-style="{ whiteSpace: 'pre-line', overflowWrap: 'anywhere' }"
-      :overlay-style="{ width: `${width}px`, maxWidth: `${width}px` }"
+      :overlay-style="{ maxWidth: `${maxWidth}px` }"
       placement="bottomLeft"
       :trigger="['hover', 'focus']"
       @open-change="onOpenChange"
@@ -61,12 +61,13 @@ useEventListener(window, 'scroll', updateBounds, { capture: true, passive: true 
         :aria-label="label"
         shape="circle"
         size="small"
+        :style="{ width: '19.2px', height: '19.2px', minWidth: '19.2px', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }"
         type="text"
       >
         <template #icon>
           <div
             aria-hidden="true"
-            class="i-solar:info-circle-bold size-5"
+            class="i-solar:info-circle-bold size-4"
           />
         </template>
       </Button>

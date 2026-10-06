@@ -10,8 +10,8 @@ describe('screen eyedropper appearance', () => {
   it('converts actual light and dark app tokens to opaque Win32 colors', () => {
     const light = createScreenColorAppearance(appLightAlgorithm(theme.defaultSeed))
     const dark = createScreenColorAppearance(appDarkAlgorithm(theme.defaultSeed))
-    assert.deepEqual(light, { background: 0xFFFFFF, border: 0xDAE6D6, muted: 0x595959 })
-    assert.deepEqual(dark, { background: 0x202020, border: 0x3B3B3B, muted: 0xB1B1B1 })
+    assert.deepEqual(light, { background: 0xFDFAF9, border: 0xE9E6E5, muted: 0x3F3F3E })
+    assert.deepEqual(dark, { background: 0x292929, border: 0x3B3B3B, muted: 0xB4B4B4 })
   })
 
   it('flattens transparent token colors against the elevated background', () => {

@@ -12,12 +12,14 @@ import type { SkinLibraryCleanupResponse, SkinLibraryDeleteResponse, SkinLibrary
 import * as skinIdentity from '@/config/skinIdentity'
 import * as presetEditIntent from '@/features/presets/editIntent'
 import { applyPresetSnapshot, capturePresetSnapshot, clonePreset, createPresetCollection } from '@/features/presets/model'
+import * as presetOperations from '@/features/presets/operations'
 import { preparePresetSkin } from '@/features/presets/skin'
 import { installPresetSkinBrowser } from '@/features/presets/skin.test.utils'
+import * as stateSafety from '@/features/stateSafety/bridge'
 import * as dmeloperSkin from '@/services/dmeloperSkin'
 import * as minecraftSkin from '@/services/minecraftSkin'
 import * as skinLibrary from '@/services/skinLibrary'
-import { useCatStore } from '@/stores/cat'
+import { useBlockStore } from '@/stores/block'
 import * as skinLibraryImport from '@/utils/skinLibraryImport'
 import * as skinLibrarySelection from '@/utils/skinLibrarySelection'
 import * as skinThumbnail from '@/utils/skinThumbnail'
@@ -93,16 +95,19 @@ function mountLibrary(options: {
   entries?: SkinLibraryEntry[]
   list?: () => Promise<SkinLibraryEntry[]>
   read?: (id: string) => Promise<SkinLibraryEntryContent>
+  fetch?: () => Promise<minecraftSkin.MinecraftSkinResponse>
+  storeSkin?: (request: skinLibrary.SkinLibraryStoreRequest) => Promise<SkinLibraryEntry>
   rename?: (id: string, name: string) => Promise<SkinLibraryEntry>
   thumbnail?: () => Promise<string>
   defaultPalm?: () => Promise<string>
+  defaultColors?: typeof dmeloperSkin.resolveDefaultDmeloperColors
   delete?: (ids: string[]) => Promise<SkinLibraryDeleteResponse>
   cleanup?: () => Promise<SkinLibraryCleanupResponse>
   manualConfirm?: boolean
-  configureStore?: (store: ReturnType<typeof useCatStore>) => void
+  configureStore?: (store: ReturnType<typeof useBlockStore>) => void
 } = {}) {
   setActivePinia(createPinia())
-  const store = useCatStore()
+  const store = useBlockStore()
   options.configureStore?.(store)
   const locale = Vue.ref('ko-KR')
   const translate = (key: string) => {
@@ -118,11 +123,23 @@ function mountLibrary(options: {
   const messages: string[] = []
   const diagnostics: Array<{ level: string, operation: string }> = []
   let remoteReads = 0
+  const skinChanges: Array<{ phase: string, skin?: unknown }> = []
   const module = { exports: {} as { default: Vue.Component } }
   // Compile and mount the actual SFC. Only native I/O and visual framework
   // wrappers are stubbed, so card actions and store changes run production code.
   // eslint-disable-next-line no-new-func
   new Function('require', 'module', 'exports', transformed.outputText)((id: string) => {
+    if (id === '@/services/petSkinChange') {
+      return { beginPetSkinChange: () => {
+        skinChanges.push({ phase: 'prepare' })
+        let finished = false
+        return { ready: Promise.resolve(), finish: async (skin?: unknown) => {
+          if (finished) return
+          finished = true
+          skinChanges.push({ phase: 'finish', skin })
+        } }
+      } }
+    }
     if (id === '@/services/diagnostics') return { reportDiagnostic: (level: string, operation: string) => diagnostics.push({ level, operation }) }
     if (id === 'vue') return { ...Vue, vModelText: {} }
     if (id === 'vue-i18n') return { useI18n: () => ({ t: translate }) }
@@ -146,17 +163,23 @@ function mountLibrary(options: {
     }
     if (id === '@/config/skinIdentity') return skinIdentity
     if (id === '@/features/presets/editIntent') return presetEditIntent
-    if (id === '@/stores/cat') return { useCatStore: () => store }
+    if (id === '@/features/presets/operations') return presetOperations
+    if (id === '@/features/stateSafety/bridge') return stateSafety
+    if (id === '@/stores/block') return { useBlockStore: () => store }
     if (id === '@/services/dmeloperSkin') {
       return {
         ...dmeloperSkin,
-        resolveDefaultDmeloperPalmColor: options.defaultPalm ?? (async () => '#445566'),
+        resolveDefaultDmeloperColors: options.defaultColors ?? (async () => ({
+          palmColor: await (options.defaultPalm ?? (async () => '#445566'))(),
+          eyebrowColor: '#778899',
+        })),
         resolveDmeloperSkinThumbnailUrl: options.thumbnail ?? (async () => 'data:image/png;base64,default-preview'),
       }
     }
     if (id === '@/services/skinLibrary') {
       return {
         ...skinLibrary,
+        storeSkinLibraryEntry: options.storeSkin ?? skinLibrary.storeSkinLibraryEntry,
         listSkinLibraryEntries: options.list ?? (async () => catalog),
         readSkinLibraryEntry: options.read ?? (async () => {
           throw new Error('Unexpected stored PNG read.')
@@ -182,6 +205,7 @@ function mountLibrary(options: {
         ...minecraftSkin,
         fetchMinecraftSkin: async () => {
           remoteReads += 1
+          if (options.fetch) return options.fetch()
           throw new Error('Unexpected network call.')
         },
       }
@@ -237,10 +261,43 @@ function mountLibrary(options: {
     await result
     await flush()
   }
-  return { app, root, cards, button, click, store, locale, deletes, confirmations, cleanupCalls: () => cleanupCalls, messages, diagnostics, remoteReads: () => remoteReads }
+  return { app, root, cards, button, click, store, locale, deletes, confirmations, skinChanges, cleanupCalls: () => cleanupCalls, messages, diagnostics, remoteReads: () => remoteReads }
 }
 
 describe('built-in skin library card', () => {
+  for (const outcome of ['failure', 'disposed', 'superseded'] as const) {
+    it(`releases its pending save lease after a ${outcome} default selection`, async () => {
+      await flush()
+      const before = presetOperations.presetNativeEditPending.value
+      const sample = deferred<string>()
+      const control = mountLibrary({ defaultPalm: () => sample.promise })
+      await flush()
+      const selecting = control.click(control.cards()[0])
+      try {
+        assert.equal(presetOperations.presetNativeEditPending.value, before + 1)
+        if (outcome === 'disposed') control.app.unmount()
+        if (outcome === 'superseded') presetEditIntent.invalidatePresetSelection()
+        const previous = capturePresetSnapshot(control.store)
+        if (outcome === 'failure') sample.reject(new Error('Default skin unavailable'))
+        else sample.resolve('#123456')
+        await selecting
+        assert.equal(presetOperations.presetNativeEditPending.value, before)
+        assert.deepEqual(capturePresetSnapshot(control.store), previous)
+        if (outcome !== 'disposed') {
+          stateSafety.editorsLocked.value = true
+          await control.click(control.cards()[0])
+          assert.equal(presetOperations.presetNativeEditPending.value, before)
+          assert.deepEqual(capturePresetSnapshot(control.store), previous)
+        }
+      } finally {
+        stateSafety.editorsLocked.value = false
+        sample.resolve('#123456')
+        await selecting
+        if (outcome !== 'disposed') control.app.unmount()
+      }
+    })
+  }
+
   for (const key of ['Enter', 'Escape']) {
     it(`does not submit or cancel a name while IME handles ${key}`, async () => {
       const previousInput = Object.getOwnPropertyDescriptor(globalThis, 'HTMLInputElement')
@@ -358,7 +415,7 @@ describe('built-in skin library card', () => {
     }
   })
 
-  it('ends multi-selection and samples default-skin palms while preserving eyebrows', async () => {
+  it('ends multi-selection and samples both default-skin colors', async () => {
     const a = entry('a')
     const b = entry('b')
     const control = mountLibrary({
@@ -379,7 +436,7 @@ describe('built-in skin library card', () => {
       assert.equal(control.store.customization3d.activeSkinLibraryEntryId, 'builtin:dmeloper')
       assert.equal(control.store.customization3d.dmeloperSkinDataUrl, undefined)
       assert.equal(control.store.customization3d.dmeloperSkinModel, 'wide')
-      assert.equal(control.store.customization3d.preset.dmeloperEyebrows.color, '#123456')
+      assert.equal(control.store.customization3d.preset.dmeloperEyebrows.color, '#778899')
       assert.equal(control.store.customization3d.preset.dmeloperPalmColor, '#445566')
       assert.equal('dmeloperPalmManualColors' in control.store.customization3d, false)
       assert.equal(control.button('pages.preference.skinLibrary.buttons.delete').props.disabled, true)
@@ -422,7 +479,7 @@ describe('built-in skin library card', () => {
         configureStore: (store) => {
           store.applySkinLibraryEntry({ entryId: a.id, source: 'java', canonicalNickname: 'jeb_', dataUrl: 'data:image/png;base64,iVBORw0KGgo=', skinModel: 'slim' })
           store.updateDmeloperPalmColor('#334455')
-          store.presetCollection = createPresetCollection(capturePresetSnapshot(store))
+          store.presetCollection = { ...createPresetCollection(), activeId: 'saved', entries: [{ id: 'saved', name: 'Saved', favorite: false, snapshot: capturePresetSnapshot(store) }] }
         },
       })
       try {
@@ -445,7 +502,7 @@ describe('built-in skin library card', () => {
         assert.equal(control.store.customization3d.dmeloperSkinModel, 'wide')
         assert.equal(control.cards()[0].props['aria-selected'], true)
         assert.equal(walk(control.cards()[0]).filter(node => node.type === 'tag').length, 1)
-        assert.deepEqual(control.store.customization3d.preset, { ...appearance, dmeloperPalmColor: '#445566' })
+        assert.deepEqual(control.store.customization3d.preset, { ...appearance, dmeloperPalmColor: '#445566', dmeloperEyebrows: { ...appearance.dmeloperEyebrows, color: '#778899' } })
         assert.deepEqual(control.store.presetCollection, savedPresets)
         assert.deepEqual(control.messages, [])
       } finally {
@@ -524,7 +581,7 @@ it('keeps the default current after actual preset PNG preparation, persistence a
     control.store.init()
     await flush()
     assertCurrent(control)
-    assert.equal(control.store.activePet3dPreset.dmeloperEyebrows.color, '#123456')
+    assert.equal(control.store.activePet3dPreset.dmeloperEyebrows.color, '#778899')
     assert.equal(control.store.activePet3dPreset.dmeloperPalmColor, '#445566')
     const saved = clonePreset(control.store.$state)
     control.app.unmount()
@@ -551,7 +608,7 @@ it('samples a selected local PNG and the bundled default directly into the prese
   const a = entry('a')
   const control = mountLibrary({
     entries: [a],
-    defaultPalm: dmeloperSkin.resolveDefaultDmeloperPalmColor,
+    defaultColors: dmeloperSkin.resolveDefaultDmeloperColors,
     read: async () => ({ ...a, pngBase64: browser.dataUrl.split(',')[1] }),
   })
   try {
@@ -560,10 +617,15 @@ it('samples a selected local PNG and the bundled default directly into the prese
     for (let attempt = 0; attempt < 100 && control.store.customization3d.activeSkinLibraryEntryId !== a.id; attempt++) await new Promise(resolve => setTimeout(resolve, 5))
     assert.equal(control.store.customization3d.activeSkinLibraryEntryId, a.id)
     assert.equal(capturePresetSnapshot(control.store).preset.dmeloperPalmColor, '#445566')
+    assert.equal(capturePresetSnapshot(control.store).preset.dmeloperEyebrows.color, '#445566')
     control.store.updateDmeloperPalmColor('#ABCDEF')
+    control.store.updateDmeloperEyebrows({ color: '#AABBCC' })
+    const decodedBeforeDefault = browser.decoded()
     await control.click(control.cards()[0])
     assert.equal(control.store.customization3d.activeSkinLibraryEntryId, 'builtin:dmeloper')
     assert.equal(capturePresetSnapshot(control.store).preset.dmeloperPalmColor, '#445566')
+    assert.equal(capturePresetSnapshot(control.store).preset.dmeloperEyebrows.color, '#445566')
+    assert.equal(browser.decoded(), decodedBeforeDefault + 1, 'one default decode must supply both colors')
     assert.deepEqual(control.messages, [])
   } finally {
     control.app.unmount()
@@ -594,7 +656,7 @@ it('discards a delayed default-skin sample after another card is selected', asyn
 })
 
 describe('skin deletion confirmation, ownership and cleanup', () => {
-  const active = (store: ReturnType<typeof useCatStore>, skin: SkinLibraryEntry, png = 'old') => {
+  const active = (store: ReturnType<typeof useBlockStore>, skin: SkinLibraryEntry, png = 'old') => {
     store.applySkinLibraryEntry({ entryId: skin.id, source: 'local', dataUrl: `data:image/png;base64,${png}`, skinModel: 'slim', palmColor: '#334455' })
   }
 
@@ -792,4 +854,117 @@ describe('skin deletion confirmation, ownership and cleanup', () => {
       control.app.unmount()
     }
   })
+})
+
+it('begins pet loading before a cold Java nickname request and ends it on lookup failure', async () => {
+  const request = deferred<minecraftSkin.MinecraftSkinResponse>()
+  const java = { ...entry('a'), source: 'java' as const, canonicalNickname: 'Steve' }
+  const control = mountLibrary({ entries: [java], fetch: () => request.promise })
+  try {
+    await flush()
+    await control.click(control.cards()[1])
+    assert.equal(control.remoteReads(), 1)
+    assert.deepEqual(control.skinChanges, [{ phase: 'prepare' }], 'the pet must know preparation is pending before Block changes')
+    assert.equal(control.store.customization3d.dmeloperSkinDataUrl, undefined)
+    request.reject(new minecraftSkin.MinecraftSkinError({ code: 'NETWORK', retryable: true }))
+    await flush()
+    assert.deepEqual(control.skinChanges, [{ phase: 'prepare' }, { phase: 'finish', skin: undefined }])
+  } finally {
+    request.reject(new Error('cleanup'))
+    await flush()
+    control.app.unmount()
+  }
+})
+
+for (const cancel of ['disposed', 'superseded'] as const) {
+  it(`ends pet loading immediately when a Java selection is ${cancel}`, async () => {
+    const request = deferred<minecraftSkin.MinecraftSkinResponse>()
+    const java = { ...entry('a'), source: 'java' as const, canonicalNickname: 'Steve' }
+    const control = mountLibrary({ entries: [java], fetch: () => request.promise })
+    try {
+      await flush()
+      await control.click(control.cards()[1])
+      assert.deepEqual(control.skinChanges, [{ phase: 'prepare' }])
+      if (cancel === 'disposed') control.app.unmount()
+      else presetEditIntent.invalidatePresetSelection()
+      await flush()
+      assert.deepEqual(control.skinChanges, [{ phase: 'prepare' }, { phase: 'finish', skin: undefined }])
+      request.reject(new minecraftSkin.MinecraftSkinError({ code: 'NETWORK', retryable: true }))
+      await flush()
+      assert.equal(control.skinChanges.length, 2, 'late preparation must not end another request')
+      assert.equal(control.store.customization3d.dmeloperSkinDataUrl, undefined)
+    } finally {
+      request.reject(new Error('cleanup'))
+      await flush()
+      if (cancel !== 'disposed') control.app.unmount()
+    }
+  })
+}
+
+it('hands a successfully prepared Java PNG to the pet with its resolved model and palm color', async () => {
+  const browser = installPresetSkinBrowser()
+  const java = { ...entry('a'), source: 'java' as const, canonicalNickname: 'Steve' }
+  const request = deferred<minecraftSkin.MinecraftSkinResponse>()
+  const control = mountLibrary({
+    entries: [java],
+    fetch: () => request.promise,
+    storeSkin: async skin => ({ ...java, model: skin.model, thumbnailPngBase64: skin.thumbnailPngBase64 }),
+  })
+  try {
+    await flush()
+    await control.click(control.cards()[1])
+    assert.deepEqual(control.skinChanges, [{ phase: 'prepare' }])
+    request.resolve({
+      canonicalName: 'Steve',
+      uuid: 'a'.repeat(32),
+      model: 'wide',
+      textureKey: 'b'.repeat(64),
+      pngBase64: browser.dataUrl.split(',')[1],
+      sha256: 'c'.repeat(64),
+      width: 64,
+      height: 64,
+      cacheHit: false,
+    })
+    for (let attempt = 0; attempt < 100 && control.skinChanges.length < 2; attempt++) await new Promise(resolve => setTimeout(resolve, 5))
+    assert.deepEqual(control.skinChanges, [{ phase: 'prepare' }, { phase: 'finish', skin: {
+      dataUrl: browser.dataUrl,
+      model: control.store.customization3d.dmeloperSkinModel,
+      palmColor: '#445566',
+    } }])
+    assert.equal(control.store.customization3d.activeSkinLibraryEntryId, java.id)
+    assert.deepEqual(control.diagnostics, [])
+  } finally {
+    request.reject(new Error('cleanup'))
+    await flush()
+    control.app.unmount()
+    browser.restore()
+  }
+})
+
+it('cancels pending Java preparation immediately when the current skin is selected again', async () => {
+  const java = { ...entry('a'), source: 'java' as const, canonicalNickname: 'Steve' }
+  const active = entry('b')
+  const request = deferred<minecraftSkin.MinecraftSkinResponse>()
+  const control = mountLibrary({
+    entries: [java, active],
+    fetch: () => request.promise,
+    configureStore: (store) => {
+      store.applySkinLibraryEntry({ entryId: active.id, source: 'local', dataUrl: 'data:image/png;base64,current', skinModel: 'wide' })
+    },
+  })
+  try {
+    await flush()
+    await control.click(control.cards()[1])
+    assert.deepEqual(control.skinChanges, [{ phase: 'prepare' }])
+    await control.click(control.cards()[2])
+    assert.deepEqual(control.skinChanges, [{ phase: 'prepare' }, { phase: 'finish', skin: undefined }])
+    request.reject(new minecraftSkin.MinecraftSkinError({ code: 'NETWORK', retryable: true }))
+    await flush()
+    assert.equal(control.store.customization3d.activeSkinLibraryEntryId, active.id)
+    assert.equal(control.skinChanges.length, 2)
+  } finally {
+    request.reject(new Error('cleanup'))
+    await flush()
+    control.app.unmount()
+  }
 })

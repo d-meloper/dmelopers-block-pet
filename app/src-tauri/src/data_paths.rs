@@ -10,7 +10,8 @@ use tauri_plugin_pinia::ManagerExt;
 use windows_sys::Win32::{
     System::Com::CoTaskMemFree,
     UI::Shell::{
-        FOLDERID_LocalAppData, FOLDERID_SavedGames, KF_FLAG_DONT_VERIFY, SHGetKnownFolderPath,
+        FOLDERID_LocalAppData, FOLDERID_RoamingAppData, FOLDERID_SavedGames, KF_FLAG_DONT_VERIFY,
+        SHGetKnownFolderPath,
     },
 };
 
@@ -71,6 +72,121 @@ impl DataRoots {
     pub fn initialize(&self) -> Result<(), String> {
         initialize_schema(&self.durable)
     }
+}
+
+/// Remove only the exact production roots owned by the GitHub installation.
+/// All three trees are fully inspected before any is modified, and local-only
+/// data is removed before shared data so a failure preserves durable settings.
+#[cfg(any(feature = "channel-github", feature = "test-repository"))]
+pub(crate) fn remove_github_user_data(roots: &DataRoots) -> Result<(), &'static str> {
+    let saved_games =
+        known_folder(&FOLDERID_SavedGames).map_err(|_| "UNINSTALL_DATA_UNAVAILABLE")?;
+    let local_app_data =
+        known_folder(&FOLDERID_LocalAppData).map_err(|_| "UNINSTALL_DATA_UNAVAILABLE")?;
+    let roaming_app_data =
+        known_folder(&FOLDERID_RoamingAppData).map_err(|_| "UNINSTALL_DATA_UNAVAILABLE")?;
+    let expected_durable = saved_games.join("DMeloper's Block Pet");
+    let expected_local = local_app_data.join(crate::distribution::Channel::Github.identifier());
+    if roots.durable != expected_durable || roots.local != expected_local {
+        return Err("UNINSTALL_DATA_PATH_REJECTED");
+    }
+
+    let github_roaming = roaming_app_data.join(crate::distribution::Channel::Github.identifier());
+    remove_preflighted_roots(&roots.local, &github_roaming, &roots.durable)
+}
+
+/// Remove only the isolated test profile roots; never reach Saved Games.
+#[cfg(feature = "test-repository")]
+pub(crate) fn remove_test_user_data(roots: &DataRoots) -> Result<(), &'static str> {
+    let local_app_data =
+        known_folder(&FOLDERID_LocalAppData).map_err(|_| "UNINSTALL_DATA_UNAVAILABLE")?;
+    let roaming_app_data =
+        known_folder(&FOLDERID_RoamingAppData).map_err(|_| "UNINSTALL_DATA_UNAVAILABLE")?;
+    let (local, roaming, expected_durable) = test_data_roots(&local_app_data, &roaming_app_data);
+    if !test_roots_match(roots, &local, &expected_durable) {
+        return Err("UNINSTALL_DATA_PATH_REJECTED");
+    }
+    remove_test_roots(&local, &roaming)
+}
+
+#[cfg(any(feature = "test-repository", test))]
+fn test_data_roots(local_app_data: &Path, roaming_app_data: &Path) -> (PathBuf, PathBuf, PathBuf) {
+    let identifier = crate::distribution::Channel::Test.identifier();
+    let local = local_app_data.join(identifier);
+    let roaming = roaming_app_data.join(identifier);
+    let durable = local.join("isolated-data-v1");
+    (local, roaming, durable)
+}
+
+#[cfg(any(feature = "test-repository", test))]
+fn test_roots_match(roots: &DataRoots, local: &Path, durable: &Path) -> bool {
+    roots.local == local && roots.durable == durable
+}
+
+#[cfg(any(feature = "test-repository", test))]
+fn remove_test_roots(local: &Path, roaming: &Path) -> Result<(), &'static str> {
+    let local_exists = preflight_removal_tree(&local)?;
+    let roaming_exists = preflight_removal_tree(&roaming)?;
+    if roaming_exists {
+        fs::remove_dir_all(&roaming).map_err(|_| "UNINSTALL_DATA_DELETE_FAILED")?;
+    }
+    if local_exists {
+        fs::remove_dir_all(&local).map_err(|_| "UNINSTALL_DATA_DELETE_FAILED")?;
+    }
+    Ok(())
+}
+
+#[cfg(any(feature = "channel-github", feature = "test-repository", test))]
+fn remove_preflighted_roots(
+    local: &Path,
+    roaming: &Path,
+    durable: &Path,
+) -> Result<(), &'static str> {
+    let local_exists = preflight_removal_tree(local)?;
+    let roaming_exists = preflight_removal_tree(roaming)?;
+    let durable_exists = preflight_removal_tree(durable)?;
+    if local_exists {
+        fs::remove_dir_all(local).map_err(|_| "UNINSTALL_DATA_DELETE_FAILED")?;
+    }
+    if roaming_exists {
+        fs::remove_dir_all(roaming).map_err(|_| "UNINSTALL_DATA_DELETE_FAILED")?;
+    }
+    if durable_exists {
+        fs::remove_dir_all(durable).map_err(|_| "UNINSTALL_DATA_DELETE_FAILED")?;
+    }
+    Ok(())
+}
+
+#[cfg(any(feature = "channel-github", feature = "test-repository", test))]
+fn preflight_removal_tree(path: &Path) -> Result<bool, &'static str> {
+    crate::state_safety::check_path(path).map_err(|_| "UNINSTALL_DATA_PATH_UNSAFE")?;
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(_) => return Err("UNINSTALL_DATA_UNAVAILABLE"),
+    };
+    if !metadata.is_dir() {
+        return Err("UNINSTALL_DATA_PATH_REJECTED");
+    }
+    preflight_directory_contents(path)?;
+    Ok(true)
+}
+
+#[cfg(any(feature = "channel-github", feature = "test-repository", test))]
+fn preflight_directory_contents(path: &Path) -> Result<(), &'static str> {
+    crate::state_safety::check_path(path).map_err(|_| "UNINSTALL_DATA_PATH_UNSAFE")?;
+    let entries = fs::read_dir(path).map_err(|_| "UNINSTALL_DATA_UNAVAILABLE")?;
+    for entry in entries {
+        let child = entry.map_err(|_| "UNINSTALL_DATA_UNAVAILABLE")?.path();
+        crate::state_safety::check_path(&child).map_err(|_| "UNINSTALL_DATA_PATH_UNSAFE")?;
+        let metadata = fs::symlink_metadata(&child).map_err(|_| "UNINSTALL_DATA_UNAVAILABLE")?;
+        if metadata.is_dir() {
+            preflight_directory_contents(&child)?;
+        } else if !metadata.is_file() {
+            return Err("UNINSTALL_DATA_PATH_REJECTED");
+        }
+    }
+    Ok(())
 }
 
 pub fn durable_root<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
@@ -311,5 +427,123 @@ mod tests {
         assert_store_root(store.handle()).unwrap();
         let value: serde_json::Value = store.pinia().try_state("general").unwrap();
         assert_eq!(value["sharedPreset"], "user-owned");
+    }
+}
+
+#[cfg(test)]
+mod uninstall_tests {
+    use super::*;
+
+    #[test]
+    fn test_cleanup_rejects_non_test_data_roots() {
+        let temp = tempfile::tempdir().unwrap();
+        let test_local = temp.path().join("LocalAppData/com.dmeloper.blockpet.test");
+        let test_durable = test_local.join("isolated-data-v1");
+        let official = DataRoots {
+            local: temp.path().join("LocalAppData/com.dmeloper.blockpet"),
+            durable: temp.path().join("Saved Games/DMeloper's Block Pet"),
+        };
+        assert!(!test_roots_match(&official, &test_local, &test_durable));
+        assert!(test_roots_match(
+            &DataRoots {
+                local: test_local.clone(),
+                durable: test_durable.clone(),
+            },
+            &test_local,
+            &test_durable,
+        ));
+    }
+
+    #[test]
+    fn missing_data_roots_are_an_idempotent_uninstall() {
+        let temp = tempfile::tempdir().unwrap();
+        let local = temp.path().join("com.dmeloper.blockpet");
+        let roaming = temp.path().join("Roaming/com.dmeloper.blockpet");
+        let durable = temp.path().join("DMeloper's Block Pet");
+        remove_preflighted_roots(&local, &roaming, &durable).unwrap();
+        assert!(!local.exists());
+        assert!(!roaming.exists());
+        assert!(!durable.exists());
+    }
+
+    #[test]
+    fn test_cleanup_is_limited_to_the_isolated_test_profile() {
+        let temp = tempfile::tempdir().unwrap();
+        let local_app_data = temp.path().join("LocalAppData");
+        let roaming_app_data = temp.path().join("Roaming");
+        let (local, roaming, durable) = test_data_roots(&local_app_data, &roaming_app_data);
+        let sibling_local = local_app_data.join(crate::distribution::Channel::Github.identifier());
+        let sibling_roaming = roaming_app_data.join(crate::distribution::Channel::Github.identifier());
+        fs::create_dir_all(durable.join("settings")).unwrap();
+        fs::create_dir_all(&roaming).unwrap();
+        fs::create_dir_all(sibling_local.join("settings")).unwrap();
+        fs::create_dir_all(&sibling_roaming).unwrap();
+        fs::write(durable.join("settings/general.json"), b"test").unwrap();
+        fs::write(sibling_local.join("settings/general.json"), b"official").unwrap();
+        fs::write(sibling_roaming.join("keep.txt"), b"official").unwrap();
+
+        remove_test_roots(&local, &roaming).unwrap();
+
+        assert!(!local.exists());
+        assert!(!roaming.exists());
+        assert_eq!(fs::read(sibling_local.join("settings/general.json")).unwrap(), b"official");
+        assert_eq!(fs::read(sibling_roaming.join("keep.txt")).unwrap(), b"official");
+    }
+
+    #[test]
+    fn cleanup_removes_only_the_three_scoped_roots() {
+        let temp = tempfile::tempdir().unwrap();
+        let local = temp.path().join("LocalAppData/com.dmeloper.blockpet");
+        let roaming = temp.path().join("AppData/com.dmeloper.blockpet");
+        let durable = temp.path().join("Saved Games/DMeloper's Block Pet");
+        let sibling = temp.path().join("Saved Games/Another Game");
+        fs::create_dir_all(local.join("cache")).unwrap();
+        fs::create_dir_all(roaming.join("update-recovery")).unwrap();
+        fs::create_dir_all(durable.join("tauri-plugin-pinia")).unwrap();
+        fs::create_dir_all(&sibling).unwrap();
+        fs::write(local.join("cache/item.bin"), b"local").unwrap();
+        fs::write(roaming.join("update-recovery/state.json"), b"recovery").unwrap();
+        fs::write(durable.join("tauri-plugin-pinia/general.json"), b"shared").unwrap();
+        fs::write(sibling.join("keep.txt"), b"unrelated").unwrap();
+
+        remove_preflighted_roots(&local, &roaming, &durable).unwrap();
+
+        assert!(!local.exists());
+        assert!(!roaming.exists());
+        assert!(!durable.exists());
+        assert_eq!(fs::read(sibling.join("keep.txt")).unwrap(), b"unrelated");
+    }
+
+    #[test]
+    fn a_reparse_point_in_any_tree_prevents_all_deletion() {
+        let temp = tempfile::tempdir().unwrap();
+        let local = temp.path().join("LocalAppData/com.dmeloper.blockpet");
+        let roaming = temp.path().join("AppData/com.dmeloper.blockpet");
+        let durable = temp.path().join("Saved Games/DMeloper's Block Pet");
+        let outside = temp.path().join("outside");
+        fs::create_dir_all(&local).unwrap();
+        fs::create_dir_all(&roaming).unwrap();
+        fs::create_dir_all(&durable).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(local.join("keep.txt"), b"local").unwrap();
+        fs::write(roaming.join("keep.txt"), b"roaming").unwrap();
+        fs::write(outside.join("keep.txt"), b"outside").unwrap();
+        let junction = durable.join("external");
+        let output = std::process::Command::new("cmd")
+            .args(["/D", "/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "junction fixture creation failed");
+
+        assert_eq!(
+            remove_preflighted_roots(&local, &roaming, &durable).unwrap_err(),
+            "UNINSTALL_DATA_PATH_UNSAFE"
+        );
+        assert_eq!(fs::read(local.join("keep.txt")).unwrap(), b"local");
+        assert_eq!(fs::read(roaming.join("keep.txt")).unwrap(), b"roaming");
+        assert_eq!(fs::read(outside.join("keep.txt")).unwrap(), b"outside");
+        fs::remove_dir(junction).unwrap();
     }
 }

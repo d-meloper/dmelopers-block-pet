@@ -170,3 +170,61 @@ it('closes malformed messages and reports renderer failure without acknowledging
   assert.equal(socket.closeCalls, 1)
   h.pagehide()
 })
+
+it('settles same-skin automatic scenes at the current input time before measuring, preserving manual and preview paths', async () => {
+  const viewSource = ts.transpileModule(readFileSync(new URL('./view.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText
+  const events: Array<{ kind: string, timestamp?: number }> = []
+  const bounds = { x: 10, y: 20, width: 300, height: 400 }
+  let created = 0
+  // Run the actual view owner; GL/DOM adapters alone are fake. The real rig
+  // and held-input consequences are covered by three3d/pet.test.ts.
+  function createRenderer() {
+    created++
+    let canvas: unknown
+    const methods: Record<string, unknown> = {
+      init: async (value: unknown) => {
+        canvas = value
+      },
+      setAntialiasEnabled: async () => canvas,
+      renderStillFrame: (timestamp?: number) => events.push({ kind: 'settle', timestamp }),
+      measureVisibleContentRect: async () => {
+        events.push({ kind: 'measure' })
+        return { status: 'success', rect: bounds }
+      },
+    }
+    return new Proxy(methods, { get: (target, property) => target[String(property)] ?? (() => {}) })
+  }
+  const exports: { createBroadcastView?: (container: unknown, base: URL) => {
+    apply: (scene: unknown, isCurrent: () => boolean) => Promise<void>
+    dispose: () => void
+  } } = {}
+  runInNewContext(viewSource, {
+    exports,
+    require: (id: string) => id === '@/utils/three3d'
+      ? { Three3DRenderer: createRenderer }
+      : id === '@/features/presets/visualSettings'
+        ? { applyPresetVisualSettings: () => {} }
+        : { fitBroadcastOutput: () => ({ width: 300, height: 400 }) },
+    document: { createElement: () => ({ style: {}, remove: () => {} }) },
+    ResizeObserver: class {
+      observe() {}
+      disconnect() {}
+    },
+    performance: { now: () => 50_000 },
+    URL,
+  })
+  const view = exports.createBroadcastView!({ clientWidth: 800, clientHeight: 600, append: () => {} }, new URL('http://127.0.0.1/assets/'))
+  const scene = { skinModel: 'wide', performance: { antialiasEnabled: true }, preset: { autoViewportEnabled: true }, opacity: 100 }
+  await view.apply(scene, () => true)
+  assert.deepEqual(events, [{ kind: 'settle', timestamp: undefined }, { kind: 'measure' }], 'new scene retains deterministic preview settling')
+  events.length = 0
+  await view.apply(scene, () => true)
+  assert.deepEqual(events, [{ kind: 'settle', timestamp: 50_000 }, { kind: 'measure' }], 'live pose is applied before crop measurement')
+  events.length = 0
+  await view.apply({ ...scene, preset: { autoViewportEnabled: false, manualViewportRect: bounds } }, () => true)
+  assert.deepEqual(events, [], 'manual crop does not settle or measure')
+  assert.equal(created, 1, 'same-skin edits reuse the renderer')
+  view.dispose()
+})

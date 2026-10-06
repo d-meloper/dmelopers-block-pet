@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 
 import { quiesceEditors, releaseEditors } from '@/features/stateSafety'
+import { reportDiagnostic } from '@/services/diagnostics'
 
 export interface AppUpdateInfo {
   available: boolean
@@ -58,7 +59,11 @@ export async function installAppUpdate(onPhase: (phase: UpdatePhase) => void, on
     await invoke('install_app_update', { requestId: operation.requestId })
     // Successful Windows handoff exits. No IPC response proves installation.
   } catch (error) {
-    await invoke('abort_app_update', { requestId: operation.requestId }).catch(() => {})
+    await invoke('abort_app_update', { requestId: operation.requestId }).catch((abortError: unknown) => {
+      if (abortError !== 'UPDATE_REQUEST_INVALID' && abortError !== 'UPDATE_TOO_LATE') {
+        reportDiagnostic('warn', 'updates.abort', abortError)
+      }
+    })
     if (lease) await releaseEditors(operation.requestId).catch(() => {})
     throw error
   } finally {

@@ -4,16 +4,17 @@ import { Button, Flex, Input, Switch } from 'ant-design-vue'
 import { computed, inject, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import OptionTransition from '@/components/option-transition/index.vue'
 import PreferenceInfo from '@/components/preference-info/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
 import { BROADCAST_CONTROLLER } from '@/composables/useBroadcast'
 import { reportDiagnostic } from '@/services/diagnostics'
-import { useCatStore } from '@/stores/cat'
+import { useBlockStore } from '@/stores/block'
 import { useGeneralStore } from '@/stores/general'
 
 const controller = inject(BROADCAST_CONTROLLER)
-const cat = useCatStore()
+const block = useBlockStore()
 const general = useGeneralStore()
 const { t } = useI18n()
 const desktopVisible = computed({
@@ -21,7 +22,7 @@ const desktopVisible = computed({
   set: (visible: boolean) => {
     if (!general.broadcast.enabled) return
     general.broadcast.showOnDesktop = visible
-    if (visible) cat.window.visible = true
+    if (visible) block.window.visible = true
   },
 })
 const errorHint = computed(() => {
@@ -71,15 +72,18 @@ async function copyAddress() {
     >
       <Switch v-model:checked="general.broadcast.enabled" />
     </ProListItem>
-    <ProListItem
-      :description="t('pages.preference.broadcast.desktopVisibleHint')"
-      :title="t('pages.preference.broadcast.desktopVisible')"
-    >
-      <Switch
-        v-model:checked="desktopVisible"
-        :disabled="!general.broadcast.enabled"
-      />
-    </ProListItem>
+    <OptionTransition>
+      <ProListItem
+        v-show="general.broadcast.enabled"
+        :description="t('pages.preference.broadcast.desktopVisibleHint')"
+        :title="t('pages.preference.broadcast.desktopVisible')"
+      >
+        <Switch
+          v-model:checked="desktopVisible"
+          :disabled="!general.broadcast.enabled"
+        />
+      </ProListItem>
+    </OptionTransition>
     <ProListItem
       :description="t('pages.preference.broadcast.setupHint')"
       :title="t('pages.preference.broadcast.connection')"

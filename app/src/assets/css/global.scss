@@ -92,3 +92,47 @@ html {
     text-overflow: clip;
   }
 }
+
+// Detail tab labels own their full padded hit box, without dead margins.
+html .preference-detail-tabs > .ant-tabs-nav {
+  .ant-tabs-tab {
+    margin: 0;
+    padding: 0;
+  }
+
+  .ant-tabs-tab-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 12px 16px;
+  }
+}
+
+// Animate disabled/checked appearance without delaying input guards or sliders.
+html .preference-sections {
+  .ant-switch,
+  .ant-select-selector,
+  .ant-input-number,
+  .ant-slider-rail,
+  .ant-slider-track,
+  .ant-slider-handle::after,
+  .color-picker__trigger {
+    transition-property: background-color, border-color, color, opacity, box-shadow;
+    transition-duration: 220ms;
+    transition-timing-function: ease;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ant-switch,
+    .ant-switch-handle,
+    .ant-select-selector,
+    .ant-input-number,
+    .ant-slider-rail,
+    .ant-slider-track,
+    .ant-slider-handle::after,
+    .color-picker__trigger {
+      transition: none;
+    }
+  }
+}

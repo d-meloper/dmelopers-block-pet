@@ -80,7 +80,7 @@ type SemanticInputPayload
 /** Apply this again after asynchronous pointer normalization, using the event's original epoch. */
 export function isCurrentSemanticInput(event: SemanticInputEvent, state: DeviceInputState): boolean {
   if (event.kind === 'typing') return true
-  return state.mouseEnabled
+  return (event.kind === 'pointer_activity' || state.mouseEnabled)
     && (event.mouseGeneration ?? 0) === state.mouseGeneration
 }
 

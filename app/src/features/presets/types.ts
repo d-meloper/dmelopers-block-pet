@@ -1,14 +1,32 @@
-import type { CatStore, Pet3dPreset } from '@/stores/cat'
+import type { BlockStore, Pet3dPreset } from '@/stores/block'
+import type { VoxelSkinModel, VoxelSkinModelPreference } from '@/utils/three3d/voxelSkin'
 
 import { DESK_SETTING_KEYS } from '@/config/desk'
 import { DEVICE_COLOR_KEYS } from '@/config/deviceColors'
 
-export const BUILTIN_PRESET_ID = 'builtin:default'
-export const PRESET_COLLECTION_VERSION = 3
+export const PRESET_COLLECTION_VERSION = 4
 export const PRESET_APPLY_REQUEST = 'preset-apply-request'
 export const PRESET_APPLY_RESPONSE = 'preset-apply-response'
 export const PRESET_APPLY_CANCEL = 'preset-apply-cancel'
 export const PRESET_EDIT_REQUEST = 'preset-edit-request'
+
+export interface ResolvedSkinModelRequest {
+  resolvedSkinModel: {
+    modelId: string
+    skinDataUrl?: string
+    requested: VoxelSkinModelPreference
+    resolved: VoxelSkinModel
+  }
+}
+
+export function isResolvedSkinModelRequest(value: unknown): value is ResolvedSkinModelRequest {
+  if (!value || typeof value !== 'object' || !('resolvedSkinModel' in value)) return false
+  const correction = value.resolvedSkinModel as ResolvedSkinModelRequest['resolvedSkinModel'] | undefined
+  return !!correction && typeof correction === 'object' && correction.modelId === 'dmeloper'
+    && (correction.skinDataUrl === undefined || typeof correction.skinDataUrl === 'string')
+    && ['auto', 'wide', 'slim'].includes(correction.requested)
+    && ['wide', 'slim'].includes(correction.resolved)
+}
 
 export const PRESET_APPEARANCE_KEYS = [
   'selectedModelId',
@@ -17,7 +35,7 @@ export const PRESET_APPEARANCE_KEYS = [
   'activeSkinLibraryEntryId',
   'dmeloperSkinModel',
   'useDefaultDmeloperSkin',
-] as const satisfies readonly (keyof CatStore['customization3d'])[]
+] as const satisfies readonly (keyof BlockStore['customization3d'])[]
 
 // Tab-owned settings are explicit: new common/runtime fields never opt in by accident.
 export const PRESET_SETTING_KEYS = [
@@ -32,6 +50,7 @@ export const PRESET_SETTING_KEYS = [
   'dmeloperEyebrows',
   'dmeloperPalmColor',
   // 3D Scene
+  'lighting',
   'showDisplayArea',
   'autoViewportEnabled',
   'autoViewportPaddingPixels',
@@ -55,7 +74,7 @@ export const PRESET_SETTING_KEYS = [
 
 export interface PresetSnapshot {
   preset: Pick<Pet3dPreset, typeof PRESET_SETTING_KEYS[number]>
-  appearance: Pick<CatStore['customization3d'], typeof PRESET_APPEARANCE_KEYS[number]>
+  appearance: Pick<BlockStore['customization3d'], typeof PRESET_APPEARANCE_KEYS[number]>
   mirror: boolean
   opacity: number
   eyebrowAnimationEnabled: boolean
@@ -64,14 +83,19 @@ export interface PresetSnapshot {
 export interface PresetEntry {
   id: string
   name: string
-  builtin: boolean
   favorite: boolean
   snapshot: PresetSnapshot
 }
 
+/** Runtime presentation only; bundled entries never enter the saved user catalog. */
+export interface PresetListEntry extends PresetEntry {
+  origin: 'builtin' | 'user'
+}
+
 export interface PresetCollection {
   schemaVersion: number
-  activeId: string
+  // Legacy storage/recovery compatibility only; normal catalogs always save null.
+  activeId: string | null
   entries: PresetEntry[]
   // One-time recovery evidence only; never applied to a preset or skin.
   legacyAppearanceArchive?: Record<string, Record<string, unknown>>

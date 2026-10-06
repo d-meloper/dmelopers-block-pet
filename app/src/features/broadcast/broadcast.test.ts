@@ -4,7 +4,7 @@ import { describe, it } from 'node:test'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { applyPresetSnapshot, createDefaultPresetSnapshot } from '@/features/presets/model'
-import { useCatStore } from '@/stores/cat'
+import { useBlockStore } from '@/stores/block'
 import { useGeneralStore } from '@/stores/general'
 
 import type { BroadcastConfiguration, BroadcastScene, BroadcastStatus } from './types'
@@ -16,30 +16,30 @@ import { isDesktopPetVisible } from './visibility'
 
 function fixture() {
   setActivePinia(createPinia())
-  const cat = useCatStore()
-  return { cat, scene: captureBroadcastScene(cat), general: useGeneralStore() }
+  const block = useBlockStore()
+  return { block, scene: captureBroadcastScene(block), general: useGeneralStore() }
 }
 
 describe('broadcast settings and projection', () => {
   it('delivers high shadows without adding them to presets', () => {
-    const { cat } = fixture()
-    cat.shadowQualitySelection = 'high'
-    const scene = captureBroadcastScene(cat)
+    const { block } = fixture()
+    block.shadowQualitySelection = 'high'
+    const scene = captureBroadcastScene(block)
     assert.equal(scene.performance.shadowQuality, 'high')
     assert.ok(!('shadowQuality' in scene.preset))
   })
 
   it('applies the independent desktop choice only during broadcast output', () => {
-    const { cat, general } = fixture()
+    const { block, general } = fixture()
     for (const enabled of [false, true]) {
       for (const showOnDesktop of [false, true]) {
         for (const visible of [false, true]) {
           Object.assign(general.broadcast, { enabled, showOnDesktop })
-          cat.window.visible = visible
-          assert.equal(isDesktopPetVisible(cat.window.visible, general.broadcast), visible && (!enabled || showOnDesktop))
-          applyPresetSnapshot(cat, createDefaultPresetSnapshot())
+          block.window.visible = visible
+          assert.equal(isDesktopPetVisible(block.window.visible, general.broadcast), visible && (!enabled || showOnDesktop))
+          applyPresetSnapshot(block, createDefaultPresetSnapshot())
           assert.equal(general.broadcast.showOnDesktop, showOnDesktop)
-          assert.equal(isDesktopPetVisible(cat.window.visible, general.broadcast), !enabled || showOnDesktop)
+          assert.equal(isDesktopPetVisible(block.window.visible, general.broadcast), !enabled || showOnDesktop)
         }
       }
     }
@@ -64,47 +64,48 @@ describe('broadcast settings and projection', () => {
   })
 
   it('keeps the four desktop/broadcast combinations independent of taskbar and presets', () => {
-    const { cat, general } = fixture()
+    const { block, general } = fixture()
     assert.equal(general.broadcast.enabled, false)
     for (const enabled of [false, true]) {
       general.broadcast.enabled = enabled
       for (const visible of [false, true]) {
-        applyPresetSnapshot(cat, createDefaultPresetSnapshot())
-        assert.equal(cat.window.visible, true)
-        cat.window.visible = visible
+        applyPresetSnapshot(block, createDefaultPresetSnapshot())
+        assert.equal(block.window.visible, true)
+        block.window.visible = visible
         general.app.taskbarVisible = !visible
-        assert.equal(cat.window.visible, visible)
+        assert.equal(block.window.visible, visible)
         assert.equal(general.broadcast.enabled, enabled)
-        assert.equal(captureBroadcastScene(cat).opacity, 100)
+        assert.equal(captureBroadcastScene(block).opacity, 100)
       }
     }
   })
   it('restores new settings additively and resets broadcast without touching pet visibility', async () => {
-    const { general, cat } = fixture()
+    const { general, block } = fixture()
     general.$patch({ appearance: { language: 'en-US' }, migrated: true, broadcast: { enabled: true } })
     await general.init()
     assert.equal(general.broadcast.enabled, true)
-    cat.window.visible = false
+    block.window.visible = false
     general.reset()
     assert.equal(general.broadcast.enabled, false)
-    assert.equal(cat.window.visible, false)
+    assert.equal(block.window.visible, false)
   })
   it('projects visuals without library identities, desktop visibility or editing overlays', () => {
-    const { cat } = fixture()
-    cat.customization3d.minecraftSkinUsername = 'PrivateName'
-    cat.customization3d.activeSkinLibraryEntryId = 'private-entry'
-    cat.customization3d.preset.showDisplayArea = true
-    Object.assign(cat.customization3d.preset, { deskTransparent: false, deskHeightOffset: 0.75, deskColor: '#123456' })
-    cat.model.mirror = true
-    cat.window.opacity = 37
-    const before = captureBroadcastScene(cat)
-    cat.window.visible = false
-    cat.window.hideOnHover = true
-    cat.window.passThrough = true
-    Object.assign(cat.customization3d.preset, { legacyPrivatePath: 'private-path' })
-    Object.assign(cat.customization3d.preset.dmeloperEyebrows, { legacyPrivateName: 'private-name' })
-    assert.deepEqual(captureBroadcastScene(cat), before)
-    assert.equal(Object.keys(before.preset).length, 36)
+    const { block } = fixture()
+    block.customization3d.minecraftSkinUsername = 'PrivateName'
+    block.customization3d.activeSkinLibraryEntryId = 'private-entry'
+    block.customization3d.preset.showDisplayArea = true
+    Object.assign(block.customization3d.preset, { deskTransparent: false, deskHeightOffset: 0.75, deskWidthOffset: 0.6, deskDepthOffset: -0.8, deskColor: '#123456' })
+    block.model.mirror = true
+    block.window.opacity = 37
+    const before = captureBroadcastScene(block)
+    block.window.visible = false
+    block.window.hideOnHover = true
+    block.window.passThrough = true
+    Object.assign(block.customization3d.preset, { legacyPrivatePath: 'private-path' })
+    Object.assign(block.customization3d.preset.dmeloperEyebrows, { legacyPrivateName: 'private-name' })
+    Object.assign(block.customization3d.preset.lighting.key, { legacyPrivateName: 'private-light-name' })
+    assert.deepEqual(captureBroadcastScene(block), before)
+    assert.equal(Object.keys(before.preset).length, 39)
     assert.equal('pixelFilterEnabled' in before.preset, false)
     assert.equal('antialiasEnabled' in before.preset, false)
     assert.equal(before.preset.showDisplayArea, false)
@@ -112,10 +113,12 @@ describe('broadcast settings and projection', () => {
     assert.equal(before.opacity, 37)
     assert.equal(before.preset.deskTransparent, false)
     assert.equal(before.preset.deskHeightOffset, 0.75)
+    assert.equal(before.preset.deskWidthOffset, 0.6)
+    assert.equal(before.preset.deskDepthOffset, -0.8)
     assert.equal(before.preset.deskColor, '#123456')
     assert.ok(!JSON.stringify(before).includes('PrivateName'))
     assert.ok(!JSON.stringify(before).includes('private-entry'))
-    cat.customization3d.preset.mouseEnabled = false
+    block.customization3d.preset.mouseEnabled = false
     assert.equal(before.preset.mouseEnabled, true)
   })
   it('fits portrait and landscape outputs without stretching or overflow', () => {
@@ -124,12 +127,12 @@ describe('broadcast settings and projection', () => {
   })
 
   it('publishes both independent performance choices outside presets', () => {
-    const { cat } = fixture()
+    const { block } = fixture()
     for (const antialias of [false, true]) {
       for (const filter of [false, true]) {
-        cat.model.antialiasEnabled = antialias
-        cat.model.pixelFilterEnabled = filter
-        const scene = captureBroadcastScene(cat)
+        block.model.antialiasEnabled = antialias
+        block.model.pixelFilterEnabled = filter
+        const scene = captureBroadcastScene(block)
         assert.equal(scene.performance.antialiasEnabled, antialias)
         assert.equal(scene.performance.pixelFilterEnabled, filter)
       }
@@ -260,13 +263,13 @@ describe('browser scene sessions', () => {
 })
 
 it('projects eyebrow depth into OBS without sharing mutable preset data', () => {
-  const { cat } = fixture()
-  assert.equal(captureBroadcastScene(cat).preset.dmeloperEyebrows.depthPercent, 50)
+  const { block } = fixture()
+  assert.equal(captureBroadcastScene(block).preset.dmeloperEyebrows.depthPercent, 50)
   for (const depthPercent of [0, 100, 200]) {
-    cat.updateDmeloperEyebrows({ depthPercent })
-    const captured = captureBroadcastScene(cat)
+    block.updateDmeloperEyebrows({ depthPercent })
+    const captured = captureBroadcastScene(block)
     assert.equal(captured.preset.dmeloperEyebrows.depthPercent, depthPercent)
-    cat.updateDmeloperEyebrows({ depthPercent: 75 })
+    block.updateDmeloperEyebrows({ depthPercent: 75 })
     assert.equal(captured.preset.dmeloperEyebrows.depthPercent, depthPercent)
   }
 })

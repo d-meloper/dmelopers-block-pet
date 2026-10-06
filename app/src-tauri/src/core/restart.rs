@@ -128,11 +128,11 @@ fn spawn_successor() -> Result<(), String> {
 
 fn prepare_restart(
     development: bool,
-    supervised: bool,
+    supervised: impl FnOnce() -> bool,
     spawn: impl FnOnce() -> Result<(), String>,
 ) -> Result<i32, String> {
     if development {
-        if !supervised {
+        if !supervised() {
             return Err("Development restart requires a supervised application session.".into());
         }
         Ok(DEVELOPMENT_RESTART_EXIT_CODE)
@@ -153,7 +153,7 @@ pub async fn restart_application(
     let code = tauri::async_runtime::spawn_blocking(|| {
         prepare_restart(
             tauri::is_dev(),
-            std::env::var(DEVELOPMENT_RESTART_PROTOCOL).as_deref() == Ok("1"),
+            || std::env::var(DEVELOPMENT_RESTART_PROTOCOL).as_deref() == Ok("1"),
             spawn_successor,
         )
     })
@@ -193,18 +193,31 @@ mod tests {
     #[test]
     fn failed_spawn_never_authorizes_parent_exit() {
         assert_eq!(
-            prepare_restart(false, false, || Err("RESTART_SPAWN_FAILED".into())).unwrap_err(),
+            prepare_restart(false, || false, || Err("RESTART_SPAWN_FAILED".into())).unwrap_err(),
             "RESTART_SPAWN_FAILED"
         );
     }
     #[test]
+    fn packaged_restart_never_reads_the_development_supervisor() {
+        let spawned = std::cell::Cell::new(false);
+        assert_eq!(
+            prepare_restart(
+                false,
+                || panic!("packaged restart must not read development configuration"),
+                || { spawned.set(true); Ok(()) },
+            ).unwrap(),
+            0
+        );
+        assert!(spawned.get());
+    }
+    #[test]
     fn supervised_development_exits_75_without_spawning() {
         assert_eq!(
-            prepare_restart(true, true, || panic!("development must use its supervisor")).unwrap(),
+            prepare_restart(true, || true, || panic!("development must use its supervisor")).unwrap(),
             75
         );
         assert!(
-            prepare_restart(true, false, || panic!("must not spawn unsupervised dev")).is_err()
+            prepare_restart(true, || false, || panic!("must not spawn unsupervised dev")).is_err()
         );
     }
 }

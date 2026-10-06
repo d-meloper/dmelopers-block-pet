@@ -1,5 +1,9 @@
 {
   "identifier": "com.dmeloper.blockpet.store",
+  "build": {
+    "devUrl": null,
+    "beforeDevCommand": null
+  },
   "bundle": {
     "active": false,
     "windows": {

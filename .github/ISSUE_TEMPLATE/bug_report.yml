@@ -1,61 +1,61 @@
-name: Bug report
-description: Report a reproducible problem in an explicitly published build.
+name: Bug report / 버그 제보
+description: Tell us what went wrong. 어떤 문제가 있었는지 알려 주세요.
 title: "[Bug] "
 labels: ["bug"]
 body:
   - type: input
     id: version
     attributes:
-      label: Version and artifact
-      description: Provide the exact version and installer or executable name.
+      label: App version and filename / 앱 버전과 파일명
+      description: Include the version and installer or executable name. 버전과 설치파일 또는 실행파일 이름을 적어 주세요.
     validations:
       required: true
   - type: dropdown
     id: distribution
     attributes:
-      label: Distribution channel
+      label: Distribution channel / 사용 중인 배포판
       options:
         - GitHub
         - Microsoft Store
-        - Source build
+        - Source build / 직접 빌드
     validations:
       required: true
   - type: input
     id: installation
     attributes:
-      label: Installation method
-      description: New installation, update, or reinstall; include the previous version when applicable.
+      label: Installation method / 설치 방법
+      description: New installation, update or reinstall; include the previous version if applicable. 새 설치·업데이트·재설치 여부와 해당하는 경우 이전 버전을 적어 주세요.
     validations:
       required: true
   - type: input
     id: windows
     attributes:
-      label: Windows environment
-      description: Windows version, architecture, and display scaling.
+      label: Windows environment / Windows 환경
+      description: Include Windows version, architecture and display scaling. Windows 버전, 아키텍처와 화면 배율을 적어 주세요.
     validations:
       required: true
   - type: textarea
     id: reproduction
     attributes:
-      label: Reproduction steps
-      description: Remove usernames, personal paths, credentials, and private files.
+      label: Steps to reproduce / 문제가 발생하는 과정
+      description: Describe the steps without usernames, personal paths, credentials or private files. 사용자 이름·개인 경로·인증 정보·비공개 파일을 제외하고 재현 과정을 적어 주세요.
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected and actual behavior
+      label: Expected and actual behavior / 예상한 동작과 실제 동작
     validations:
       required: true
   - type: textarea
     id: diagnostics
     attributes:
-      label: Relevant diagnostic log excerpt (optional)
-      description: Include only the relevant excerpt after removing personal paths, nicknames, tokens, and other private information.
+      label: Diagnostic log excerpt (optional) / 진단 로그 일부 (선택)
+      description: Include only relevant lines and remove personal paths, nicknames, tokens and other private information. 관련 부분만 첨부하고 개인 경로·닉네임·토큰 등 개인정보는 지워 주세요.
   - type: checkboxes
     id: privacy
     attributes:
-      label: Privacy check
+      label: Privacy check / 개인정보 확인
       options:
-        - label: I removed credentials, personal paths, and private information.
+        - label: I removed credentials, personal paths and private information. 인증 정보·개인 경로·개인정보를 제거했습니다.
           required: true

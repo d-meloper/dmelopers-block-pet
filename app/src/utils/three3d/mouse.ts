@@ -1,9 +1,9 @@
 import {
+  Box3,
   BufferGeometry,
   CatmullRomCurve3,
   Color,
   CylinderGeometry,
-  DoubleSide,
   Float32BufferAttribute,
   Group,
   MathUtils,
@@ -12,254 +12,270 @@ import {
   MeshStandardMaterial,
   Vector3,
 } from 'three'
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
+import { mergeGeometries, toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js'
 
 import type { DeviceColorSettings } from '@/config/deviceColors'
 
 import { normalizeDeviceColors } from '@/config/deviceColors'
 import { MODEL_3D_CONFIG } from '@/config/model3d'
 
-interface ShellProfile {
-  z: number
-  width: number
-  centerY: number
-  halfHeight: number
-}
+import { triangulatePlanarBoundary } from './planarTriangulation'
 
-const SHELL_PROFILES: readonly ShellProfile[] = [
-  { z: -0.41, width: 0.08, centerY: 0.095, halfHeight: 0.055 },
-  { z: -0.36, width: 0.19, centerY: 0.12, halfHeight: 0.11 },
-  { z: -0.28, width: 0.255, centerY: 0.135, halfHeight: 0.155 },
-  { z: -0.16, width: 0.292, centerY: 0.14, halfHeight: 0.19 },
-  { z: -0.03, width: 0.305, centerY: 0.135, halfHeight: 0.205 },
-  { z: 0.1, width: 0.298, centerY: 0.125, halfHeight: 0.2 },
-  { z: 0.22, width: 0.275, centerY: 0.11, halfHeight: 0.17 },
-  { z: 0.32, width: 0.225, centerY: 0.09, halfHeight: 0.125 },
-  { z: 0.39, width: 0.125, centerY: 0.07, halfHeight: 0.065 },
-] as const
+// Local +Z is the button end. These dimensions retain the original device's
+// envelope and desk clearance; scene placement and the hand anchor live in config.
+const MOUSE_REAR_Z = -0.42
+const MOUSE_FRONT_Z = 0.38795802
+const MOUSE_BOTTOM_Y = -0.075231828
+const MOUSE_WHEEL_TOP_Y = 0.42645224
+const PANEL_THICKNESS = 0.016
+// Width, crown, shoulder. A broad palm hump falls into a lower button nose;
+// the same surface owns the housing, both button panels and their backing.
+const SHELL_PROFILE = new CatmullRomCurve3([
+  new Vector3(0.235, 0.175, 0.065),
+  new Vector3(0.279, 0.318, 0.102),
+  new Vector3(0.299, 0.365, 0.118),
+  new Vector3(0.305, 0.384, 0.121),
+  new Vector3(0.305, 0.371, 0.119),
+  new Vector3(0.298, 0.344, 0.116),
+  new Vector3(0.284, 0.311, 0.11),
+  new Vector3(0.264, 0.266, 0.099),
+  new Vector3(0.235, 0.222, 0.084),
+], false, 'catmullrom', 0.35)
 
-const SHELL_PROFILE_CURVE = new CatmullRomCurve3(
-  SHELL_PROFILES.map(profile => new Vector3(
-    profile.z,
-    profile.width,
-    profile.centerY,
-  )),
-  false,
-  'catmullrom',
-  0.35,
-)
-const SHELL_HEIGHT_CURVE = new CatmullRomCurve3(
-  SHELL_PROFILES.map(profile => new Vector3(
-    profile.z,
-    profile.halfHeight,
-    0,
-  )),
-  false,
-  'catmullrom',
-  0.35,
-)
-const BUTTON_START_PROGRESS = 0.52
-const BUTTON_END_PROGRESS = 0.995
-
-function getButtonRatios(progress: number) {
-  return {
-    inner: MathUtils.lerp(0.25, 0.035, progress),
-    outer: MathUtils.lerp(0.93, 0.9, progress),
-  }
-}
-
-function sampleShellSurface(progress: number, cosine: number): Vector3 {
-  const profile = SHELL_PROFILE_CURVE.getPoint(progress)
-  const halfHeight = SHELL_HEIGHT_CURVE.getPoint(progress).y
-  const sine = Math.sqrt(Math.max(0, 1 - cosine * cosine))
-  const ergonomicOffset = 0.014
-    * Math.sin(progress * Math.PI)
-    * sine
-
+function sampleShellSurface(progress: number, lateral: number): Vector3 {
+  const profile = SHELL_PROFILE.getPoint(progress)
+  const shoulder = Math.max(0, Math.cos(lateral * Math.PI / 2)) ** 0.62
   return new Vector3(
-    cosine * profile.y + ergonomicOffset,
-    profile.z + sine * halfHeight,
-    profile.x,
+    lateral * Math.min(0.305, profile.x),
+    MathUtils.lerp(profile.z, profile.y, shoulder),
+    MathUtils.lerp(
+      MOUSE_REAR_Z + 0.095 * lateral * lateral,
+      MOUSE_FRONT_Z - 0.06 * lateral * lateral,
+      progress,
+    ),
   )
 }
 
-function createMouseShellGeometry(): BufferGeometry {
-  const ringCount = 37
-  const radialSegments = 36
+// Closed surfaces with explicit side walls, never a perforated body hidden by
+// overlapping button sheets. Separate crease normals keep the narrow seams crisp.
+function createShellPatch(
+  rows: readonly number[],
+  columns: readonly number[],
+  sample: (row: number, column: number) => Vector3,
+  thickness: number,
+  housing = false,
+): BufferGeometry {
   const positions: number[] = []
   const indices: number[] = []
-
-  for (let ring = 0; ring < ringCount; ring += 1) {
-    const progress = ring / (ringCount - 1)
-    const profile = SHELL_PROFILE_CURVE.getPoint(progress)
-    const halfHeight = SHELL_HEIGHT_CURVE.getPoint(progress).y
-
-    for (let segment = 0; segment < radialSegments; segment += 1) {
-      const angle = (segment / radialSegments) * Math.PI * 2
-      const topWeight = Math.max(0, Math.sin(angle))
-      const ergonomicOffset = 0.014
-        * Math.sin(progress * Math.PI)
-        * topWeight
-
-      positions.push(
-        Math.cos(angle) * profile.y + ergonomicOffset,
-        profile.z + Math.sin(angle) * halfHeight,
-        profile.x,
-      )
+  const rowSize = columns.length
+  const count = rows.length * rowSize
+  for (const row of rows) {
+    for (const column of columns) {
+      const point = sample(row, column)
+      positions.push(point.x, point.y, point.z)
     }
   }
-
-  const rearProfile = SHELL_PROFILE_CURVE.getPoint(0)
-  const frontProfile = SHELL_PROFILE_CURVE.getPoint(1)
-  const rearCenterIndex = positions.length / 3
-  positions.push(0, rearProfile.z, rearProfile.x)
-  const frontCenterIndex = positions.length / 3
-  positions.push(0, frontProfile.z, frontProfile.x)
-
-  for (let ring = 0; ring < ringCount - 1; ring += 1) {
-    for (let segment = 0; segment < radialSegments; segment += 1) {
-      const surfaceProgress = (ring + 0.5) / (ringCount - 1)
-      const angle = ((segment + 0.5) / radialSegments) * Math.PI * 2
-      const isTopSurface = Math.sin(angle) > 0
-      const buttonProgress = MathUtils.clamp(
-        (surfaceProgress - BUTTON_START_PROGRESS)
-        / (BUTTON_END_PROGRESS - BUTTON_START_PROGRESS),
-        0,
-        1,
-      )
-      const ratios = getButtonRatios(buttonProgress)
-      const absoluteCosine = Math.abs(Math.cos(angle))
-      const isBelowButton = surfaceProgress >= BUTTON_START_PROGRESS
-        && surfaceProgress <= BUTTON_END_PROGRESS
-        && isTopSurface
-        && absoluteCosine > ratios.inner + 0.018
-        && absoluteCosine < ratios.outer - 0.018
-      if (isBelowButton) continue
-
-      const nextSegment = (segment + 1) % radialSegments
-      const current = ring * radialSegments + segment
-      const next = ring * radialSegments + nextSegment
-      const upper = (ring + 1) * radialSegments + segment
-      const upperNext = (ring + 1) * radialSegments + nextSegment
-
-      indices.push(current, upper, next)
-      indices.push(next, upper, upperNext)
-    }
-  }
-
-  const frontRingOffset = (ringCount - 1) * radialSegments
-  for (let segment = 0; segment < radialSegments; segment += 1) {
-    const nextSegment = (segment + 1) % radialSegments
-    indices.push(rearCenterIndex, nextSegment, segment)
-    indices.push(
-      frontCenterIndex,
-      frontRingOffset + segment,
-      frontRingOffset + nextSegment,
+  for (let vertex = 0; vertex < count; vertex += 1) {
+    positions.push(
+      positions[vertex * 3] * (housing ? 0.91 : 1),
+      housing ? MOUSE_BOTTOM_Y : positions[vertex * 3 + 1] - thickness,
+      positions[vertex * 3 + 2] * (housing ? 0.91 : 1),
     )
   }
+  for (let row = 0; row < rows.length - 1; row += 1) {
+    for (let column = 0; column < rowSize - 1; column += 1) {
+      const a = row * rowSize + column
+      const b = a + 1
+      const c = a + rowSize
+      const d = c + 1
+      indices.push(a, c, b, b, c, d)
+      indices.push(a + count, b + count, c + count, b + count, d + count, c + count)
+    }
+  }
+  // Clockwise viewed from above; the walls face away from this perimeter.
+  const perimeter: number[] = []
+  for (let column = 0; column < rowSize; column += 1) perimeter.push(column)
+  for (let row = 1; row < rows.length; row += 1) perimeter.push(row * rowSize + rowSize - 1)
+  for (let column = rowSize - 2; column >= 0; column -= 1) perimeter.push((rows.length - 1) * rowSize + column)
+  for (let row = rows.length - 2; row > 0; row -= 1) perimeter.push(row * rowSize)
 
-  const geometry = new BufferGeometry()
-  geometry.setAttribute('position', new Float32BufferAttribute(positions, 3))
+  const joinRings = (upper: number[], lower: number[]) => {
+    for (let index = 0; index < upper.length; index += 1) {
+      const next = (index + 1) % upper.length
+      indices.push(upper[index], upper[next], lower[next], upper[index], lower[next], lower[index])
+    }
+  }
+  let ring = perimeter
+  if (housing) {
+    // A real lower enclosure with a small base bevel, rather than an ellipsoid
+    // that bulges below the desk. Keep the original lowest point for saved sizes.
+    for (const [scale, height] of [[0.995, 0.005], [0.985, -0.052]]) {
+      const next = perimeter.map((vertex) => {
+        const index = positions.length / 3
+        positions.push(positions[vertex * 3] * scale, height, positions[vertex * 3 + 2] * scale)
+        return index
+      })
+      joinRings(ring, next)
+      ring = next
+    }
+  }
+  joinRings(ring, perimeter.map(vertex => vertex + count))
+  const indexed = new BufferGeometry()
+  indexed.setAttribute('position', new Float32BufferAttribute(positions, 3))
+  indexed.setIndex(indices)
+  const geometry = toCreasedNormals(indexed, Math.PI / 3)
+  indexed.dispose()
+  geometry.computeBoundingBox()
+  geometry.computeBoundingSphere()
+  return geometry
+}
+
+const SHELL_ROWS = Array.from({ length: 9 }, (_, index) => index / 8)
+const SHELL_COLUMNS = [-1, -0.8, 0, 0.8, 1]
+
+function retessellateMouseBottom(geometry: BufferGeometry): void {
+  // Only the authored, untextured housing is eligible. Future attribute or
+  // material-group changes retain the original mesh until separately verified.
+  if (geometry.getIndex() || geometry.groups.length > 0
+    || Object.keys(geometry.attributes).some(name => name !== 'position' && name !== 'normal')) {
+    return
+  }
+  const position = geometry.getAttribute('position')
+  const normal = geometry.getAttribute('normal')
+  const height = Math.fround(MOUSE_BOTTOM_Y)
+  const selectedFaces = new Set<number>()
+  const vertices = new Map<string, number>()
+  const edges = new Map<string, { from: number, to: number, count: number }>()
+  for (let offset = 0; offset < position.count; offset += 3) {
+    const face = [offset, offset + 1, offset + 2]
+    // Keep crease-adjacent bottom faces too: their smoothed normals vary even
+    // though their positions share this plane. No epsilon widens this region.
+    if (!face.every(vertex => position.getY(vertex) === height
+      && normal.getX(vertex) === 0 && normal.getY(vertex) === -1 && normal.getZ(vertex) === 0)) {
+      continue
+    }
+    selectedFaces.add(offset)
+    const welded = face.map((vertex) => {
+      const key = `${position.getX(vertex)}:${position.getZ(vertex)}`
+      const existing = vertices.get(key)
+      if (existing !== undefined) return existing
+      vertices.set(key, vertex)
+      return vertex
+    })
+    for (let index = 0; index < 3; index += 1) {
+      const from = welded[index]
+      const to = welded[(index + 1) % 3]
+      const key = `${Math.min(from, to)}:${Math.max(from, to)}`
+      const existing = edges.get(key)
+      if (existing) {
+        if (existing.count !== 1 || existing.from !== to || existing.to !== from) return
+        existing.count = 2
+      } else {
+        edges.set(key, { from, to, count: 1 })
+      }
+    }
+  }
+  const outgoing = new Map<number, number>()
+  const incoming = new Set<number>()
+  for (const edge of edges.values()) {
+    if (edge.count !== 1) continue
+    if (outgoing.has(edge.from) || incoming.has(edge.to)) return
+    outgoing.set(edge.from, edge.to)
+    incoming.add(edge.to)
+  }
+  const start = outgoing.keys().next().value
+  if (start === undefined) return
+  const boundary: number[] = []
+  const visited = new Set<number>()
+  let vertex: number | undefined = start
+  while (vertex !== undefined && !visited.has(vertex)) {
+    boundary.push(vertex)
+    visited.add(vertex)
+    vertex = outgoing.get(vertex)
+  }
+  // A disconnected region, hole or open perimeter must keep the original mesh.
+  if (vertex !== start || boundary.length !== outgoing.size) return
+  let replacement: number[]
+  try {
+    replacement = triangulatePlanarBoundary(position.array, boundary)
+  } catch {
+    return
+  }
+  if (replacement.length >= selectedFaces.size * 3) return
+  const indices: number[] = []
+  for (let offset = 0; offset < position.count; offset += 3) {
+    if (!selectedFaces.has(offset)) indices.push(offset, offset + 1, offset + 2)
+  }
+  indices.push(...replacement)
+  // Original crease normals and every attribute stay intact, including unused
+  // interior vertices. Recomputing normals would change the curved enclosure.
   geometry.setIndex(indices)
-  geometry.computeVertexNormals()
+}
+
+function createMouseShellGeometry(): BufferGeometry {
+  const lower = createShellPatch(SHELL_ROWS, SHELL_COLUMNS, (row, column) => {
+    const point = sampleShellSurface(row, column)
+    point.y -= 0.041
+    return point
+  }, 0, true)
+  const palm = createShellPatch(
+    Array.from({ length: 5 }, (_, index) => index / 4 * 0.495),
+    SHELL_COLUMNS,
+    sampleShellSurface,
+    PANEL_THICKNESS,
+  )
+  const geometry = mergeGeometries([lower, palm])!
+  lower.dispose()
+  palm.dispose()
+  retessellateMouseBottom(geometry)
   return geometry
 }
 
 function createMouseButtonGeometry(side: -1 | 1): BufferGeometry {
-  const longitudinalSegments = 14
-  const lateralSegments = 7
-  const thickness = 0.018
-  const surfaceOffset = 0.004
-  const positions: number[] = []
-  const indices: number[] = []
-  const rowLength = lateralSegments + 1
-  const addTriangle = (first: number, second: number, third: number) => {
-    if (side === -1) {
-      indices.push(first, second, third)
-    } else {
-      indices.push(first, third, second)
-    }
+  // Each button's columns run from left to right. Mirror the sparse samples
+  // so both outer shoulders have support; otherwise the backing pierces the
+  // long chord on the left panel. Keep the same vertex and triangle budget.
+  const columns = side === -1 ? [0, 0.06, 0.26, 1] : [0, 0.74, 0.94, 1]
+  return createShellPatch(
+    [0.505, 0.54, 0.57, 0.73, 0.77, 0.81, 1],
+    columns,
+    (progress, column) => {
+      const profile = SHELL_PROFILE.getPoint(progress)
+      const wheelOpening = MathUtils.smoothstep(progress, 0.54, 0.57)
+        * (1 - MathUtils.smoothstep(progress, 0.77, 0.81))
+      const inner = (0.004 + 0.033 * wheelOpening) / Math.min(0.305, profile.x)
+      const lateral = side === -1
+        ? MathUtils.lerp(-1, -inner, column)
+        : MathUtils.lerp(inner, 1, column)
+      return sampleShellSurface(progress, lateral)
+    },
+    PANEL_THICKNESS,
+  )
+}
+
+function createMouseTrimGeometry(): BufferGeometry {
+  return createShellPatch(SHELL_ROWS, SHELL_COLUMNS, (row, column) => {
+    const point = sampleShellSurface(row, column)
+    // Clearance for the complete existing press travel + tilt, with no coplanar
+    // backing or holes through the housing when a button is held.
+    point.y -= 0.029
+    return point
+  }, 0.009)
+}
+
+function createMouseWheelGeometry(): BufferGeometry {
+  const segments = 16
+  const geometry = new CylinderGeometry(0.076, 0.076, 0.054, segments)
+  const position = geometry.getAttribute('position')
+  for (let index = 0; index < position.count; index += 1) {
+    const x = position.getX(index)
+    const z = position.getZ(index)
+    if (Math.hypot(x, z) < 0.001) continue
+    const segment = Math.round(Math.atan2(x, z) / (Math.PI * 2) * segments)
+    const radius = segment % 2 === 0 ? 0.076 : 0.0738
+    const angle = Math.atan2(x, z)
+    position.setXYZ(index, Math.sin(angle) * radius, position.getY(index), Math.cos(angle) * radius)
   }
-
-  for (let row = 0; row <= longitudinalSegments; row += 1) {
-    const progress = row / longitudinalSegments
-    const shellProgress = MathUtils.lerp(
-      BUTTON_START_PROGRESS,
-      BUTTON_END_PROGRESS,
-      progress,
-    )
-    const ratios = getButtonRatios(progress)
-
-    for (let column = 0; column <= lateralSegments; column += 1) {
-      const lateralProgress = column / lateralSegments
-      const cosine = side * MathUtils.lerp(
-        ratios.inner,
-        ratios.outer,
-        lateralProgress,
-      )
-      const position = sampleShellSurface(shellProgress, cosine)
-      positions.push(position.x, position.y + surfaceOffset, position.z)
-    }
-  }
-
-  const topVertexCount = positions.length / 3
-  for (let index = 0; index < topVertexCount; index += 1) {
-    positions.push(
-      positions[index * 3],
-      positions[index * 3 + 1] - thickness,
-      positions[index * 3 + 2],
-    )
-  }
-
-  for (let row = 0; row < longitudinalSegments; row += 1) {
-    for (let column = 0; column < lateralSegments; column += 1) {
-      const current = row * rowLength + column
-      const next = current + 1
-      const forward = current + rowLength
-      const forwardNext = forward + 1
-
-      addTriangle(current, forwardNext, forward)
-      addTriangle(current, next, forwardNext)
-      addTriangle(
-        topVertexCount + current,
-        topVertexCount + forward,
-        topVertexCount + forwardNext,
-      )
-      addTriangle(
-        topVertexCount + current,
-        topVertexCount + forwardNext,
-        topVertexCount + next,
-      )
-    }
-  }
-
-  const addEdgeFaces = (edgeColumn: number) => {
-    for (let row = 0; row < longitudinalSegments; row += 1) {
-      const current = row * rowLength + edgeColumn
-      const forward = current + rowLength
-      addTriangle(
-        current,
-        topVertexCount + forward,
-        topVertexCount + current,
-      )
-      addTriangle(current, forward, topVertexCount + forward)
-    }
-  }
-  addEdgeFaces(0)
-  addEdgeFaces(lateralSegments)
-
-  for (const row of [0, longitudinalSegments]) {
-    for (let column = 0; column < lateralSegments; column += 1) {
-      const current = row * rowLength + column
-      const next = current + 1
-      addTriangle(current, topVertexCount + current, topVertexCount + next)
-      addTriangle(current, topVertexCount + next, next)
-    }
-  }
-
-  const geometry = new BufferGeometry()
-  geometry.setAttribute('position', new Float32BufferAttribute(positions, 3))
-  geometry.setIndex(indices)
   geometry.computeVertexNormals()
   return geometry
 }
@@ -302,14 +318,8 @@ export function createMouseGroup(): MouseGroupResult {
   const shellGeometry = createMouseShellGeometry()
   const leftButtonGeometry = createMouseButtonGeometry(-1)
   const rightButtonGeometry = createMouseButtonGeometry(1)
-  const centerTrimGeometry = new RoundedBoxGeometry(
-    0.045,
-    0.018,
-    0.32,
-    5,
-    0.01,
-  )
-  const wheelGeometry = new CylinderGeometry(0.045, 0.045, 0.095, 20)
+  const centerTrimGeometry = createMouseTrimGeometry()
+  const wheelGeometry = createMouseWheelGeometry()
 
   const bodyMaterial = new MeshPhysicalMaterial({
     color: palette.body,
@@ -317,7 +327,6 @@ export function createMouseGroup(): MouseGroupResult {
     roughness: 0.46,
     clearcoat: 0.18,
     clearcoatRoughness: 0.72,
-    side: DoubleSide,
   })
   const createButtonMaterial = () => new MeshPhysicalMaterial({
     color: palette.button,
@@ -325,9 +334,6 @@ export function createMouseGroup(): MouseGroupResult {
     roughness: 0.4,
     clearcoat: 0.2,
     clearcoatRoughness: 0.68,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -2,
   })
   const leftButtonMaterial = createButtonMaterial()
   const rightButtonMaterial = createButtonMaterial()
@@ -344,7 +350,7 @@ export function createMouseGroup(): MouseGroupResult {
 
   const shell = new Mesh(shellGeometry, bodyMaterial)
   shell.name = 'mouseBody'
-  shell.position.set(0, visualOffsetY, -0.01)
+  shell.position.set(0, visualOffsetY, 0)
   shell.castShadow = true
   shell.receiveShadow = true
 
@@ -362,15 +368,15 @@ export function createMouseGroup(): MouseGroupResult {
 
   const centerTrim = new Mesh(centerTrimGeometry, trimMaterial)
   centerTrim.name = 'mouseCenterTrim'
-  centerTrim.position.set(0, 0.344 + visualOffsetY, 0.075)
-  centerTrim.rotation.x = 0.21
+  centerTrim.position.set(0, visualOffsetY, 0)
   centerTrim.receiveShadow = true
 
   const wheel = new Mesh(wheelGeometry, wheelMaterial)
   wheel.name = 'mouseWheel'
-  wheel.position.set(0, 0.378 + visualOffsetY, 0.105)
   wheel.rotation.z = Math.PI / 2
   wheel.rotation.x = 0.08
+  const wheelTop = new Box3().setFromObject(wheel).max.y
+  wheel.position.set(0, MOUSE_WHEEL_TOP_Y - wheelTop + visualOffsetY, 0.105)
   wheel.castShadow = true
 
   mouseDevice.add(
@@ -422,6 +428,7 @@ export function createMouseGroup(): MouseGroupResult {
   }
   let targetX = 0
   let targetZ = 0
+  const animatedButtonStates = Object.values(buttonStates)
   let mouseEnabled = true
 
   const geometries = [
@@ -439,6 +446,7 @@ export function createMouseGroup(): MouseGroupResult {
     wheelMaterial,
   ]
   let disposed = false
+  let buttonAppearancesInitialized = false
 
   const applyButtonAppearance = (state: MouseButtonState) => {
     const easedProgress = MathUtils.smoothstep(state.progress, 0, 1)
@@ -459,7 +467,7 @@ export function createMouseGroup(): MouseGroupResult {
     targetX = 0
     targetZ = 0
     mouseDevice.position.set(0, 0, 0)
-    for (const state of Object.values(buttonStates)) {
+    for (const state of animatedButtonStates) {
       state.pressed = false
       state.minimumPressedUntil = 0
       state.progress = 0
@@ -469,6 +477,7 @@ export function createMouseGroup(): MouseGroupResult {
       state.material.emissive.copy(baseButtonEmissive)
       state.material.emissiveIntensity = 0
     }
+    buttonAppearancesInitialized = true
   }
 
   return {
@@ -482,7 +491,8 @@ export function createMouseGroup(): MouseGroupResult {
       buttonStates.Left.baseColor.copy(originalButtonColor).multiply(bodyTint)
       buttonStates.Right.baseColor.copy(originalButtonColor).multiply(bodyTint)
       pressedButtonColor.set(normalized.mousePressedColor)
-      Object.values(buttonStates).forEach(applyButtonAppearance)
+      animatedButtonStates.forEach(applyButtonAppearance)
+      buttonAppearancesInitialized = true
     },
     setMouseEnabled: (enabled) => {
       if (disposed || mouseEnabled === enabled) return
@@ -537,20 +547,22 @@ export function createMouseGroup(): MouseGroupResult {
         deltaSeconds,
       )
 
-      Object.values(buttonStates).forEach((state) => {
+      animatedButtonStates.forEach((state) => {
         const shouldPress = state.pressed || timestamp < state.minimumPressedUntil
         const duration = shouldPress
           ? interaction.pressDurationMs
           : interaction.releaseDurationMs
         const direction = shouldPress ? 1 : -1
-        state.progress = MathUtils.clamp(
+        const progress = MathUtils.clamp(
           state.progress + direction * deltaMilliseconds / duration,
           0,
           1,
         )
-
+        if (buttonAppearancesInitialized && progress === state.progress) return
+        state.progress = progress
         applyButtonAppearance(state)
       })
+      buttonAppearancesInitialized = true
     },
     dispose: () => {
       if (disposed) return

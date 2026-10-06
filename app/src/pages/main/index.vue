@@ -9,19 +9,21 @@ import { useI18n } from 'vue-i18n'
 
 import type { MainViewportSnapshot } from '@/composables/useWindowState'
 import type { PetModelId } from '@/config/model3d'
+import type { AntialiasSettingRequest, AntialiasSettingResponse } from '@/config/performance'
 import type { MouseSettingResponse } from '@/features/input/types'
+import type { PetSkinChangeRequest } from '@/features/petRuntime/types'
 import type { PresetApplyRequest, PresetSnapshot } from '@/features/presets/types'
 import type { SceneViewportState } from '@/features/scene/types'
 import type {
   Pet3dPreset,
   Pet3dPresetSelectionPayload,
-} from '@/stores/cat'
+} from '@/stores/block'
 import type {
   MainViewportResetComplete,
   MainViewportResetRequest,
 } from '@/utils/mainViewportReset'
 import type { VisibleContentRect } from '@/utils/three3d'
-import type { VoxelSkinModel, VoxelSkinModelPreference } from '@/utils/three3d/voxelSkin'
+import type { VoxelSkinModel } from '@/utils/three3d/voxelSkin'
 
 import { useAppMenu } from '@/composables/useAppMenu'
 import { useDevice } from '@/composables/useDevice'
@@ -35,16 +37,16 @@ import {
   subscribeMainViewportSnapshot,
 } from '@/composables/useWindowState'
 import { getPetModelOption, MODEL_3D_CONFIG } from '@/config/model3d'
-import { ANTIALIAS_CHANGE_FAILED } from '@/config/performance'
+import { ANTIALIAS_SETTING_CANCEL, ANTIALIAS_SETTING_REQUEST, ANTIALIAS_SETTING_RESPONSE, isAntialiasSettingRequest } from '@/config/performance'
 import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
 import { isDesktopPetVisible } from '@/features/broadcast/visibility'
 import { isMouseSettingRequest, isSemanticInputEvent } from '@/features/input/types'
-import { PET_RUNTIME_RECOVERED, PET_RUNTIME_RECOVERY_QUERY, PET_RUNTIME_RESTART_REQUIRED, PET_RUNTIME_SHOW } from '@/features/petRuntime/types'
+import { isPetSkinChangeRequest, PET_RUNTIME_RECOVERED, PET_RUNTIME_RECOVERY_QUERY, PET_RUNTIME_RESTART_REQUIRED, PET_RUNTIME_SHOW, PET_SKIN_CHANGE } from '@/features/petRuntime/types'
 import { applyPresetSnapshot, capturePresetSnapshot, isPresetSnapshot } from '@/features/presets/model'
-import { PRESET_APPLY_CANCEL, PRESET_APPLY_REQUEST, PRESET_APPLY_RESPONSE } from '@/features/presets/types'
+import { PRESET_APPLY_CANCEL, PRESET_APPLY_REQUEST, PRESET_APPLY_RESPONSE, PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import { applyPresetVisualSettings } from '@/features/presets/visualSettings'
 import { isSceneViewportRequest, SCENE_VIEWPORT_REQUEST, SCENE_VIEWPORT_RESPONSE, SCENE_VIEWPORT_STATE } from '@/features/scene/types'
-import { normalizeManualViewport, resizeAutoViewportPadding, viewportSizeChanged } from '@/features/scene/viewportSettings'
+import { equalViewportRect, normalizeManualViewport, resizeAutoViewportPadding, viewportSizeChanged } from '@/features/scene/viewportSettings'
 import { editorsLocked } from '@/features/stateSafety/bridge'
 import { registerNativeDrain } from '@/features/stateSafety/runtime'
 import {
@@ -56,7 +58,7 @@ import {
   showWindow,
 } from '@/plugins/window'
 import { getResolvedDmeloperSkinUrl, resolveDmeloperSkinUrl } from '@/services/dmeloperSkin'
-import { useCatStore } from '@/stores/cat'
+import { useBlockStore } from '@/stores/block'
 import { useGeneralStore } from '@/stores/general'
 import { createLatestAsyncTaskQueue } from '@/utils/latestAsyncTask'
 import three3d from '@/utils/three3d'
@@ -69,6 +71,7 @@ import {
   createLatestContentBoundsScheduler,
   runBoundedContentBoundsAttempts,
 } from './contentBoundsRetry'
+import { createLoadingPaintBarrier } from './loadingPaint'
 import { getRequiredPetAssetMutation } from './petAssetSelection'
 import { runViewportResetFlow } from './viewportResetFlow'
 import {
@@ -78,9 +81,9 @@ import {
 } from './viewportSelection'
 
 const appWindow = getCurrentWebviewWindow()
-const catStore = useCatStore()
+const blockStore = useBlockStore()
 const generalStore = useGeneralStore()
-const desktopPetVisible = computed(() => isDesktopPetVisible(catStore.window.visible, generalStore.broadcast))
+const desktopPetVisible = computed(() => isDesktopPetVisible(blockStore.window.visible, generalStore.broadcast))
 const { getAppMenu } = useAppMenu()
 const device = useDevice({ onMouseReset: () => viewportInteraction.resetNativeButtons() })
 const inputUnlisteners: Array<() => void> = []
@@ -89,17 +92,21 @@ const canvas = ref<HTMLCanvasElement>()
 const canvasHost = ref<HTMLDivElement>()
 const rendererError = ref<string>()
 const rendererLoading = ref(false)
+const loadingPaint = createLoadingPaintBarrier()
+let skinPreparation: string | undefined
+watch(rendererLoading, loading => three3d.setPetPresentationVisible(!loading), { immediate: true, flush: 'sync' })
 const viewportHologramVisible = ref(false)
 let viewportHologramInteractionActive = false
 let petWindowDragging = false
 let petWindowDragGeneration = 0
 let rendererReady = false
 let activeWindowScalePercent = 100
-let activeViewportAutomatic = catStore.activePet3dPreset.autoViewportEnabled
-let desiredManualViewportRect = { ...catStore.activePet3dPreset.manualViewportRect }
+let activeViewportAutomatic = blockStore.activePet3dPreset.autoViewportEnabled
+let desiredManualViewportRect = { ...blockStore.activePet3dPreset.manualViewportRect }
+let manualViewportCorrection: { revision: number, requested: VisibleContentRect, applied: VisibleContentRect } | undefined
 let sceneStateGeneration = 0
 let sceneModeGeneration = 0
-let acceptedViewportMode = captureViewportMode(catStore.activePet3dPreset)
+let acceptedViewportMode = captureViewportMode(blockStore.activePet3dPreset)
 let desiredWindowScalePercent: number | undefined
 let appliedBoundsSignature: VisibleBoundsSelectionSignature | undefined
 let desiredBoundsSignature: VisibleBoundsSelectionSignature | undefined
@@ -178,7 +185,7 @@ async function processRuntimeFailure(): Promise<void> {
     rendererLoading.value = true
     const generation = rendererLifecycleGeneration
     try {
-      await hideWindow()
+      await prepareRendererChange()
       if (!componentMounted || generation !== rendererLifecycleGeneration || !desktopPetVisible.value) return
       await synchronizeWindowVisibility()
     } catch (error) {
@@ -194,35 +201,42 @@ async function processRuntimeFailure(): Promise<void> {
   }
 }
 
-async function revealPreparedRenderer(strict = false): Promise<void> {
+async function revealPreparedRenderer(strict = false): Promise<boolean> {
   const generation = rendererLifecycleGeneration
   const request = visibilityGeneration
+  const selection = selectionRequestGeneration
+  const bounds = boundsMeasurementGeneration
+  const presentation = presentationGeneration
   const current = () => componentMounted && generation === rendererLifecycleGeneration
-    && request === visibilityGeneration && desktopPetVisible.value && !viewportResetPending
+    && request === visibilityGeneration && selection === selectionRequestGeneration
+    && bounds === boundsMeasurementGeneration && presentation === presentationGeneration
+    && desktopPetVisible.value && !viewportResetPending && !skinPreparation
     && !viewportRevealPending && !viewportUpdatePending
   const check = () => {
     if (current()) return true
     if (strict) throw new Error('The preset presentation was superseded.')
     return false
   }
-  if (!check()) return
+  if (!check()) return false
   try {
     await showWindow(undefined, { focus: false })
-    if (!check()) return
+    if (!check()) return false
     const visible = await appWindow.isVisible()
-    if (!check()) return
+    if (!check()) return false
     if (!visible) throw new Error('The pet window was not shown.')
     if (rendererError.value) {
       rendererLoading.value = false
       if (strict) throw new Error('The preset renderer is unavailable.')
-      return
+      // A known asset failure still has a visible error UI; input stays suspended.
+      presentationPending = false
+      return true
     }
     if (rendererFrame?.generation === generation && rendererFrame.status !== 'rendered') {
       // Saving settings must not depend on RAF running in a hidden/minimized webview.
       // Cancel only this presentation waiter; the real frame proof remains reusable.
       if (editorsLocked.value) {
         if (strict) throw new Error('The preset presentation was suspended for saving.')
-        return
+        return false
       }
       let cancel!: () => void
       const cancelled = new Promise<false>((resolve) => {
@@ -235,19 +249,20 @@ async function revealPreparedRenderer(strict = false): Promise<void> {
       } finally {
         presentationWaiters.delete(cancel)
       }
-      if (!check()) return
+      if (!check()) return false
       if (!rendered) {
         if (strict) throw new Error('The preset renderer did not render a frame.')
-        return
+        return false
       }
     }
-    if (!check()) return
+    if (!check()) return false
     if (!rendererReady || rendererError.value) {
       if (strict) throw new Error('The preset renderer is unavailable.')
-      return
+      return false
     }
     if (!three3d.renderHealthFrame()) throw new Error('The pet renderer could not draw its loaded model.')
-    if (!check()) return
+    if (!check()) return false
+    presentationPending = false
     rendererLoading.value = false
     pendingRuntimeFailure = undefined
     const recoveredIncident = restartIncident
@@ -257,11 +272,44 @@ async function revealPreparedRenderer(strict = false): Promise<void> {
       await emitTo(WINDOW_LABEL.PREFERENCE, PET_RUNTIME_RECOVERED, { incident: recoveredIncident })
         .catch(error => console.error('Failed to acknowledge pet recovery.', error))
     }
+    return true
   } catch (error) {
     if (strict) throw error
     if (current()) recordRuntimeFailure(error, generation)
+    return false
   }
 }
+
+// Keep loading owned by the whole replacement, including Java lookup in Preferences.
+useTauriListen<PetSkinChangeRequest>(PET_SKIN_CHANGE, ({ payload }) => {
+  if (!componentMounted || !isPetSkinChangeRequest(payload)) return
+  if (payload.phase === 'prepare') {
+    if (presetApplyInProgress) return
+    skinPreparation = payload.requestId
+    if (desktopPetVisible.value) void prepareRendererChange().catch(reportWindowHideFailure)
+    return
+  }
+  if (skinPreparation !== payload.requestId) return
+  skinPreparation = undefined
+  if (payload.skin) {
+    const current = getCurrentSelection()
+    requestPet3dPresetSelection({
+      ...current,
+      dmeloperSkinDataUrl: payload.skin.dataUrl,
+      dmeloperSkinModel: payload.skin.model,
+      useDefaultDmeloperSkin: true,
+      preset: { ...current.preset, dmeloperPalmColor: payload.skin.palmColor },
+    })
+    return
+  }
+  // Failed/cancelled preparation leaves the already loaded pet intact. A queued
+  // replacement may still own loading, so restore only after its work settles.
+  void (async () => {
+    await selectionTaskQueue.whenIdle()
+    await viewportUpdateScheduler.whenIdle()
+    if (componentMounted && !skinPreparation) await synchronizeWindowVisibility()
+  })().catch(reportWindowShowFailure)
+})
 
 useTauriListen(PET_RUNTIME_SHOW, () => {
   if (!componentMounted || !desktopPetVisible.value) return
@@ -272,6 +320,7 @@ useTauriListen(PET_RUNTIME_RECOVERY_QUERY, () => {
 })
 watch(editorsLocked, (locked) => {
   if (locked) {
+    loadingPaint.cancel()
     for (const cancel of presentationWaiters) cancel()
     return
   }
@@ -295,6 +344,10 @@ let presetApplyQueue = Promise.resolve()
 const cancelledPresetRequests = new Set<string>()
 let unsubscribeMainViewportSnapshot: (() => void) | undefined
 let viewportRevealPending = true
+// Preparing a viewport does not acknowledge a native show. Keep that obligation
+// across superseded selection/reset work until the latest presentation succeeds.
+let presentationPending = true
+let presentationGeneration = 0
 let viewportResetPending = false
 let viewportResetGeneration = 0
 const viewportInteraction = createViewportInteraction((held) => {
@@ -314,6 +367,26 @@ const viewportInteraction = createViewportInteraction((held) => {
 function isViewportInteractionBlocking(): boolean {
   return !presetApplyInProgress && viewportInteraction.isHeld() && !rendererInitialization && !viewportResetPending
     && viewportUpdateMode !== 'live-scale'
+}
+
+function requireRendererPresentation(): void {
+  presentationGeneration += 1
+  presentationPending = componentMounted && desktopPetVisible.value
+  for (const cancel of presentationWaiters) cancel()
+}
+
+async function prepareRendererChange(): Promise<void> {
+  requireRendererPresentation()
+  if (!desktopPetVisible.value) return hideWindow()
+  rendererLoading.value = true
+  suspendInput()
+  const generation = rendererLifecycleGeneration
+  await nextTick()
+  if (!componentMounted || generation !== rendererLifecycleGeneration
+    || !desktopPetVisible.value || editorsLocked.value) {
+    return
+  }
+  await loadingPaint.wait()
 }
 
 function refreshAutomaticViewportMutationGuard() {
@@ -336,11 +409,11 @@ function rememberPendingSelection(
 
 function getCurrentSelection(): Pet3dPresetSelectionPayload {
   return {
-    modelId: catStore.customization3d.selectedModelId,
-    dmeloperSkinDataUrl: catStore.customization3d.dmeloperSkinDataUrl,
-    dmeloperSkinModel: catStore.customization3d.dmeloperSkinModel,
-    useDefaultDmeloperSkin: catStore.customization3d.useDefaultDmeloperSkin,
-    preset: { ...catStore.activePet3dPreset, mouseEnabled: confirmedMouseEnabled() },
+    modelId: blockStore.customization3d.selectedModelId,
+    dmeloperSkinDataUrl: blockStore.customization3d.dmeloperSkinDataUrl,
+    dmeloperSkinModel: blockStore.customization3d.dmeloperSkinModel,
+    useDefaultDmeloperSkin: blockStore.customization3d.useDefaultDmeloperSkin,
+    preset: { ...blockStore.activePet3dPreset, mouseEnabled: confirmedMouseEnabled() },
   }
 }
 
@@ -348,7 +421,7 @@ function confirmedMouseEnabled(): boolean {
   try {
     return device.getInputState().mouseEnabled
   } catch {
-    return catStore.activePet3dPreset.mouseEnabled
+    return blockStore.activePet3dPreset.mouseEnabled
   }
 }
 
@@ -360,7 +433,8 @@ async function resumeRendererInput(strict = false) {
   // Loading owns hover suspension; its UI must remain visible even under the pointer.
   if (rendererLoading.value) return
   if (!componentMounted || !rendererReady || rendererError.value
-    || !desktopPetVisible.value || viewportRevealPending || viewportResetPending) {
+    || !desktopPetVisible.value || viewportRevealPending || viewportResetPending
+    || viewportUpdatePending || presentationPending) {
     if (strict) throw new Error('The preset renderer is not ready for input.')
     return
   }
@@ -393,6 +467,7 @@ function isCurrentSelectionRequest(
 }
 
 function resetActiveRendererState() {
+  requireRendererPresentation()
   suspendInput()
   clearViewportHologram()
   rendererReady = false
@@ -406,7 +481,15 @@ function resetActiveRendererState() {
   viewportRevealPending = true
 }
 
+function detachRendererCanvas() {
+  // A released WebGL canvas can display Chromium's lost-context placeholder.
+  // Detach it before releasing resources or a later loading-only native show.
+  canvas.value?.remove()
+  canvas.value = undefined
+}
+
 function destroyRendererResources() {
+  loadingPaint.cancel()
   rendererFrame?.resolve(false)
   rendererFrame = undefined
   rendererLoading.value = false
@@ -418,6 +501,7 @@ function destroyRendererResources() {
   selectionTaskQueue.clear()
   viewportUpdateScheduler.clear()
   resetActiveRendererState()
+  detachRendererCanvas()
   three3d.destroy()
 }
 
@@ -462,7 +546,7 @@ async function applyViewportRect(
   const snapshot = await applyMainViewportGeometry({
     isCurrent,
     clampToWorkArea,
-    mirrored: catStore.model.mirror,
+    mirrored: blockStore.model.mirror,
     sourceRect: rect,
     virtualSize: three3d.getCompositionSize(),
     windowScalePercent: liveScale?.value ?? activeWindowScalePercent,
@@ -494,7 +578,7 @@ async function applyNativeFullViewport(): Promise<boolean> {
       && lifecycleGeneration === rendererLifecycleGeneration
       && visibilityRequest === visibilityGeneration,
     clampToWorkArea: true,
-    mirrored: catStore.model.mirror,
+    mirrored: blockStore.model.mirror,
     sourceRect,
     virtualSize: three3d.getCompositionSize(),
     windowScalePercent: activeWindowScalePercent,
@@ -682,6 +766,7 @@ const viewportUpdateScheduler = createLatestContentBoundsScheduler(async (reques
     // on every pointer move. Content/lifecycle changes still invalidate it.
     const isCurrent = () => componentMounted && rendererReady && desktopPetVisible.value
       && !rendererInitialization && !viewportResetPending && !viewportRevealPending
+      && !presentationPending
       && (!boundsRefreshPending || !activeViewportAutomatic) && !fullViewportRecoveryPending
       && viewportUpdateMode === 'live-scale' && !!desiredBoundsSignature
       && !visibleBoundsCompositionChanged(desiredBoundsSignature, request.signature)
@@ -764,19 +849,18 @@ const viewportUpdateScheduler = createLatestContentBoundsScheduler(async (reques
     }
     return
   }
-  const reveal = viewportRevealPending
   viewportRevealPending = false
-  await resumeRendererInput()
-  if (reveal) {
+  if (presentationPending) {
     if (
       isCurrentBoundsMeasurement(request.generation)
       && desktopPetVisible.value
       && !viewportResetPending
       && !presetApplyInProgress
     ) {
-      await revealPreparedRenderer().catch(reportWindowShowFailure)
-      await resumeRendererInput()
+      if (await revealPreparedRenderer().catch(reportWindowShowFailure)) await resumeRendererInput()
     }
+  } else {
+    await resumeRendererInput()
   }
 }, MODEL_3D_CONFIG.renderer.contentBoundsDebounceMs, (error) => {
   console.error('Failed to schedule content bounds.', error)
@@ -789,7 +873,7 @@ function scheduleViewportUpdate(
 ): void {
   const generation = ++boundsMeasurementGeneration
   boundsRefreshPending ||= refreshBounds
-  if ((boundsRefreshPending && signature.autoViewportEnabled) || viewportRevealPending || viewportResetPending
+  if ((boundsRefreshPending && signature.autoViewportEnabled) || viewportRevealPending || presentationPending || viewportResetPending
     || fullViewportRecoveryPending || !currentContentRect) {
     mode = 'settled'
   }
@@ -812,10 +896,11 @@ async function resolveManualViewport(): Promise<VisibleContentRect> {
   const monitorSize = await getMainViewportMonitorSize()
   if (requested !== desiredManualViewportRect) return resolveManualViewport()
   const rect = normalizeManualViewport(requested, monitorSize)
-  if (JSON.stringify(rect) !== JSON.stringify(requested)) {
+  if (!equalViewportRect(rect, requested)) {
+    manualViewportCorrection = { revision: acceptedViewportMode.revision, requested: { ...requested }, applied: { ...rect } }
     desiredManualViewportRect = rect
     acceptedViewportMode.rect = { ...rect }
-    catStore.activePet3dPreset.manualViewportRect = { ...rect }
+    blockStore.activePet3dPreset.manualViewportRect = { ...rect }
   }
   return getNativeManualViewportRect(rect)
 }
@@ -824,7 +909,7 @@ async function getSceneViewportState(): Promise<SceneViewportState> {
   const monitorSize = await getMainViewportMonitorSize()
   const snapshot = getMainViewportSnapshot()
   const automatic = acceptedViewportMode.automatic
-  const manualRect = normalizeManualViewport(catStore.activePet3dPreset.manualViewportRect, monitorSize)
+  const manualRect = normalizeManualViewport(blockStore.activePet3dPreset.manualViewportRect, monitorSize)
   const nativeManualRect = getNativeManualViewportRect(manualRect)
   const manualRectApplied = !snapshot || (
     snapshot.sourceRect.x === nativeManualRect.x && snapshot.sourceRect.y === nativeManualRect.y
@@ -838,7 +923,11 @@ async function getSceneViewportState(): Promise<SceneViewportState> {
     : snapshot
       ? { ...snapshot.sourceRect, width: Math.round(snapshot.outputLogicalSize.width), height: Math.round(snapshot.outputLogicalSize.height) }
       : getFullContentRect()
-  return { automatic, revision: acceptedViewportMode.revision, rect, monitorSize }
+  const correction = manualViewportCorrection
+  return { automatic, revision: acceptedViewportMode.revision, rect, monitorSize, ...(!automatic && correction && correction.revision === acceptedViewportMode.revision
+    && equalViewportRect(blockStore.activePet3dPreset.manualViewportRect, correction.applied)
+    ? { manualCorrection: { requested: { ...correction.requested }, applied: { ...correction.applied } } }
+    : {}) }
 }
 
 async function publishSceneViewportState(): Promise<void> {
@@ -847,11 +936,13 @@ async function publishSceneViewportState(): Promise<void> {
     const state = await getSceneViewportState()
     if (!componentMounted || generation !== sceneStateGeneration) return
     if (!state.automatic) {
-      const current = catStore.activePet3dPreset.manualViewportRect
+      const current = blockStore.activePet3dPreset.manualViewportRect
       const clamped = normalizeManualViewport(current, state.monitorSize)
-      if (JSON.stringify(current) !== JSON.stringify(clamped)) {
-        catStore.activePet3dPreset.manualViewportRect = clamped
+      if (!equalViewportRect(current, clamped)) {
+        manualViewportCorrection = { revision: acceptedViewportMode.revision, requested: { ...current }, applied: { ...clamped } }
+        blockStore.activePet3dPreset.manualViewportRect = clamped
         requestPet3dPresetSelection(getCurrentSelection())
+        state.manualCorrection = { requested: { ...current }, applied: { ...clamped } }
       }
     }
     await emitTo(WINDOW_LABEL.PREFERENCE, SCENE_VIEWPORT_STATE, state)
@@ -877,7 +968,7 @@ useTauriListen<unknown>(SCENE_VIEWPORT_REQUEST, ({ payload }) => {
         const state = await getSceneViewportState()
         if (generation !== sceneModeGeneration || !componentMounted) return
         const rect = normalizeManualViewport(state.rect, state.monitorSize)
-        Object.assign(catStore.activePet3dPreset, {
+        Object.assign(blockStore.activePet3dPreset, {
           autoViewportEnabled: payload.automatic,
           viewportModeRevision: acceptedViewportMode.revision + 1,
           manualViewportRect: rect,
@@ -929,11 +1020,24 @@ function getDesiredPetAssetState(selection: Pet3dPresetSelectionPayload) {
 }
 
 function persistResolvedDmeloperSkinModel(
-  preference: VoxelSkinModelPreference,
+  selection: Pet3dPresetSelectionPayload,
   resolvedModel: VoxelSkinModel | undefined,
 ) {
+  const preference = selection.dmeloperSkinModel ?? 'auto'
   if (resolvedModel && preference !== resolvedModel) {
-    catStore.setDmeloperSkinModel(resolvedModel)
+    if (presetApplyInProgress) {
+      // Managed application returns this exact accepted snapshot to its owner.
+      blockStore.setDmeloperSkinModel(resolvedModel)
+    } else {
+      // Live loading must not publish the renderer's entire stale Block snapshot.
+      // The owner accepts this derived value only for the same skin selection.
+      void emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { resolvedSkinModel: {
+        modelId: selection.modelId,
+        skinDataUrl: selection.dmeloperSkinDataUrl,
+        requested: preference,
+        resolved: resolvedModel,
+      } }).catch(() => console.warn('Failed to synchronize the resolved skin model.'))
+    }
   }
 }
 
@@ -976,7 +1080,7 @@ async function applyPet3dPresetSelection(
     if (options.manageViewport !== false && assetChanged) {
       viewportRevealPending = true
       clearViewportHologram()
-      await hideWindow()
+      await prepareRendererChange()
       if (!isCurrentSelectionRequest(requestGeneration, lifecycleGeneration)) return
     }
 
@@ -990,14 +1094,14 @@ async function applyPet3dPresetSelection(
         skinPreference,
       )
       if (!isCurrentSelectionRequest(requestGeneration, lifecycleGeneration)) return
-      persistResolvedDmeloperSkinModel(skinPreference, resolvedSkinModel)
+      persistResolvedDmeloperSkinModel(selection, resolvedSkinModel)
     } else if (skinChanged) {
       const resolvedSkinModel = await three3d.setDmeloperSkin(
         skinUrl,
         skinPreference,
       )
       if (!isCurrentSelectionRequest(requestGeneration, lifecycleGeneration)) return
-      persistResolvedDmeloperSkinModel(skinPreference, resolvedSkinModel)
+      persistResolvedDmeloperSkinModel(selection, resolvedSkinModel)
     }
     if (!isCurrentSelectionRequest(requestGeneration, lifecycleGeneration)) return
 
@@ -1064,8 +1168,6 @@ async function initializeRenderer(lifecycleGeneration: number): Promise<boolean>
     return false
   }
 
-  const initialSelection = getCurrentSelection()
-  const initialRequestGeneration = selectionRequestGeneration
   try {
     rendererError.value = undefined
     // Resolve the bundled fallback even when starting with a saved user skin,
@@ -1073,17 +1175,24 @@ async function initializeRenderer(lifecycleGeneration: number): Promise<boolean>
     await resolveDmeloperSkinUrl().catch((error) => {
       throw createBundledAssetError(error)
     })
-    const skinUrl = getResolvedDmeloperSkinUrl(initialSelection.dmeloperSkinDataUrl)
-    const petUrl = await resolvePetUrl(initialSelection.modelId)
-    if (!isCurrentSelectionRequest(initialRequestGeneration, lifecycleGeneration)) {
-      return false
+    let initialSelection = pendingSelection?.selection ?? getCurrentSelection()
+    let initialRequestGeneration = selectionRequestGeneration
+    let petUrl = await resolvePetUrl(initialSelection.modelId)
+    // A preference snapshot can supersede resource preparation before a canvas
+    // exists. Keep the shared initialization pending for its latest selection;
+    // returning false here would acknowledge normal pending work as failure.
+    while (!isCurrentSelectionRequest(initialRequestGeneration, lifecycleGeneration)) {
+      if (!componentMounted || lifecycleGeneration !== rendererLifecycleGeneration) return false
+      initialSelection = pendingSelection?.selection ?? getCurrentSelection()
+      initialRequestGeneration = selectionRequestGeneration
+      petUrl = await resolvePetUrl(initialSelection.modelId)
     }
+    const skinUrl = getResolvedDmeloperSkinUrl(initialSelection.dmeloperSkinDataUrl)
 
     three3d.setMouseEnabled(confirmedMouseEnabled())
     // A fresh canvas picks up the latest context choice after hiding the pet.
     canvas.value = document.createElement('canvas')
     canvas.value.className = 'absolute left-0 top-0 block'
-    canvas.value.dataset.testid = 'three-canvas'
     canvasHost.value.replaceChildren(canvas.value)
     const frame: NonNullable<typeof rendererFrame> = {
       generation: lifecycleGeneration,
@@ -1106,7 +1215,7 @@ async function initializeRenderer(lifecycleGeneration: number): Promise<boolean>
       skinUrl,
       initialSelection.dmeloperSkinModel,
       {
-        antialiasEnabled: catStore.model.antialiasEnabled,
+        antialiasEnabled: blockStore.model.antialiasEnabled,
         onRuntimeFailure: error => recordRuntimeFailure(error, lifecycleGeneration),
         onFrameRendered: () => frame.resolve(true),
       },
@@ -1116,7 +1225,7 @@ async function initializeRenderer(lifecycleGeneration: number): Promise<boolean>
     rendererReady = true
     await synchronizeAntialias()
     if (lifecycleGeneration !== rendererLifecycleGeneration) return false
-    persistResolvedDmeloperSkinModel(initialSelection.dmeloperSkinModel, resolvedSkinModel)
+    persistResolvedDmeloperSkinModel(initialSelection, resolvedSkinModel)
 
     let firstSelection = true
     while (firstSelection || pendingSelection) {
@@ -1192,12 +1301,14 @@ async function initializeRenderer(lifecycleGeneration: number): Promise<boolean>
     ) {
       rendererFrame?.resolve(false)
       resetActiveRendererState()
+      detachRendererCanvas()
       three3d.destroy()
       return false
     }
     rendererFrame?.resolve(false)
     rendererLoading.value = false
     resetActiveRendererState()
+    detachRendererCanvas()
     three3d.destroy()
     pendingSelection = undefined
     rendererError.value = error instanceof Error && error.name === 'PetAssetLoadError'
@@ -1259,7 +1370,7 @@ function ensureRendererInitialized(): Promise<boolean> {
     ) {
       viewportRevealPending = true
       visibilityGeneration += 1
-      void hideWindow()
+      void prepareRendererChange()
         .catch(reportWindowHideFailure)
         .then(() => synchronizeWindowVisibility())
     }
@@ -1301,6 +1412,7 @@ async function synchronizeWindowVisibility(strict = false) {
     return
   }
 
+  requireRendererPresentation()
   await setWindowMemoryActive(true).catch(() => {
     if (componentMounted) console.warn('Failed to activate pet window memory management.')
   })
@@ -1321,14 +1433,10 @@ async function synchronizeWindowVisibility(strict = false) {
     if (strict) throw new Error('The preset window is not ready to show.')
     return
   }
-  await resumeRendererInput(strict)
-  if (!componentMounted || request !== visibilityGeneration || !desktopPetVisible.value) {
-    if (strict) throw new Error('The preset visibility changed during application.')
-    return
-  }
-  if (strict) await revealPreparedRenderer(true)
-  else await revealPreparedRenderer().catch(reportWindowShowFailure)
-  if (componentMounted && request === visibilityGeneration && desktopPetVisible.value) await resumeRendererInput(strict)
+  const shown = strict
+    ? await revealPreparedRenderer(true)
+    : await revealPreparedRenderer().catch(reportWindowShowFailure)
+  if (shown && componentMounted && request === visibilityGeneration && desktopPetVisible.value) await resumeRendererInput(strict)
 }
 
 async function registerInputListeners() {
@@ -1383,12 +1491,15 @@ onMounted(async () => {
     await rendererInitialization?.promise
     await selectionTaskQueue.whenIdle()
     await viewportUpdateScheduler.whenIdle()
+    await antialiasSynchronization
   })
   await synchronizeWindowVisibility()
 })
 
 onUnmounted(() => {
   componentMounted = false
+  skinPreparation = undefined
+  antialiasRequest = undefined
   inputUnlisteners.splice(0).forEach(stop => stop())
   visibilityGeneration += 1
   viewportResetGeneration += 1
@@ -1423,11 +1534,11 @@ useTauriListen<{ buttons: number }>(LISTEN_KEY.VIEWPORT_INTERACTION_CHANGED, ({ 
   if (viewportInteraction.isSourceHeld('preference')) viewportHologramInteractionActive = true
 })
 
-watch(() => catStore.activePet3dPreset.mouseEnabled, () => {
+watch(() => blockStore.activePet3dPreset.mouseEnabled, () => {
   if (presetApplyInProgress) return
   const enabled = confirmedMouseEnabled()
-  if (catStore.activePet3dPreset.mouseEnabled !== enabled) {
-    catStore.activePet3dPreset.mouseEnabled = enabled
+  if (blockStore.activePet3dPreset.mouseEnabled !== enabled) {
+    blockStore.activePet3dPreset.mouseEnabled = enabled
   }
   if (componentMounted) requestPet3dPresetSelection(getCurrentSelection())
 })
@@ -1435,53 +1546,101 @@ watch(() => catStore.activePet3dPreset.mouseEnabled, () => {
 watch(() => desktopPetVisible.value, () => {
   if (!presetApplyInProgress) void synchronizeWindowVisibility()
 })
-watch(() => catStore.window.passThrough, value => appWindow.setIgnoreCursorEvents(value), { immediate: true })
-watch(() => catStore.window.alwaysOnTop, setAlwaysOnTop, { immediate: true })
+watch(() => blockStore.window.passThrough, value => appWindow.setIgnoreCursorEvents(value), { immediate: true })
+watch(() => blockStore.window.alwaysOnTop, setAlwaysOnTop, { immediate: true })
 watch(() => generalStore.app.taskbarVisible, setTaskbarVisibility, { immediate: true })
-watch(() => catStore.model.eyebrowAnimationEnabled, three3d.setEyebrowAnimationEnabled.bind(three3d), { immediate: true })
-async function synchronizeAntialias() {
+watch(() => blockStore.model.eyebrowAnimationEnabled, three3d.setEyebrowAnimationEnabled.bind(three3d), { immediate: true })
+let antialiasSynchronization = Promise.resolve()
+let antialiasRequest: (AntialiasSettingRequest & { responding: boolean }) | undefined
+async function applyAntialiasSetting() {
   if (!rendererReady || !desktopPetVisible.value) return
-  const enabled = catStore.model.antialiasEnabled
+  const enabled = blockStore.model.antialiasEnabled
   const lifecycle = rendererLifecycleGeneration
   const isCurrent = () => rendererReady && desktopPetVisible.value
-    && lifecycle === rendererLifecycleGeneration && catStore.model.antialiasEnabled === enabled
+    && lifecycle === rendererLifecycleGeneration && blockStore.model.antialiasEnabled === enabled
   try {
     const replacement = await three3d.setAntialiasEnabled(enabled, isCurrent)
     if (replacement && isCurrent()) canvas.value = replacement
   } catch (error) {
     if (!isCurrent()) return
-    catStore.model.antialiasEnabled = three3d.getAntialiasEnabled()
     console.error('Failed to change antialiasing.', error)
-    await emitTo(WINDOW_LABEL.PREFERENCE, ANTIALIAS_CHANGE_FAILED).catch(() => {
-      if (componentMounted) console.warn('Failed to notify preferences about antialiasing failure.')
-    })
   }
 }
-watch(() => catStore.model.antialiasEnabled, synchronizeAntialias)
-watch(() => catStore.model.pixelFilterEnabled, three3d.setPixelFilterEnabled.bind(three3d), { immediate: true })
-watch(() => catStore.model.maxFPS, three3d.setMaxFPS.bind(three3d), { immediate: true })
+function synchronizeAntialias() {
+  antialiasSynchronization = applyAntialiasSetting()
+  return antialiasSynchronization
+}
+async function acknowledgeAntialiasSetting() {
+  const request = antialiasRequest
+  // The explicit request can beat Pinia's incoming patch. Its existing model
+  // watcher retries after the matching value arrives; no mirror write is needed.
+  if (!request || request.responding || blockStore.model.antialiasEnabled !== request.requested) return
+  request.responding = true
+  // An in-progress initialization may already be creating the previous
+  // context. Its final synchronization must settle before accepting this edit.
+  while (true) {
+    const initialization = rendererInitialization
+    if (!initialization || !desktopPetVisible.value) break
+    await initialization.promise
+    if (!componentMounted || antialiasRequest !== request) return
+  }
+  if (rendererReady && desktopPetVisible.value) {
+    void synchronizeAntialias()
+    while (true) {
+      const pending = antialiasSynchronization
+      await pending
+      if (pending === antialiasSynchronization) break
+    }
+  }
+  if (!componentMounted || antialiasRequest !== request || blockStore.model.antialiasEnabled !== request.requested) return
+  // Hidden/uninitialized renderers pick up this accepted setting on creation.
+  const actual = rendererReady && desktopPetVisible.value ? three3d.getAntialiasEnabled() : request.requested
+  antialiasRequest = undefined
+  await emitTo<AntialiasSettingResponse>(WINDOW_LABEL.PREFERENCE, ANTIALIAS_SETTING_RESPONSE, {
+    requestId: request.requestId,
+    requested: request.requested,
+    actual,
+    success: actual === request.requested,
+  }).catch(() => {
+    if (componentMounted) console.warn('Failed to acknowledge the antialiasing setting.')
+  })
+}
+useTauriListen<unknown>(ANTIALIAS_SETTING_REQUEST, ({ payload }) => {
+  if (!componentMounted || !isAntialiasSettingRequest(payload)) return
+  antialiasRequest = { ...payload, responding: false }
+  void acknowledgeAntialiasSetting()
+})
+useTauriListen<unknown>(ANTIALIAS_SETTING_CANCEL, ({ payload }) => {
+  if (isAntialiasSettingRequest(payload) && antialiasRequest?.requestId === payload.requestId) antialiasRequest = undefined
+})
+watch(() => blockStore.model.antialiasEnabled, () => {
+  void synchronizeAntialias()
+  void acknowledgeAntialiasSetting()
+})
+watch(() => blockStore.model.pixelFilterEnabled, three3d.setPixelFilterEnabled.bind(three3d), { immediate: true })
+watch(() => blockStore.model.maxFPS, three3d.setMaxFPS.bind(three3d), { immediate: true })
 watch(
-  () => catStore.model.idlePowerSavingEnabled,
+  () => blockStore.model.idlePowerSavingEnabled,
   three3d.setIdlePowerSavingEnabled.bind(three3d),
   { immediate: true },
 )
 watch(
-  () => catStore.model.shadowQuality,
+  () => blockStore.model.shadowQuality,
   three3d.setShadowQuality.bind(three3d),
   { immediate: true },
 )
 watch(
-  () => catStore.model.shadowsEnabled,
+  () => blockStore.model.shadowsEnabled,
   three3d.setShadowsEnabled.bind(three3d),
   { immediate: true },
 )
 watch(
-  () => catStore.model.renderScalePercent,
+  () => blockStore.model.renderScalePercent,
   three3d.setRenderScalePercent.bind(three3d),
   { immediate: true },
 )
 watch(
-  [() => catStore.model.mirror, () => catStore.window.keepInScreen],
+  [() => blockStore.model.mirror, () => blockStore.window.keepInScreen],
   () => {
     if (
       rendererReady
@@ -1511,6 +1670,9 @@ function captureViewportMode(preset: Pet3dPresetSelectionPayload['preset']) {
 function requestPet3dPresetSelection(
   selection: Pet3dPresetSelectionPayload,
 ): number {
+  // A failed/late native unsubscribe cannot give a retired page authority over
+  // the replacement renderer and its shared native window.
+  if (!componentMounted) return selectionRequestGeneration
   // A delayed full-preset packet must not undo an acknowledged mode change.
   const staleMode = selection.preset.viewportModeRevision < acceptedViewportMode.revision
   if (!staleMode) acceptedViewportMode = captureViewportMode(selection.preset)
@@ -1523,8 +1685,8 @@ function requestPet3dPresetSelection(
         cameraVerticalOffset: acceptedViewportMode.verticalOffset,
       }
     : {}) } }
-  if (staleMode && catStore.activePet3dPreset.viewportModeRevision < acceptedViewportMode.revision) {
-    Object.assign(catStore.activePet3dPreset, {
+  if (staleMode && blockStore.activePet3dPreset.viewportModeRevision < acceptedViewportMode.revision) {
+    Object.assign(blockStore.activePet3dPreset, {
       autoViewportEnabled: acceptedViewportMode.automatic,
       viewportModeRevision: acceptedViewportMode.revision,
       manualViewportRect: { ...acceptedViewportMode.rect },
@@ -1539,7 +1701,7 @@ function requestPet3dPresetSelection(
     desiredBoundsSignature ?? appliedBoundsSignature,
     nextBoundsSignature,
   )
-  const manualRectChanged = !selection.preset.autoViewportEnabled && JSON.stringify(desiredManualViewportRect) !== JSON.stringify(selection.preset.manualViewportRect)
+  const manualRectChanged = !selection.preset.autoViewportEnabled && !equalViewportRect(desiredManualViewportRect, selection.preset.manualViewportRect)
   desiredWindowScalePercent = 100
   desiredManualViewportRect = { ...selection.preset.manualViewportRect }
   desiredBoundsSignature = nextBoundsSignature
@@ -1555,11 +1717,11 @@ function requestPet3dPresetSelection(
     suspendInput()
     clearViewportHologram()
     viewportRevealPending = true
-    void hideWindow().catch(reportWindowHideFailure)
+    void prepareRendererChange().catch(reportWindowHideFailure)
     if (pendingAssetState) three3d.cancelPendingPetAssetLoad()
   }
   const canResizePadding = selection.preset.autoViewportEnabled && !!currentContentRect
-    && !boundsRefreshPending && !viewportRevealPending
+    && !boundsRefreshPending && !viewportRevealPending && !presentationPending
     && !visibleBoundsCompositionChanged(appliedBoundsSignature, nextBoundsSignature)
   const boundsRefreshRequired = (boundsInvalidated && !canResizePadding)
     || boundsRefreshPending
@@ -1567,6 +1729,7 @@ function requestPet3dPresetSelection(
   const viewportUpdateRequired = boundsInvalidated || boundsRefreshRequired
     || manualRectChanged
     || viewportUpdatePending
+    || presentationPending
   if (
     !rendererReady
     || rendererInitialization?.generation === rendererLifecycleGeneration
@@ -1586,7 +1749,7 @@ function requestPet3dPresetSelection(
       && !rendererInitialization
       && !presetApplyInProgress
     ) {
-      void hideWindow()
+      void prepareRendererChange()
         .catch(reportWindowHideFailure)
         .then(() => synchronizeWindowVisibility())
     }
@@ -1610,14 +1773,14 @@ function requestPet3dPresetSelection(
 }
 
 async function settleAndCenterResetViewport(): Promise<boolean> {
-  acceptedViewportMode = captureViewportMode(catStore.activePet3dPreset)
+  acceptedViewportMode = captureViewportMode(blockStore.activePet3dPreset)
   const resetGeneration = ++viewportResetGeneration
   viewportResetPending = true
   clearViewportHologram()
   viewportUpdateScheduler.setHeld(false)
   viewportRevealPending = true
   visibilityGeneration += 1
-  await hideWindow().catch(reportWindowHideFailure)
+  await prepareRendererChange().catch(reportWindowHideFailure)
   let selectionRequested = false
   let settledSelectionGeneration: number | undefined
 
@@ -1671,8 +1834,7 @@ async function settleAndCenterResetViewport(): Promise<boolean> {
         && desktopPetVisible.value
         && !viewportRevealPending
       ) {
-        await revealPreparedRenderer().catch(reportWindowShowFailure)
-        await resumeRendererInput()
+        if (await revealPreparedRenderer().catch(reportWindowShowFailure)) await resumeRendererInput()
       }
     }
   }
@@ -1699,11 +1861,11 @@ async function applyManagedPreset(snapshot: PresetSnapshot, isCurrent: () => boo
   managedViewportFailed = false
   await device.requestMouseSetting(snapshot.preset.mouseEnabled)
   check()
-  const revision = Math.max(acceptedViewportMode.revision, catStore.activePet3dPreset.viewportModeRevision) + 1
-  catStore.$patch(() => applyPresetSnapshot(catStore, snapshot, revision, visible))
+  const revision = Math.max(acceptedViewportMode.revision, blockStore.activePet3dPreset.viewportModeRevision) + 1
+  blockStore.$patch(() => applyPresetSnapshot(blockStore, snapshot, revision, visible))
   await nextTick()
   check()
-  acceptedViewportMode = captureViewportMode(catStore.activePet3dPreset)
+  acceptedViewportMode = captureViewportMode(blockStore.activePet3dPreset)
   requestPet3dPresetSelection(getCurrentSelection())
   if (desktopPetVisible.value) {
     await ensureRendererInitialized()
@@ -1751,6 +1913,7 @@ useTauriListen<{ requestId?: string }>(PRESET_APPLY_CANCEL, ({ payload }) => {
 useTauriListen<PresetApplyRequest>(PRESET_APPLY_REQUEST, ({ payload }) => {
   if (!payload || typeof payload.requestId !== 'string' || !isPresetSnapshot(payload.snapshot)) return
   if (payload.restoreVisibility !== undefined && typeof payload.restoreVisibility !== 'boolean') return
+  skinPreparation = undefined
   presetApplyQueue = presetApplyQueue.catch(() => undefined).then(async () => {
     if (!componentMounted) return
     presetApplyInProgress = true
@@ -1758,8 +1921,8 @@ useTauriListen<PresetApplyRequest>(PRESET_APPLY_REQUEST, ({ payload }) => {
     viewportInteraction.clear()
     viewportUpdateScheduler.setHeld(false)
     sceneModeGeneration++
-    const previous = capturePresetSnapshot(catStore)
-    const previousVisible = catStore.window.visible
+    const previous = capturePresetSnapshot(blockStore)
+    const previousVisible = blockStore.window.visible
     let success = false
     let restored = false
     try {
@@ -1784,8 +1947,8 @@ useTauriListen<PresetApplyRequest>(PRESET_APPLY_REQUEST, ({ payload }) => {
       requestId: payload.requestId,
       success,
       restored,
-      revision: catStore.activePet3dPreset.viewportModeRevision,
-      snapshot: capturePresetSnapshot(catStore),
+      revision: blockStore.activePet3dPreset.viewportModeRevision,
+      snapshot: capturePresetSnapshot(blockStore),
     })
     await processRuntimeFailure()
   }).catch(error => console.error('Failed to acknowledge the preset.', error))
@@ -1827,7 +1990,7 @@ async function handleMouseDown(event: MouseEvent) {
     // Give the overlay a paint before entering the native modal move loop.
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     if (generation !== petWindowDragGeneration || !componentMounted || !desktopPetVisible.value) return
-    await dragMainWindow(catStore.window.keepInScreen)
+    await dragMainWindow(blockStore.window.keepInScreen)
   } catch (error) {
     if (generation === petWindowDragGeneration) clearViewportHologram()
     console.error('Failed to start dragging the pet window.', error)
@@ -1839,45 +2002,65 @@ async function handleMouseDown(event: MouseEvent) {
   }
 }
 
+let contextMenuPending = false
 async function showContextMenu() {
-  const menu = await getAppMenu()
-  const restoreAlwaysOnTop = catStore.window.alwaysOnTop
-  if (restoreAlwaysOnTop) setAlwaysOnTop(false)
+  if (contextMenuPending || !componentMounted) return
+  contextMenuPending = true
+  let menu: Awaited<ReturnType<typeof getAppMenu>> | undefined
+  let restoreTopmost = false
   try {
+    menu = await getAppMenu()
+    if (!componentMounted) return
+    restoreTopmost = true
+    if (blockStore.window.alwaysOnTop) setAlwaysOnTop(false)
     await menu.popup()
   } finally {
-    setAlwaysOnTop(catStore.window.alwaysOnTop)
+    // Restore presentation and release the resource independently. Cleanup
+    // errors must not replace a failed popup or retain the creation guard.
+    if (restoreTopmost) {
+      try {
+        setAlwaysOnTop(blockStore.window.alwaysOnTop)
+      } catch (error) {
+        console.warn('Failed to restore the pet window after its context menu.', error)
+      }
+    }
+    try {
+      await menu?.close()
+    } catch (error) {
+      console.warn('Failed to release the pet context menu.', error)
+    } finally {
+      contextMenuPending = false
+    }
   }
 }
 
 function handleContextmenu(event: MouseEvent) {
   event.preventDefault()
-  void showContextMenu()
+  if (rendererLoading.value) return
+  void showContextMenu().catch(error => console.error('Failed to show the pet context menu.', error))
 }
 </script>
 
 <template>
   <div class="main-window-root relative size-screen">
     <div
-      v-show="!rendererLoading"
       class="absolute inset-0"
-      :class="{ '-scale-x-100': catStore.model.mirror }"
-      :style="{ opacity: catStore.window.opacity / 100 }"
+      :class="{ '-scale-x-100': blockStore.model.mirror }"
+      :style="{ opacity: blockStore.window.opacity / 100 }"
       @contextmenu="handleContextmenu"
       @mousedown="handleMouseDown"
     >
       <div
         aria-hidden="true"
         class="viewport-hologram pointer-events-none absolute inset-0"
-        :class="{ 'viewport-hologram-visible': catStore.activePet3dPreset.showDisplayArea || viewportHologramVisible }"
-        data-testid="viewport-hologram"
+        :class="{ 'viewport-hologram-visible': !rendererLoading && (blockStore.activePet3dPreset.showDisplayArea || viewportHologramVisible) }"
       />
       <div
         ref="canvasHost"
         class="absolute inset-0"
       />
       <div
-        v-if="rendererError"
+        v-if="rendererError && !rendererLoading"
         class="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/55 p-4"
       >
         <span class="text-center text-sm text-white">{{ rendererError }}</span>
@@ -1886,7 +2069,6 @@ function handleContextmenu(event: MouseEvent) {
     <div
       v-if="rendererLoading"
       class="pointer-events-none absolute inset-0 flex items-center justify-center"
-      data-testid="pet-loading"
       role="status"
     >
       <div class="flex items-center gap-2 rounded-full bg-black/70 px-3 py-2 text-xs text-white">

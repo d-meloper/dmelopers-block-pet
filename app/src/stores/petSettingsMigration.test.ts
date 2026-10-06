@@ -3,9 +3,10 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { createPinia, setActivePinia } from 'pinia'
 
+import { DMELOPER_EYEBROW_LIMITS } from '@/config/dmeloperEyebrows'
 import { createPresetCollection } from '@/features/presets/model'
 
-import { createDefaultPet3dPreset, preparePetStateForSync, useCatStore } from './cat'
+import { createDefaultPet3dPreset, preparePetStateForSync, useBlockStore } from './block'
 import { migrateLegacySkinAppearanceState, migratePetCharacterState, splitLegacySkinAppearance } from './petSettingsMigration'
 
 const ENTRY_ID = 'a'.repeat(64)
@@ -13,7 +14,7 @@ const DATA_URL = 'data:image/png;base64,preserved'
 
 function restoredStore(state: Record<string, unknown>) {
   setActivePinia(createPinia())
-  const store = useCatStore()
+  const store = useBlockStore()
   store.$patch(preparePetStateForSync(state))
   store.init()
   return store
@@ -191,6 +192,7 @@ describe('retired per-skin appearance migration', () => {
   it('preserves pre-catalog displayed appearance when active maps conflict with stale scalars', () => {
     const scalar = { ...createDefaultPet3dPreset().dmeloperEyebrows, color: '#111111' }
     const displayed = { ...scalar, color: '#222222', widthPixels: 5 }
+    const normalized = { ...displayed, widthPixels: DMELOPER_EYEBROW_LIMITS.widthPixels.max }
     const store = restoredStore({ migrated: true, customization3d: {
       schemaVersion: 12,
       dmeloperSkinDataUrl: DATA_URL,
@@ -199,7 +201,8 @@ describe('retired per-skin appearance migration', () => {
       dmeloperPalmManualColors: { [ENTRY_ID]: '#444444' },
       preset: { dmeloperEyebrows: scalar, dmeloperPalmColor: '#333333' },
     } })
-    assert.deepEqual(store.activePet3dPreset.dmeloperEyebrows, displayed)
+    assert.deepEqual(store.activePet3dPreset.dmeloperEyebrows, normalized)
+    assert.deepEqual(store.legacyAppearanceArchive?.dmeloperEyebrowProfiles, { [ENTRY_ID]: displayed })
     assert.equal(store.activePet3dPreset.dmeloperPalmColor, '#444444')
     store.updateDmeloperEyebrows({ color: '#555555' })
     store.updateDmeloperPalmColor('#666666')
@@ -225,6 +228,7 @@ describe('retired per-skin appearance migration', () => {
 
   it('preserves pre-catalog pending appearance before the current skin receives an identity', () => {
     const displayed = { ...createDefaultPet3dPreset().dmeloperEyebrows, color: '#123456', widthPixels: 5 }
+    const normalized = { ...displayed, widthPixels: DMELOPER_EYEBROW_LIMITS.widthPixels.max }
     const store = restoredStore({ migrated: true, customization3d: {
       schemaVersion: 12,
       dmeloperSkinDataUrl: DATA_URL,
@@ -232,10 +236,11 @@ describe('retired per-skin appearance migration', () => {
       pendingDmeloperPalmManualColorMigration: '#ABCDEF',
       preset: { dmeloperEyebrows: createDefaultPet3dPreset().dmeloperEyebrows, dmeloperPalmColor: '#111111' },
     } })
-    assert.deepEqual(store.activePet3dPreset.dmeloperEyebrows, displayed)
+    assert.deepEqual(store.activePet3dPreset.dmeloperEyebrows, normalized)
+    assert.deepEqual(store.legacyAppearanceArchive?.pendingDmeloperEyebrowProfileMigration, displayed)
     assert.equal(store.activePet3dPreset.dmeloperPalmColor, '#ABCDEF')
     store.completeSkinLibraryMigration(ENTRY_ID, DATA_URL)
-    assert.deepEqual(store.activePet3dPreset.dmeloperEyebrows, displayed)
+    assert.deepEqual(store.activePet3dPreset.dmeloperEyebrows, normalized)
     assert.equal(store.activePet3dPreset.dmeloperPalmColor, '#ABCDEF')
   })
 
@@ -253,15 +258,20 @@ describe('retired per-skin appearance migration', () => {
   })
 
   it('recovers missing current scalar fields from the matching active skin only', () => {
-    const expected = { ...createDefaultPet3dPreset().dmeloperEyebrows, color: '#123456', widthPixels: 5 }
+    const displayed = { ...createDefaultPet3dPreset().dmeloperEyebrows, color: '#123456', widthPixels: 5 }
+    const expected = { ...displayed, widthPixels: DMELOPER_EYEBROW_LIMITS.widthPixels.max }
     const store = restoredStore({ migrated: true, customization3d: {
       schemaVersion: 12,
       dmeloperSkinDataUrl: DATA_URL,
       activeSkinLibraryEntryId: ENTRY_ID,
-      dmeloperEyebrowProfiles: { [ENTRY_ID]: expected, [OTHER_ID]: { ...expected, color: '#999999' } },
+      dmeloperEyebrowProfiles: { [ENTRY_ID]: displayed, [OTHER_ID]: { ...displayed, color: '#999999' } },
       dmeloperPalmManualColors: { [ENTRY_ID]: '#654321', [OTHER_ID]: '#888888' },
     } })
     assert.deepEqual(store.activePet3dPreset.dmeloperEyebrows, expected)
+    assert.deepEqual(store.legacyAppearanceArchive?.dmeloperEyebrowProfiles, {
+      [ENTRY_ID]: displayed,
+      [OTHER_ID]: { ...displayed, color: '#999999' },
+    })
     assert.equal(store.activePet3dPreset.dmeloperPalmColor, '#654321')
     store.setActiveSkinLibraryEntryId(OTHER_ID)
     store.init()

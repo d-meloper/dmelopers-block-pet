@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { Button, Flex, Modal, Select, Switch } from 'ant-design-vue'
-import { computed, inject } from 'vue'
+import { computed, inject, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
+
+import type { ShadowQualitySelection } from '@/config/performance'
 
 import DefaultSnapSlider from '@/components/default-snap-slider/index.vue'
 import PreferenceInfo from '@/components/preference-info/index.vue'
@@ -9,13 +11,37 @@ import PreferenceSections from '@/components/preference-sections/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
 import { BROADCAST_CONTROLLER } from '@/composables/useBroadcast'
-import { MAX_FPS } from '@/config/performance'
-import { useCatStore } from '@/stores/cat'
+import { DEFAULT_PERFORMANCE_SETTINGS, MAX_FPS, MIN_FPS } from '@/config/performance'
+import { useBlockStore } from '@/stores/block'
 import { usePerformanceStore } from '@/stores/performance'
 
-const catStore = useCatStore()
+const blockStore = useBlockStore()
 const performanceStore = usePerformanceStore()
 const { t } = useI18n()
+let disposed = false
+onBeforeUnmount(() => {
+  disposed = true
+})
+
+function resetMeasurements() {
+  if (!disposed) void performanceStore.reset()
+}
+
+function updatePerformanceToggle(
+  key: 'antialiasEnabled' | 'pixelFilterEnabled' | 'idlePowerSavingEnabled',
+  value: boolean,
+) {
+  if (disposed || blockStore.model[key] === value) return
+  blockStore.model[key] = value
+  resetMeasurements()
+}
+
+function updateShadowQuality(value: ShadowQualitySelection) {
+  if (disposed || blockStore.shadowQualitySelection === value) return
+  blockStore.shadowQualitySelection = value
+  resetMeasurements()
+}
+
 const broadcastController = inject(BROADCAST_CONTROLLER, undefined)
 const broadcastHint = computed(() => {
   const status = broadcastController?.status.value
@@ -45,7 +71,28 @@ const metrics = computed(() => [
   },
 ])
 
+const unavailableHint = computed(() => {
+  if (!performanceStore.hasSampled || performanceStore.isWarmingUp) return undefined
+  const lines: string[] = []
+  let hasUnknownReason = false
+  for (const resource of ['cpu', 'gpu', 'ram'] as const) {
+    const reason = performanceStore.unavailableReasons[resource]
+    if (!reason) continue
+    if (reason === 'unknown') {
+      hasUnknownReason = true
+      continue
+    }
+    lines.push(t('pages.preference.performance.hints.resourceUnavailable', {
+      resource: t(`pages.preference.performance.metrics.${resource}`),
+      reason: t(`pages.preference.performance.unavailableReasons.${reason}`),
+    }))
+  }
+  if (hasUnknownReason) lines.push(t('pages.preference.performance.hints.unavailableEnvironment'))
+  return lines.join('\n') || undefined
+})
+
 const samplingHint = computed(() => {
+  if (performanceStore.isWarmingUp) return t('pages.preference.performance.hints.warmup')
   const totalSeconds = performanceStore.elapsedSeconds
   const duration = t(
     totalSeconds < 60
@@ -53,7 +100,8 @@ const samplingHint = computed(() => {
       : 'pages.preference.performance.hints.durationMinutesSeconds',
     { minutes: Math.floor(totalSeconds / 60), seconds: totalSeconds % 60 },
   )
-  return `${t('pages.preference.performance.hints.sampling')} ${t('pages.preference.performance.hints.average', { duration })}`
+  const measurementHint = `${t('pages.preference.performance.hints.sampling')} ${t('pages.preference.performance.hints.average', { duration })}`
+  return unavailableHint.value ? `${measurementHint}\n\n${unavailableHint.value}` : measurementHint
 })
 
 function formatValue(value: number | undefined, suffix: string) {
@@ -77,7 +125,9 @@ function confirmPerformanceReset() {
     title: t('pages.preference.performance.confirm.reset'),
     okType: 'danger',
     onOk: () => {
-      catStore.resetPerformanceSettings()
+      if (disposed) return
+      blockStore.resetPerformanceSettings()
+      resetMeasurements()
     },
   })
 }
@@ -87,11 +137,21 @@ function confirmPerformanceReset() {
   <PreferenceSections>
     <ProList :title="$t('pages.preference.performance.labels.metrics')">
       <template #title-extra>
-        <PreferenceInfo
-          :emphasis-text="broadcastHint"
-          :label="$t('pages.preference.performance.buttons.measurementInfo')"
-          :text="samplingHint"
-        />
+        <Flex
+          align="center"
+          gap="small"
+        >
+          <span
+            v-if="performanceStore.isWarmingUp"
+            class="text-xs text-color-3"
+            role="status"
+          >{{ $t('pages.preference.performance.status.preparing') }}</span>
+          <PreferenceInfo
+            :emphasis-text="broadcastHint"
+            :label="$t('pages.preference.performance.buttons.measurementInfo')"
+            :text="samplingHint"
+          />
+        </Flex>
       </template>
 
       <div class="grid grid-cols-2 gap-3">
@@ -130,12 +190,14 @@ function confirmPerformanceReset() {
         vertical
       >
         <DefaultSnapSlider
-          v-model:value="catStore.model.maxFPS"
+          v-model:value="blockStore.model.maxFPS"
           class="m-[0]!"
-          :default-value="60"
+          :default-value="DEFAULT_PERFORMANCE_SETTINGS.maxFPS"
+          display-mode="raw"
           :max="MAX_FPS"
-          :min="20"
+          :min="MIN_FPS"
           :step="1"
+          @after-change="resetMeasurements"
         />
       </ProListItem>
 
@@ -144,7 +206,8 @@ function confirmPerformanceReset() {
         :title="$t('pages.preference.performance.labels.shadowQuality')"
       >
         <Select
-          v-model:value="catStore.shadowQualitySelection"
+          :value="blockStore.shadowQualitySelection"
+          @update:value="updateShadowQuality"
         >
           <Select.Option value="high">
             {{ $t('pages.preference.performance.options.shadowQuality.high') }}
@@ -166,7 +229,8 @@ function confirmPerformanceReset() {
         :title="$t('pages.preference.performance.labels.antialias')"
       >
         <Switch
-          v-model:checked="catStore.model.antialiasEnabled"
+          :checked="blockStore.model.antialiasEnabled"
+          @update:checked="updatePerformanceToggle('antialiasEnabled', Boolean($event))"
         />
       </ProListItem>
 
@@ -174,7 +238,10 @@ function confirmPerformanceReset() {
         :description="$t('pages.preference.performance.hints.pixelFilter')"
         :title="$t('pages.preference.performance.labels.pixelFilter')"
       >
-        <Switch v-model:checked="catStore.model.pixelFilterEnabled" />
+        <Switch
+          :checked="blockStore.model.pixelFilterEnabled"
+          @update:checked="updatePerformanceToggle('pixelFilterEnabled', Boolean($event))"
+        />
       </ProListItem>
 
       <ProListItem
@@ -183,13 +250,15 @@ function confirmPerformanceReset() {
         vertical
       >
         <DefaultSnapSlider
-          v-model:value="catStore.model.renderScalePercent"
+          v-model:value="blockStore.model.renderScalePercent"
           class="m-[0]!"
           :default-value="100"
+          display-mode="raw"
           :max="100"
           :min="50"
           :step="5"
           :tip-formatter="(value) => `${value}%`"
+          @after-change="resetMeasurements"
         />
       </ProListItem>
 
@@ -197,12 +266,14 @@ function confirmPerformanceReset() {
         :description="$t('pages.preference.performance.hints.idlePowerSaving')"
         :title="$t('pages.preference.performance.labels.idlePowerSaving')"
       >
-        <Switch v-model:checked="catStore.model.idlePowerSavingEnabled" />
+        <Switch
+          :checked="blockStore.model.idlePowerSavingEnabled"
+          @update:checked="updatePerformanceToggle('idlePowerSavingEnabled', Boolean($event))"
+        />
       </ProListItem>
 
       <Button
         block
-        :danger="true"
         @click="confirmPerformanceReset"
       >
         {{ $t('pages.preference.performance.labels.reset') }}

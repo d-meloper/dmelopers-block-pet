@@ -81,18 +81,20 @@ fn validate_settings(s: &Value) -> bool {
         ("petRightArmSpreadDegrees", -45.0, 45.0),
         ("petLeftArmSpreadDegrees", -45.0, 45.0),
         ("petHeadScalePercent", 25.0, 200.0),
-        ("petRotationDegrees", -180.0, 180.0),
-        ("petDeskOffset", -1.5, 1.5),
+        crate::settings_defaults::numeric_range("preset", "petRotationDegrees"),
+        crate::settings_defaults::numeric_range("preset", "petDeskOffset"),
         ("deskHeightOffset", -1.0, 1.0),
+        ("deskWidthOffset", -1.0, 1.0),
+        ("deskDepthOffset", -1.0, 1.0),
         ("sceneRotationOffsetDegrees", -360.0, 360.0),
         ("cameraHorizontalOffset", -1.5, 1.5),
         ("cameraVerticalOffset", -1.5, 1.5),
         ("cameraZoomPercent", 25.0, 200.0),
-        ("mouseBaseXOffset", -1.5, 1.5),
-        ("mouseBaseZOffset", -1.5, 1.5),
+        crate::settings_defaults::numeric_range("preset", "mouseBaseXOffset"),
+        crate::settings_defaults::numeric_range("preset", "mouseBaseZOffset"),
         ("mouseScalePercent", 50.0, 200.0),
-        ("keyboardBaseXOffset", -1.5, 1.5),
-        ("keyboardBaseZOffset", -1.5, 1.5),
+        crate::settings_defaults::numeric_range("preset", "keyboardBaseXOffset"),
+        crate::settings_defaults::numeric_range("preset", "keyboardBaseZOffset"),
         ("keyboardScalePercent", 50.0, 200.0),
         ("autoViewportPaddingPixels", 0.0, 16.0),
     ];
@@ -113,12 +115,14 @@ fn validate_settings(s: &Value) -> bool {
         .chain(colors)
         .chain(booleans)
         .chain([
+            "lighting",
             "manualViewportRect",
             "dmeloperEyebrows",
             "keyboardLegendLanguage",
         ])
         .collect();
-    if !keys(p, &expected)
+    if !crate::lighting_settings::is_valid(&p["lighting"])
+        || !keys(p, &expected)
         || !ranges
             .iter()
             .all(|(key, min, max)| number(&p[key], *min, *max))
@@ -158,9 +162,9 @@ fn validate_settings(s: &Value) -> bool {
         && [
             ("centerOffsetPixels", -1.5, 1.5),
             ("heightOffsetPixels", -3.0, 3.0),
-            ("spacingPixels", 0.2, 4.0),
-            ("widthPixels", 0.75, 6.0),
-            ("thicknessPixels", 0.2, 2.0),
+            crate::settings_defaults::numeric_range("eyebrows", "spacingPixels"),
+            crate::settings_defaults::numeric_range("eyebrows", "widthPixels"),
+            crate::settings_defaults::numeric_range("eyebrows", "thicknessPixels"),
             ("depthPercent", 0.0, 200.0),
         ]
         .iter()
@@ -186,10 +190,18 @@ fn validate_document(bytes: &[u8]) -> TransferResult<PortablePreset> {
     if let Some(settings) = preset.settings.get_mut("preset").and_then(Value::as_object_mut) {
         let defaults: Map<String, Value> = crate::settings_defaults::section("preset")
             .map_err(|_| "invalidSettings")?;
-        for key in ["deskTransparent", "deskHeightOffset", "deskColor"] {
-            let value = defaults.get(key).ok_or("invalidSettings")?;
-            settings.entry(key).or_insert_with(|| value.clone());
+        for key in ["deskTransparent", "deskHeightOffset", "deskWidthOffset", "deskDepthOffset", "deskColor"] {
+            // Missing width belongs to an older desk; factory/reset now uses 0.
+            let value = if key == "deskWidthOffset" {
+                Value::from(-1)
+            } else {
+                defaults.get(key).ok_or("invalidSettings")?.clone()
+            };
+            settings.entry(key).or_insert(value);
         }
+    }
+    if let Some(settings) = preset.settings.get_mut("preset") {
+        crate::lighting_settings::migrate_preset(settings);
     }
     if !validate_settings(&preset.settings) {
         return Err("invalidSettings".into());
@@ -476,7 +488,9 @@ fn recoverable_collection(current: &Value, record: &PresetImportJournal) -> bool
     let Some(next) = current["entries"].as_array() else {
         return false;
     };
-    if current["activeId"] != record.preset_id
+    // Accept inactive additions and the previously applied import shape for recovery.
+    if (current["activeId"] != record.previous.collection["activeId"]
+        && current["activeId"] != record.preset_id)
         || next.len() != old.len() + 1
         || !old.iter().all(|entry| next.contains(entry))
         || next
@@ -539,21 +553,21 @@ fn valid_rollback(previous: &PreviousPresetState, expected: &PreviousPresetState
     snapshot == expected.snapshot
 }
 
-fn matches_previous(cat: &Value, previous: &PreviousPresetState) -> bool {
+fn matches_previous(block: &Value, previous: &PreviousPresetState) -> bool {
     let snapshot = &previous.snapshot;
     let appearance = snapshot["appearance"].as_object();
-    cat["presetCollection"] == previous.collection
-        && cat["window"]["visible"].as_bool() == Some(previous.visible)
-        && cat["window"]["opacity"] == snapshot["opacity"]
-        && cat["model"]["mirror"] == snapshot["mirror"]
-        && cat["model"]["eyebrowAnimationEnabled"] == snapshot["eyebrowAnimationEnabled"]
+    block["presetCollection"] == previous.collection
+        && block["window"]["visible"].as_bool() == Some(previous.visible)
+        && block["window"]["opacity"] == snapshot["opacity"]
+        && block["model"]["mirror"] == snapshot["mirror"]
+        && block["model"]["eyebrowAnimationEnabled"] == snapshot["eyebrowAnimationEnabled"]
         && snapshot["preset"].as_object().is_some_and(|p| {
             !p.is_empty()
                 && p.iter()
-                    .all(|(k, v)| cat["customization3d"]["preset"][k] == *v)
+                    .all(|(k, v)| block["customization3d"]["preset"][k] == *v)
         })
         && appearance.is_some_and(|p| {
-            !p.is_empty() && p.iter().all(|(k, v)| cat["customization3d"][k] == *v)
+            !p.is_empty() && p.iter().all(|(k, v)| block["customization3d"][k] == *v)
         })
         && [
             "selectedModelId",
@@ -564,10 +578,10 @@ fn matches_previous(cat: &Value, previous: &PreviousPresetState) -> bool {
             "useDefaultDmeloperSkin",
         ]
         .iter()
-        .all(|key| cat["customization3d"][key] == snapshot["appearance"][key])
+        .all(|key| block["customization3d"][key] == snapshot["appearance"][key])
 }
 
-fn disk_cat(app: &tauri::AppHandle) -> TransferResult<Value> {
+fn disk_block(app: &tauri::AppHandle) -> TransferResult<Value> {
     use tauri_plugin_pinia::ManagerExt;
     // Pinia owns the filename, including its debug-only .dev.json suffix.
     let path = app
@@ -579,9 +593,9 @@ fn disk_cat(app: &tauri::AppHandle) -> TransferResult<Value> {
         .map_err(transfer_error)
 }
 
-fn saved_cat(app: &tauri::AppHandle) -> TransferResult<Value> {
+fn saved_block(app: &tauri::AppHandle) -> TransferResult<Value> {
     use tauri_plugin_pinia::ManagerExt;
-    let saved = disk_cat(app)?;
+    let saved = disk_block(app)?;
     let backend = serde_json::to_value(app.pinia().state("cat").map_err(transfer_error)?)
         .map_err(transfer_error)?;
     if backend != saved {
@@ -699,7 +713,7 @@ impl SkinLibraryService {
         operation_id: &str,
         commit: bool,
         expected: &PreviousPresetState,
-        cat: &Value,
+        block: &Value,
     ) -> TransferResult<()> {
         let root = self.root().map_err(library_error)?;
         let mut record = journal(root)?.ok_or("recovery")?;
@@ -713,7 +727,7 @@ impl SkinLibraryService {
                 Err("recovery".into())
             };
         }
-        if !matches_previous(cat, expected) {
+        if !matches_previous(block, expected) {
             return Err("save".into());
         }
         if commit {
@@ -727,16 +741,25 @@ impl SkinLibraryService {
                 .iter()
                 .find(|e| e["id"] == record.preset_id)
                 .ok_or("recovery")?;
-            if expected.collection["activeId"] != record.preset_id
+            if expected.collection["activeId"] != record.previous.collection["activeId"]
                 || next_entries.len() != previous_entries.len() + 1
                 || !recoverable_collection(&expected.collection, &record)
-                || target["snapshot"] != expected.snapshot
-                || expected.snapshot["appearance"]["activeSkinLibraryEntryId"]
+                || expected.snapshot != record.previous.snapshot
+                || expected.visible != record.previous.visible
+                || target["snapshot"]["appearance"]["activeSkinLibraryEntryId"]
                     != record.skin_entry_id
             {
                 return Err("recovery".into());
             }
-            self.read(&record.skin_entry_id).map_err(library_error)?;
+            let skin = self.read(&record.skin_entry_id).map_err(library_error)?;
+            let mut settings = target["snapshot"].clone();
+            settings.as_object_mut().ok_or("recovery")?.remove("appearance");
+            if !validate_settings(&settings)
+                || target["snapshot"]["appearance"]["dmeloperSkinDataUrl"]
+                    != format!("data:image/png;base64,{}", skin.png_base64)
+            {
+                return Err("recovery".into());
+            }
             record.phase = "committed".into();
             // Retain the receipt until the next operation: an IPC reply can be lost after commit.
             write_journal(root, &record)?;
@@ -801,7 +824,7 @@ pub async fn prepare_preset_import(
         let service = Arc::clone(&state.service);
         tauri::async_runtime::spawn_blocking(move || {
             let _guard = crate::state_safety::guard_write().map_err(|_| "recovery")?;
-            if !matches_previous(&saved_cat(&app)?, &previous)
+            if !matches_previous(&saved_block(&app)?, &previous)
                 || previous.collection["entries"]
                     .as_array()
                     .is_none_or(|entries| entries.iter().any(|e| e["id"] == preset_id))
@@ -833,7 +856,7 @@ pub async fn read_preset_import(
             let record = journal(service.root().map_err(library_error)?)?;
             if let Some(record) = &record {
                 if record.phase == "prepared"
-                    && !recoverable_collection(&disk_cat(&app)?["presetCollection"], record)
+                    && !recoverable_collection(&disk_block(&app)?["presetCollection"], record)
                 {
                     return Err("recovery".into());
                 }
@@ -863,7 +886,7 @@ pub async fn finish_preset_import(
         let service = Arc::clone(&state.service);
         tauri::async_runtime::spawn_blocking(move || {
             let _guard = crate::state_safety::guard_write().map_err(|_| "recovery")?;
-            service.finish_import(&operation_id, commit, &expected, &saved_cat(&app)?)
+            service.finish_import(&operation_id, commit, &expected, &saved_block(&app)?)
         })
         .await
         .map_err(transfer_error)?

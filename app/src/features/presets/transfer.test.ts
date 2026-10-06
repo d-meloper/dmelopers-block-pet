@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { it } from 'node:test'
 
-import { DEFAULT_DESK_SETTINGS, DESK_SETTING_KEYS } from '@/config/desk'
+import { DEFAULT_DESK_SETTINGS, DESK_SETTING_KEYS, LEGACY_DESK_SETTINGS } from '@/config/desk'
 import { MinecraftSkinError } from '@/services/minecraftSkin'
 
 import { clonePreset, createDefaultPresetSnapshot } from './model'
@@ -16,7 +16,7 @@ const fixture = readFileSync(new URL('./fixtures/portable-v1.json', import.meta.
 it('reads the frozen native/frontend v1 fixture with exactly the preset settings allowlist', () => {
   const doc = parsePortablePreset(fixture)
   assert.equal(doc.settings.preset.dmeloperEyebrows.depthPercent, 100)
-  for (const key of DESK_SETTING_KEYS) assert.equal(doc.settings.preset[key], DEFAULT_DESK_SETTINGS[key])
+  for (const key of DESK_SETTING_KEYS) assert.equal(doc.settings.preset[key], LEGACY_DESK_SETTINGS[key])
   assert.deepEqual(Object.keys(doc.settings.preset).sort(), [...PRESET_SETTING_KEYS].sort())
   assert.deepEqual(parsePortablePreset(new TextEncoder().encode(serializePortablePreset(doc))), doc)
   assert.deepEqual(parsePortablePreset(new Uint8Array([0xEF, 0xBB, 0xBF, ...fixture])), doc)
@@ -53,6 +53,44 @@ it('exports immutable PNG bytes, resolved arm geometry and nickname provenance w
     const builtin = await exportPortablePreset('Default', createDefaultPresetSnapshot(), 'image')
     assert.equal(builtin.skin.mode, 'image')
     assert.ok(!('nickname' in builtin.skin))
+  } finally {
+    browser.restore()
+  }
+})
+
+it('exports the bundled default skin and only resets skin colors without reading private skin data', async () => {
+  const browser = installPresetSkinBrowser()
+  try {
+    const snapshot = createDefaultPresetSnapshot()
+    snapshot.appearance = {
+      ...snapshot.appearance,
+      dmeloperSkinDataUrl: 'data:image/png;base64,PRIVATE_BYTES',
+      dmeloperSkinModel: 'slim',
+      minecraftSkinUsername: 'Private_Name',
+      activeSkinLibraryEntryId: 'a'.repeat(64),
+      useDefaultDmeloperSkin: false,
+    }
+    Object.assign(snapshot.preset, { dmeloperPalmColor: '#112233', cameraZoomPercent: 145, keyboardBaseXOffset: 0.4, petHeadScalePercent: 150 })
+    Object.assign(snapshot.preset.dmeloperEyebrows, { color: '#445566', enabled: false, depthPercent: 0, widthPixels: 3 })
+    snapshot.preset.lighting.key.color = '#778899'
+    snapshot.mirror = true
+    snapshot.opacity = 73
+    snapshot.eyebrowAnimationEnabled = false
+    const before = clonePreset(snapshot)
+    const document = await exportPortablePreset('Skin-free', snapshot, 'default')
+    assert.deepEqual(document.skin, { mode: 'image', pngBase64: browser.dataUrl.split(',')[1], model: 'wide' })
+    const defaults = createDefaultPresetSnapshot()
+    const expected = clonePreset(snapshot.preset)
+    expected.dmeloperEyebrows.color = defaults.preset.dmeloperEyebrows.color
+    expected.dmeloperPalmColor = defaults.preset.dmeloperPalmColor
+    assert.deepEqual(document.settings, { preset: expected, mirror: true, opacity: 73, eyebrowAnimationEnabled: false })
+    const serialized = serializePortablePreset(document)
+    for (const secret of ['PRIVATE_BYTES', 'Private_Name', 'activeSkinLibraryEntryId', 'appearance']) assert.ok(!serialized.includes(secret))
+    const restored = await resolvePortablePreset(parsePortablePreset(new TextEncoder().encode(serialized)))
+    assert.deepEqual(restored.snapshot.preset, expected)
+    assert.equal(restored.snapshot.appearance.minecraftSkinUsername, undefined)
+    assert.equal(restored.snapshot.appearance.dmeloperSkinModel, 'wide')
+    assert.deepEqual(snapshot, before)
   } finally {
     browser.restore()
   }
@@ -153,7 +191,7 @@ it('round-trips every desk setting and only supplies absent fields in partial le
     for (const deskTransparent of [false, true]) {
       const snapshot = createDefaultPresetSnapshot()
       snapshot.appearance.minecraftSkinUsername = 'Fixture_User'
-      Object.assign(snapshot.preset, { deskTransparent, deskHeightOffset, deskColor: '#123aBC' })
+      Object.assign(snapshot.preset, { deskTransparent, deskHeightOffset, deskWidthOffset: deskHeightOffset, deskDepthOffset: deskHeightOffset === 0 ? 0 : -deskHeightOffset, deskColor: '#123aBC' })
       const exported = await exportPortablePreset('Desk', snapshot, 'nickname')
       const restored = parsePortablePreset(new TextEncoder().encode(serializePortablePreset(exported)))
       assert.deepEqual(restored.settings.preset, snapshot.preset)
@@ -166,6 +204,8 @@ it('round-trips every desk setting and only supplies absent fields in partial le
   assert.equal(restored.settings.preset.deskTransparent, false)
   assert.equal(restored.settings.preset.deskColor, DEFAULT_DESK_SETTINGS.deskColor)
   assert.equal(restored.settings.preset.deskHeightOffset, 0)
+  assert.equal(restored.settings.preset.deskWidthOffset, -1)
+  assert.equal(restored.settings.preset.deskDepthOffset, DEFAULT_DESK_SETTINGS.deskDepthOffset)
   assert.equal('deskColor' in legacy.settings.preset, false)
 })
 
@@ -184,6 +224,16 @@ it('rejects invalid desk types, colors, heights and unknown fields before import
     { deskHeightOffset: null },
     { deskHeightOffset: '0' },
     { deskHeightOffset: undefined },
+    { deskWidthOffset: -1.01 },
+    { deskWidthOffset: 1.01 },
+    { deskWidthOffset: Number.NaN },
+    { deskWidthOffset: '0' },
+    { deskWidthOffset: undefined },
+    { deskDepthOffset: -1.01 },
+    { deskDepthOffset: 1.01 },
+    { deskDepthOffset: null },
+    { deskDepthOffset: Infinity },
+    { deskDepthOffset: false },
     { deskEnabled: true },
   ]) {
     const legacy = JSON.parse(fixture.toString())

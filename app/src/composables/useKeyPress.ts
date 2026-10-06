@@ -56,13 +56,14 @@ export function useKeyPress(shortcut: Ref<string | undefined, string>, callback:
       if (await isRegistered(value)) await unregister(value)
       if (disposed) return
       await register(value, (event) => {
-        if (disposed || shortcut.value !== value || editorsLocked.value) return
+        if (disposed || shortcut.value !== value) return
         const identity = shortcutIdentity(value)
         if (event.state === 'Released') {
           suppressedShortcutPresses.delete(identity)
           for (const recorder of shortcutRecorders) recorder.released.add(identity)
           return
         }
+        if (editorsLocked.value) return
         if (shortcutRecorders.size || suppressedShortcutPresses.has(identity)) {
           suppressedShortcutPresses.add(identity)
           for (const recorder of shortcutRecorders) recorder.released.delete(identity)

@@ -13,6 +13,8 @@ import { createSSRApp, nextTick } from 'vue'
 import type { SettingsPersistenceSteps } from '@/utils/settingsPersistence'
 
 import { DEFAULT_GENERAL_SETTINGS } from '@/config/defaultSettings'
+import { serializeSettingsState } from '@/config/persistedNames'
+import { reconcileAppWindowState } from '@/stores/app'
 
 type State = Record<string, any>
 interface SettingsStore {
@@ -21,6 +23,8 @@ interface SettingsStore {
   $tauri: { start: () => Promise<void> }
   $dispose: () => void
   init?: () => void | Promise<void>
+  reset?: () => void
+  resetWindowState?: () => void
 }
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
@@ -47,6 +51,7 @@ function harness() {
   let heldOwner: string | undefined
   let saves = 0
   function window(label: string) {
+    let syncFrozen = false
     const modules = new Map<string, { exports: any }>()
     const invoke = async (command: string, args: { id: string, state: State }) => {
       if (command === 'plugin:pinia|load' || command === 'plugin:pinia|get_store_state') {
@@ -127,15 +132,22 @@ function harness() {
     }
     const plugin = load('@tauri-store/pinia') as typeof import('@tauri-store/pinia')
     const pinia = createPinia()
-    pinia.use(plugin.createPlugin({ saveOnChange: true }))
+    const { createSettingsStorePlugin } = load('@/plugins/settingsStore') as typeof import('@/plugins/settingsStore')
+    pinia.use(createSettingsStorePlugin({
+      isSavingAllowed: () => true,
+      beforeBackendSync: state => syncFrozen ? undefined : state,
+    }))
     createSSRApp({ render: () => null }).use(pinia)
-    const stores: SettingsStore[] = ['app', 'cat', 'general', 'shortcut'].map((id) => {
+    const stores: SettingsStore[] = ['app', 'block', 'general', 'shortcut'].map((id) => {
       const definitions = load(`@/stores/${id}`)
       const definition = Object.keys(definitions).find(key => /^use.*Store$/.test(key))!
       return definitions[definition](pinia)
     })
     return {
       stores,
+      freeze: (frozen: boolean) => {
+        syncFrozen = frozen
+      },
       general: stores.find(store => store.$id === 'general')!.$state,
       initialize: async () => {
         for (const store of stores) {
@@ -186,13 +198,122 @@ async function seededHarness() {
   const seed = h.window('fixture')
   for (const store of seed.stores) {
     await store.init?.()
-    h.backend.set(store.$id, clone(store.$state))
+    h.backend.set(store.$id, clone(serializeSettingsState(store.$id, store.$state)))
   }
   seed.dispose()
   return h
 }
 
 describe('general defaults and real two-window Pinia persistence', () => {
+  it('restores, synchronizes and saves legacy shortcut keys across real plugin instances', async () => {
+    const h = await seededHarness()
+    const persisted = h.backend.get('shortcut')!
+    persisted.visibleCat = 'Control+KeyB'
+    persisted.retained = { empty: '', explicitNull: null }
+    const main = h.window('main')
+    const preference = h.window('preference')
+    const shortcuts = (window: typeof main) => window.stores.find(store => store.$id === 'shortcut')!.$state
+    try {
+      await main.initialize()
+      await preference.initialize()
+      assert.equal(shortcuts(main).visibleBlock, 'Control+KeyB')
+      assert.equal(shortcuts(preference).visibleBlock, 'Control+KeyB')
+      assert.equal('visibleCat' in shortcuts(preference), false)
+      preference.freeze(true)
+      shortcuts(preference).visibleBlock = 'F9'
+      await settle()
+      assert.equal(h.backend.get('shortcut')!.visibleCat, 'Control+KeyB')
+      assert.equal(shortcuts(main).visibleBlock, 'Control+KeyB')
+      preference.freeze(false)
+      shortcuts(preference).visibleBlock = 'F10'
+      await settle()
+      assert.equal(shortcuts(main).visibleBlock, 'F10')
+      await preference.save()
+      await main.save()
+      assert.equal(h.backend.get('shortcut')!.visibleCat, 'F10')
+      assert.equal('visibleBlock' in h.backend.get('shortcut')!, false)
+      assert.deepEqual(h.backend.get('shortcut')!.retained, { empty: '', explicitNull: null })
+      const restarted = h.window('restart')
+      try {
+        await restarted.initialize()
+        assert.equal(shortcuts(restarted).visibleBlock, 'F10')
+        assert.equal('visibleCat' in shortcuts(restarted), false)
+      } finally {
+        restarted.dispose()
+      }
+    } finally {
+      main.dispose()
+      preference.dispose()
+    }
+  })
+
+  it('propagates a complete window-state reset to both windows and their save barriers', async () => {
+    const h = await seededHarness()
+    const main = h.window('main')
+    const preference = h.window('preference')
+    try {
+      await main.initialize()
+      await preference.initialize()
+      const mainApp = main.stores.find(store => store.$id === 'app')!
+      const ownerApp = preference.stores.find(store => store.$id === 'app')!
+      ownerApp.$state.windowState.main = { x: 1, y: 2, width: 500, height: 422 }
+      await settle()
+      assert.ok(mainApp.$state.windowState.main)
+      ownerApp.resetWindowState!()
+      await settle()
+      assert.deepEqual(clone(mainApp.$state.windowState), {})
+      assert.deepEqual(clone(h.backend.get('app')!.windowState), {})
+      await main.save()
+      await preference.save()
+    } finally {
+      main.dispose()
+      preference.dispose()
+    }
+  })
+
+  it('retains window geometry on partial incoming state and preserves unrelated fields', () => {
+    const local = { windowState: { main: { x: 1 }, preference: { x: 2 } }, retained: { key: true } }
+    reconcileAppWindowState(local, { name: 'App' })
+    assert.deepEqual(Object.keys(local.windowState), ['main', 'preference'])
+    reconcileAppWindowState(local, { windowState: { preference: { x: 3 } } })
+    assert.deepEqual(Object.keys(local.windowState), ['preference'])
+    assert.deepEqual(local.retained, { key: true })
+  })
+  it('freezes pet and general backend writes while retaining the pet frontend migration hook', async () => {
+    const h = await seededHarness()
+    const persisted = h.backend.get('cat')!
+    delete persisted.model.pixelFilterEnabled
+    persisted.model.facePixelFilterEnabled = true
+    const main = h.window('main')
+    const preference = h.window('preference')
+    try {
+      const local = preference.stores.find(store => store.$id === 'cat')!
+      await local.$tauri.start()
+      assert.equal(local.$state.model.pixelFilterEnabled, true)
+      assert.equal('facePixelFilterEnabled' in local.$state.model, false)
+      await main.initialize()
+      await preference.initialize()
+      const beforePet = clone(h.backend.get('cat'))
+      const beforeGeneral = clone(h.backend.get('general'))
+      preference.freeze(true)
+      local.$state.window.opacity = 37.9
+      preference.general.app.taskbarVisible = true
+      await settle()
+      assert.deepEqual(h.backend.get('cat'), beforePet, 'per-store hooks must not bypass the common save barrier')
+      assert.deepEqual(h.backend.get('general'), beforeGeneral)
+      preference.freeze(false)
+      local.$state.window.opacity = 46.9
+      preference.general.app.taskbarVisible = false
+      await settle()
+      assert.equal(h.backend.get('cat')!.window.opacity, 46.9)
+      assert.equal(main.stores.find(store => store.$id === 'cat')!.$state.window.opacity, 46.9)
+      assert.equal(h.backend.get('general')!.app.taskbarVisible, false)
+    } finally {
+      main.dispose()
+      preference.dispose()
+    }
+  })
+
   it('retains a reminder expiry through both windows and a restarted store', async () => {
     const h = await seededHarness()
     const main = h.window('main')
@@ -221,9 +342,74 @@ describe('general defaults and real two-window Pinia persistence', () => {
     }
   })
 
+  it('persists both modal choices through real two-window sync, restart and General reset', async () => {
+    const h = await seededHarness()
+    const main = h.window('main')
+    const preference = h.window('preference')
+    try {
+      await main.initialize()
+      await preference.initialize()
+      assert.equal(preference.general.app.broadcastRestorePromptDismissed, false)
+      assert.equal(preference.general.app.applyPresetSkin, true)
+      preference.general.app.broadcastRestorePromptDismissed = true
+      preference.general.app.applyPresetSkin = false
+      await settle()
+      await preference.save()
+      assert.equal(main.general.app.broadcastRestorePromptDismissed, true)
+      assert.equal(main.general.app.applyPresetSkin, false)
+      preference.dispose()
+      const restarted = h.window('preference')
+      try {
+        await restarted.initialize()
+        assert.equal(restarted.general.app.broadcastRestorePromptDismissed, true)
+        assert.equal(restarted.general.app.applyPresetSkin, false)
+        restarted.stores.find(store => store.$id === 'general')!.reset!()
+        await settle()
+        await restarted.save()
+        assert.equal(main.general.app.broadcastRestorePromptDismissed, false)
+        assert.equal(main.general.app.applyPresetSkin, true)
+        assert.equal(h.backend.get('general')!.app.broadcastRestorePromptDismissed, false)
+        assert.equal(h.backend.get('general')!.app.applyPresetSkin, true)
+      } finally {
+        restarted.dispose()
+      }
+    } finally {
+      main.dispose()
+      preference.dispose()
+    }
+  })
+
+  it('preserves a retired tray OFF value as inert data across two-window initialization, reset and save', async () => {
+    const h = await seededHarness()
+    const persisted = h.backend.get('general')!
+    persisted.app.trayVisible = false
+    persisted.app.retained = { zero: 0, empty: '', explicitNull: null }
+    persisted.app.taskbarVisible = true
+    const main = h.window('main')
+    const preference = h.window('preference')
+    try {
+      await main.initialize()
+      await preference.initialize()
+      assert.equal(main.general.app.taskbarVisible, true)
+      assert.equal(preference.general.app.taskbarVisible, true)
+      await main.save()
+      await preference.save()
+      preference.stores.find(store => store.$id === 'general')!.reset!()
+      await settle()
+      await preference.save()
+      assert.equal(main.general.app.taskbarVisible, DEFAULT_GENERAL_SETTINGS.app.taskbarVisible)
+      assert.equal(h.backend.get('general')!.app.trayVisible, false)
+      assert.deepEqual(h.backend.get('general')!.app.retained, { zero: 0, empty: '', explicitNull: null })
+    } finally {
+      main.dispose()
+      preference.dispose()
+    }
+  })
+
   it('keeps native startup defaults identical to the shared authored data', () => {
     assert.deepEqual(nativeDefaults, DEFAULT_GENERAL_SETTINGS)
     assert.deepEqual(Object.keys(nativeDefaults).sort(), ['app', 'appearance', 'broadcast'])
+    assert.equal('trayVisible' in nativeDefaults.app, false)
   })
 
   it('reproduces missing defaults in all four-store barriers and accepts their native materialization', async () => {
@@ -233,6 +419,8 @@ describe('general defaults and real two-window Pinia persistence', () => {
       ['app', 'taskbarVisible'],
       ['app', 'autoUpdateCheck'],
       ['app', 'updateReminderHiddenUntil'],
+      ['app', 'broadcastRestorePromptDismissed'],
+      ['app', 'applyPresetSkin'],
       ['appearance', 'language'],
       ['appearance', 'isDark'],
     ]) {

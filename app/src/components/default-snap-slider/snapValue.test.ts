@@ -5,8 +5,8 @@ import { describe, it } from 'node:test'
 import { snapSliderValue } from './snapValue'
 
 describe('slider default snapping', () => {
-  it('includes both five-percent boundaries in the two requested examples', () => {
-    for (const [min, max, defaultValue] of [[-100, 100, 0], [0, 200, 100]]) {
+  it('includes both five-percent boundaries in symmetric and lighting ranges', () => {
+    for (const [min, max, defaultValue] of [[-100, 100, 0], [0, 200, 100], [25, 200, 100]]) {
       const range = { min, max, defaultValue }
       for (const offset of [-5, -4, 0, 4, 5]) {
         assert.equal(snapSliderValue(defaultValue + offset, range), defaultValue)
@@ -14,6 +14,8 @@ describe('slider default snapping', () => {
       for (const offset of [-6, 6]) {
         assert.equal(snapSliderValue(defaultValue + offset, range), defaultValue + offset)
       }
+      assert.equal(snapSliderValue(min, range), min)
+      assert.equal(snapSliderValue(max, range), max)
     }
   })
 

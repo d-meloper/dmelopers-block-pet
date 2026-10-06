@@ -17,7 +17,7 @@ const { title } = defineProps<{
       gap="small"
     >
       <div
-        class="text-4 font-medium"
+        class="text-lg text-color-1 font-semibold"
         data-tauri-drag-region
       >
         {{ title }}

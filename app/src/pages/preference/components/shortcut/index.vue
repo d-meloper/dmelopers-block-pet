@@ -14,12 +14,13 @@ function otherShortcuts(key: keyof typeof shortcutStore.$state): string[] {
 <template>
   <ProList :title="$t('pages.preference.shortcut.title')">
     <ProListItem
-      :description="$t('pages.preference.shortcut.hints.toggleCat')"
-      :title="$t('pages.preference.shortcut.labels.toggleCat')"
+      :description="$t('pages.preference.shortcut.hints.toggleBlock')"
+      :title="$t('pages.preference.shortcut.labels.toggleBlock')"
     >
       <Shortcut
-        v-model="shortcutStore.visibleCat"
-        :reserved-shortcuts="otherShortcuts('visibleCat')"
+        v-model="shortcutStore.visibleBlock"
+        :label="$t('pages.preference.shortcut.labels.toggleBlock')"
+        :reserved-shortcuts="otherShortcuts('visibleBlock')"
       />
     </ProListItem>
 
@@ -29,6 +30,7 @@ function otherShortcuts(key: keyof typeof shortcutStore.$state): string[] {
     >
       <Shortcut
         v-model="shortcutStore.toggleBroadcast"
+        :label="$t('pages.preference.shortcut.labels.toggleBroadcast')"
         :reserved-shortcuts="otherShortcuts('toggleBroadcast')"
       />
     </ProListItem>
@@ -39,6 +41,7 @@ function otherShortcuts(key: keyof typeof shortcutStore.$state): string[] {
     >
       <Shortcut
         v-model="shortcutStore.visiblePreference"
+        :label="$t('pages.preference.shortcut.labels.togglePreferences')"
         :reserved-shortcuts="otherShortcuts('visiblePreference')"
       />
     </ProListItem>
@@ -49,6 +52,7 @@ function otherShortcuts(key: keyof typeof shortcutStore.$state): string[] {
     >
       <Shortcut
         v-model="shortcutStore.showDisplayArea"
+        :label="$t('pages.preference.scene.labels.showDisplayArea')"
         :reserved-shortcuts="otherShortcuts('showDisplayArea')"
       />
     </ProListItem>
@@ -59,6 +63,7 @@ function otherShortcuts(key: keyof typeof shortcutStore.$state): string[] {
     >
       <Shortcut
         v-model="shortcutStore.mouseEnabled"
+        :label="$t('pages.preference.shortcut.labels.toggleMouse')"
         :reserved-shortcuts="otherShortcuts('mouseEnabled')"
       />
     </ProListItem>
@@ -69,6 +74,7 @@ function otherShortcuts(key: keyof typeof shortcutStore.$state): string[] {
     >
       <Shortcut
         v-model="shortcutStore.mirrorMode"
+        :label="$t('pages.preference.shortcut.labels.mirrorMode')"
         :reserved-shortcuts="otherShortcuts('mirrorMode')"
       />
     </ProListItem>
@@ -79,6 +85,7 @@ function otherShortcuts(key: keyof typeof shortcutStore.$state): string[] {
     >
       <Shortcut
         v-model="shortcutStore.cycleZoom"
+        :label="$t('pages.preference.shortcut.labels.cycleZoom')"
         :reserved-shortcuts="otherShortcuts('cycleZoom')"
       />
     </ProListItem>
@@ -89,6 +96,7 @@ function otherShortcuts(key: keyof typeof shortcutStore.$state): string[] {
     >
       <Shortcut
         v-model="shortcutStore.cycleRotation"
+        :label="$t('pages.preference.shortcut.labels.cycleRotation')"
         :reserved-shortcuts="otherShortcuts('cycleRotation')"
       />
     </ProListItem>
@@ -99,6 +107,7 @@ function otherShortcuts(key: keyof typeof shortcutStore.$state): string[] {
     >
       <Shortcut
         v-model="shortcutStore.keepInScreen"
+        :label="$t('pages.preference.general.labels.keepInScreen')"
         :reserved-shortcuts="otherShortcuts('keepInScreen')"
       />
     </ProListItem>
@@ -109,6 +118,7 @@ function otherShortcuts(key: keyof typeof shortcutStore.$state): string[] {
     >
       <Shortcut
         v-model="shortcutStore.penetrable"
+        :label="$t('pages.preference.shortcut.labels.passThrough')"
         :reserved-shortcuts="otherShortcuts('penetrable')"
       />
     </ProListItem>
@@ -119,6 +129,7 @@ function otherShortcuts(key: keyof typeof shortcutStore.$state): string[] {
     >
       <Shortcut
         v-model="shortcutStore.hideOnHover"
+        :label="$t('pages.preference.shortcut.labels.hideOnHover')"
         :reserved-shortcuts="otherShortcuts('hideOnHover')"
       />
     </ProListItem>
@@ -129,6 +140,7 @@ function otherShortcuts(key: keyof typeof shortcutStore.$state): string[] {
     >
       <Shortcut
         v-model="shortcutStore.alwaysOnTop"
+        :label="$t('pages.preference.shortcut.labels.alwaysOnTop')"
         :reserved-shortcuts="otherShortcuts('alwaysOnTop')"
       />
     </ProListItem>

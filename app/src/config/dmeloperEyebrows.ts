@@ -1,4 +1,5 @@
 import { DEFAULT_PET_PRESET } from './defaultSettings'
+import presetRanges from './presetRanges.json'
 
 export interface DmeloperEyebrowPreset {
   enabled: boolean
@@ -22,9 +23,9 @@ export const DMELOPER_EYEBROW_FALLBACK_COLOR = DEFAULT_PET_PRESET.dmeloperEyebro
 export const DMELOPER_EYEBROW_LIMITS = {
   centerOffsetPixels: { min: -1.5, max: 1.5 },
   heightOffsetPixels: { min: -3, max: 3 },
-  spacingPixels: { min: 0.2, max: 4 },
-  widthPixels: { min: 0.75, max: 6 },
-  thicknessPixels: { min: 0.2, max: 2 },
+  spacingPixels: presetRanges.eyebrows.spacingPixels,
+  widthPixels: presetRanges.eyebrows.widthPixels,
+  thicknessPixels: presetRanges.eyebrows.thicknessPixels,
   depthPercent: { min: 0, max: 200 },
   step: 0.05,
 } as const

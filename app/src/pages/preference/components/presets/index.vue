@@ -2,26 +2,35 @@
 import type { DragDropEvent } from '@tauri-apps/api/window'
 
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { Button, Dropdown, Menu, message, Modal, Tag } from 'ant-design-vue'
+import { Button, Checkbox, Dropdown, Menu, message, Modal } from 'ant-design-vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { PresetManager } from '@/composables/usePresetManager'
-import type { PresetEntry } from '@/features/presets/types'
+import type { PresetListEntry } from '@/features/presets/types'
 
+import PreferenceInfo from '@/components/preference-info/index.vue'
 import PreferenceSections from '@/components/preference-sections/index.vue'
 import { reportDiagnostic } from '@/services/diagnostics'
+import { useGeneralStore } from '@/stores/general'
 
 import ExportDialog from './export-dialog.vue'
 import NameDialog from './name-dialog.vue'
 
 const props = defineProps<{ manager: PresetManager }>()
 const { t, te } = useI18n()
-const { entries, activeId, status, busy, ready, error, thumbnails, thumbnailErrors, cardPending } = props.manager
+const generalStore = useGeneralStore()
+const { entries, busy, ready, error, hasIndependentError, thumbnails, thumbnailErrors, cardPending } = props.manager
 const { transferError, transferPhase, canRetryImport } = props.manager
+const { importResults, importProgress, importBatchStopped, isBatchImport } = props.manager
+const { createError, createName, createNeedsName, canRetryCreate } = props.manager
 const nameDialogOpen = ref(false)
 const nameDialogMode = ref<'new' | 'rename'>('new')
-const editingEntry = ref<PresetEntry>()
+const retryingCreate = ref(false)
+const editingEntry = ref<PresetListEntry>()
+const applyingId = ref<string>()
+const applying = ref(false)
+const applyError = ref<string>()
 const deletingId = ref<string>()
 const deleting = ref(false)
 const deleteError = ref<string>()
@@ -32,6 +41,7 @@ const presetList = ref<HTMLElement>()
 const fileInput = ref<HTMLInputElement>()
 const exportingId = ref<string>()
 const fileDropActive = ref(false)
+const fileDropRegion = ref<{ top: string, left: string, width: string, height: string }>()
 const fileInputError = ref<string>()
 const showImportError = ref(false)
 const announcement = ref('')
@@ -50,67 +60,121 @@ let pointerDrag: {
 let scrollFrame: number | undefined
 const disabled = computed(() => busy.value || !ready.value)
 const exportingEntry = computed(() => entries.value.find(entry => entry.id === exportingId.value))
-const importDisabled = computed(() => disabled.value || nameDialogOpen.value || Boolean(deletingId.value) || Boolean(exportingEntry.value))
+const applyingEntry = computed(() => entries.value.find(entry => entry.id === applyingId.value))
+const dialogOpen = computed(() => nameDialogOpen.value || Boolean(deletingId.value) || Boolean(exportingEntry.value) || Boolean(applyingId.value))
+const importDisabled = computed(() => disabled.value || dialogOpen.value)
+const applyDisabled = computed(() => disabled.value || applying.value || Boolean(applyingEntry.value && cardPending.value[applyingEntry.value.id]))
 const importErrorText = computed(() => fileInputError.value
-  ?? ((showImportError.value || canRetryImport.value) && !exportingEntry.value ? transferError.value : undefined))
-const errorText = computed(() => status.value === 'error'
+  ?? (!isBatchImport.value && (showImportError.value || canRetryImport.value) && !exportingEntry.value
+    ? importResults.value.find(result => result.status === 'failed')?.error ?? transferError.value
+    : undefined))
+const importSummary = computed(() => t('pages.preference.presets.transfer.batch.summary', {
+  saved: importResults.value.filter(result => result.status === 'saved').length,
+  failed: importResults.value.filter(result => result.status === 'failed').length,
+  pending: importResults.value.filter(result => result.status === 'pending').length,
+}))
+const createErrorText = computed(() => createError.value && te(createError.value) ? t(createError.value) : createError.value)
+const errorText = computed(() => hasIndependentError.value
   ? error.value && te(error.value) ? t(error.value) : error.value ?? t('pages.preference.presets.errors.save')
   : undefined)
 const groups = computed(() => [
-  { favorite: true, label: t('pages.preference.presets.labels.favorites'), entries: entries.value.filter(entry => entry.favorite) },
-  { favorite: false, label: t('pages.preference.presets.title'), entries: entries.value.filter(entry => !entry.favorite) },
+  { id: 'favorites', favorite: true, label: t('pages.preference.presets.labels.favorites'), entries: entries.value.filter(entry => entry.origin === 'user' && entry.favorite) },
+  { id: 'user', favorite: false, label: t('pages.preference.presets.labels.userList'), entries: entries.value.filter(entry => entry.origin === 'user' && !entry.favorite) },
+  { id: 'builtin', favorite: undefined, label: t('pages.preference.presets.labels.builtinList'), entries: entries.value.filter(entry => entry.origin === 'builtin') },
 ].filter(group => group.entries.length > 0))
 const deletingEntry = computed(() => entries.value.find(entry => entry.id === deletingId.value))
-const replacementEntry = computed(() => {
-  if (!deletingEntry.value || deletingEntry.value.id !== activeId.value) return
-  const index = entries.value.findIndex(entry => entry.id === deletingId.value)
-  return entries.value[index + 1] ?? entries.value[index - 1]
-})
 const draggedEntry = computed(() => entries.value.find(entry => entry.id === draggedId.value))
 
-function displayName(entry: PresetEntry) {
-  return entry.builtin ? t('pages.preference.presets.builtinName') : entry.name
+function isEntryDisabled(entry: PresetListEntry) {
+  return disabled.value || dialogOpen.value || Boolean(cardPending.value[entry.id])
 }
 
-function isEntryDisabled(entry: PresetEntry) {
-  return disabled.value || Boolean(cardPending.value[entry.id])
-}
-
-function previewSource(entry: PresetEntry) {
+function previewSource(entry: PresetListEntry) {
   return thumbnailErrors.value[entry.id] ? undefined : thumbnails.value[entry.id]
 }
 
-function selectEntry(entry: PresetEntry) {
-  if (!isEntryDisabled(entry)) void props.manager.activate(entry.id)
+function selectEntry(entry: PresetListEntry) {
+  if (!isEntryDisabled(entry)) openApplyDialog(entry.id)
+}
+
+function openApplyDialog(id: string) {
+  if (!mounted || disabled.value || dialogOpen.value || !entries.value.some(entry => entry.id === id)) return
+  applyingId.value = id
+  applyError.value = undefined
+}
+
+function closeApplyDialog() {
+  if (applying.value) return
+  applyingId.value = undefined
+  applyError.value = undefined
+}
+
+async function applyEntry() {
+  const id = applyingEntry.value?.id
+  if (!id || applyDisabled.value) return
+  applying.value = true
+  applyError.value = undefined
+  try {
+    const accepted = await props.manager.activate(id, { applySkin: generalStore.app.applyPresetSkin })
+    if (!mounted || applyingId.value !== id) return
+    if (accepted) {
+      applyingId.value = undefined
+    } else {
+      const error = props.manager.error.value
+      applyError.value = error && te(error) ? t(error) : error ?? t('pages.preference.presets.errors.apply')
+    }
+  } catch (error) {
+    if (mounted) {
+      reportDiagnostic('error', 'presets.apply_ui', error)
+      applyError.value = t('pages.preference.presets.errors.apply')
+    }
+  } finally {
+    applying.value = false
+  }
 }
 
 function openNewDialog() {
-  if (disabled.value) return
+  if (importDisabled.value) return
+  retryingCreate.value = false
   editingEntry.value = undefined
   nameDialogMode.value = 'new'
   nameDialogOpen.value = true
 }
 
-function openRenameDialog(entry: PresetEntry) {
-  if (isEntryDisabled(entry) || entry.builtin) return
+async function retryCreate() {
+  if (importDisabled.value || !canRetryCreate.value) return
+  if (createNeedsName.value) {
+    editingEntry.value = undefined
+    nameDialogMode.value = 'new'
+    retryingCreate.value = true
+    nameDialogOpen.value = true
+  } else {
+    await props.manager.retryCreate()
+  }
+}
+
+function openRenameDialog(entry: PresetListEntry) {
+  if (entry.origin === 'builtin' || isEntryDisabled(entry)) return
   editingEntry.value = entry
   nameDialogMode.value = 'rename'
   nameDialogOpen.value = true
 }
 
-async function duplicateEntry(entry: PresetEntry) {
-  if (!isEntryDisabled(entry)) await props.manager.duplicate(entry.id)
+async function duplicateEntry(entry: PresetListEntry) {
+  if (entry.origin === 'builtin' || isEntryDisabled(entry)) return
+  await props.manager.duplicate(entry.id)
 }
 
-function onEntryMenu(key: string | number, entry: PresetEntry) {
+function onEntryMenu(key: string | number, entry: PresetListEntry) {
+  if (entry.origin === 'builtin') return
   if (key === 'duplicate') void duplicateEntry(entry)
   else if (key === 'export') openExportDialog(entry)
   else if (key === 'rename') openRenameDialog(entry)
   else if (key === 'delete') openDeleteDialog(entry)
 }
 
-function openExportDialog(entry: PresetEntry) {
-  if (isEntryDisabled(entry)) return
+function openExportDialog(entry: PresetListEntry) {
+  if (entry.origin === 'builtin' || isEntryDisabled(entry)) return
   exportingId.value = entry.id
   showImportError.value = false
   fileInputError.value = undefined
@@ -122,16 +186,11 @@ function openFilePicker() {
 
 async function importSources(sources: Array<File | string>) {
   if (!mounted || importDisabled.value || sources.length === 0) return
-  if (sources.length !== 1) {
-    fileInputError.value = t('pages.preference.presets.transfer.errors.multipleFiles')
-    return
-  }
   fileInputError.value = undefined
   showImportError.value = true
   try {
-    if (await props.manager.importPreset(sources[0])) {
-      message.success(t('pages.preference.presets.transfer.success.import'))
-    }
+    if (sources.length === 1) completeImport(await props.manager.importPreset(sources[0]))
+    else await props.manager.importPresets(sources)
   } catch (error) {
     if (mounted) reportDiagnostic('error', 'presets.import_ui', error)
     fileInputError.value = t('pages.preference.presets.transfer.errors.import')
@@ -150,12 +209,44 @@ async function retryImport() {
   fileInputError.value = undefined
   showImportError.value = true
   try {
-    if (await props.manager.retryImport()) {
-      message.success(t('pages.preference.presets.transfer.success.import'))
-    }
+    const id = await props.manager.retryImport()
+    if (!isBatchImport.value) completeImport(id)
   } catch (error) {
     if (mounted) reportDiagnostic('error', 'presets.retry_import_ui', error)
     fileInputError.value = t('pages.preference.presets.transfer.errors.import')
+  }
+}
+
+function completeImport(id: string | undefined) {
+  if (!mounted || !id) return
+  message.success(t('pages.preference.presets.transfer.success.import'))
+  openApplyDialog(id)
+}
+
+function updateFileDropRegion() {
+  if (!fileDropActive.value) return
+  const grid = presetList.value?.querySelector<HTMLElement>('.preset-grid')
+  const card = grid?.querySelector<HTMLElement>('.preset-card')
+  if (!grid) {
+    fileDropRegion.value = undefined
+    return
+  }
+  const scroller = scrollParent(grid, false)
+  const rect = grid.getBoundingClientRect()
+  // Restore the list's origin before scrolling, then keep the overlay in viewport coordinates.
+  const top = rect.top + (scroller?.scrollTop ?? 0)
+  const bottom = Math.min(window.innerHeight, scroller?.getBoundingClientRect().bottom ?? window.innerHeight)
+  const rowGap = Number.parseFloat(getComputedStyle(grid).rowGap) || 0
+  // An empty list has no card to measure: use the same two-column 16:10 preview
+  // and normal card chrome (22px horizontal inset, 86px toolbar/text/spacing).
+  const cardHeight = card?.getBoundingClientRect().height
+    ?? Math.max(0, (rect.width - rowGap) / 2 - 22) * 10 / 16 + 86
+  const twoRows = cardHeight * 2 + rowGap
+  fileDropRegion.value = {
+    top: `${top}px`,
+    left: `${rect.left}px`,
+    width: `${rect.width}px`,
+    height: `${Math.max(0, Math.min(twoRows, bottom - top))}px`,
   }
 }
 
@@ -165,6 +256,7 @@ function onNativeFileDrop(payload: DragDropEvent) {
     return
   }
   fileDropActive.value = payload.type === 'enter' || payload.type === 'over'
+  updateFileDropRegion()
   if (payload.type === 'drop') void importSources(payload.paths)
 }
 
@@ -186,19 +278,30 @@ watch(importDisabled, (value) => {
   }
 })
 
+watch([applyingId, applyingEntry], ([, entry]) => {
+  if (!entry) {
+    applyingId.value = undefined
+    applyError.value = undefined
+  }
+})
+
 onMounted(() => {
+  window.addEventListener('resize', updateFileDropRegion)
   void listenForPresetFileDrops()
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateFileDropRegion)
   mounted = false
+  applyingId.value = undefined
+  applyError.value = undefined
   endDrag()
   fileDropActive.value = false
   unlistenFileDrops?.()
   unlistenFileDrops = undefined
 })
 
-function openDeleteDialog(entry: PresetEntry) {
-  if (isEntryDisabled(entry) || entry.builtin) return
+function openDeleteDialog(entry: PresetListEntry) {
+  if (entry.origin === 'builtin' || isEntryDisabled(entry)) return
   deletingId.value = entry.id
   deleteError.value = undefined
 }
@@ -208,7 +311,7 @@ function closeDeleteDialog() {
 }
 
 async function deleteEntry() {
-  if (deleting.value || !deletingEntry.value || deletingEntry.value.builtin || isEntryDisabled(deletingEntry.value)) return
+  if (deleting.value || !deletingEntry.value || disabled.value || cardPending.value[deletingEntry.value.id]) return
   deleting.value = true
   deleteError.value = undefined
   try {
@@ -226,42 +329,42 @@ async function deleteEntry() {
   }
 }
 
-async function toggleFavorite(entry: PresetEntry) {
-  if (isEntryDisabled(entry)) return
+async function toggleFavorite(entry: PresetListEntry) {
+  if (entry.origin === 'builtin' || isEntryDisabled(entry)) return
   if (await props.manager.toggleFavorite(entry.id)) {
     const updated = entries.value.find(candidate => candidate.id === entry.id)
     if (updated) announcePosition(updated)
   }
 }
 
-function announcePosition(entry: PresetEntry) {
-  const group = entries.value.filter(candidate => candidate.favorite === entry.favorite)
+function announcePosition(entry: PresetListEntry) {
+  const group = entries.value.filter(candidate => candidate.origin === 'user' && candidate.favorite === entry.favorite)
   announcement.value = t('pages.preference.presets.status.moved', {
-    name: displayName(entry),
-    group: t(entry.favorite ? 'pages.preference.presets.labels.favorites' : 'pages.preference.presets.title'),
+    name: entry.name,
+    group: t(entry.favorite ? 'pages.preference.presets.labels.favorites' : 'pages.preference.presets.labels.userList'),
     position: group.findIndex(candidate => candidate.id === entry.id) + 1,
     count: group.length,
   })
 }
 
-async function onMoveKeydown(event: KeyboardEvent, entry: PresetEntry) {
+async function onMoveKeydown(event: KeyboardEvent, entry: PresetListEntry) {
   event.stopPropagation()
   if (!event.altKey || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return
   event.preventDefault()
-  if (isEntryDisabled(entry)) return
+  if (entry.origin === 'builtin' || isEntryDisabled(entry)) return
   if (await props.manager.move(entry.id, event.key === 'ArrowUp' || event.key === 'ArrowLeft' ? -1 : 1)) announcePosition(entry)
 }
 
-function scrollParent(element: HTMLElement) {
+function scrollParent(element: HTMLElement, requireOverflow = true) {
   for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-    if (/auto|scroll/.test(getComputedStyle(parent).overflowY) && parent.scrollHeight > parent.clientHeight) return parent
+    if (/auto|scroll/.test(getComputedStyle(parent).overflowY) && (!requireOverflow || parent.scrollHeight > parent.clientHeight)) return parent
   }
 }
 
-function startPointerDrag(event: PointerEvent, entry: PresetEntry) {
+function startPointerDrag(event: PointerEvent, entry: PresetListEntry) {
   if (event.button !== 0 || !event.isPrimary || pointerDrag) return
   event.preventDefault()
-  if (isEntryDisabled(entry) || importDisabled.value) return
+  if (entry.origin === 'builtin' || isEntryDisabled(entry) || importDisabled.value) return
   const handle = event.currentTarget as HTMLElement
   try {
     handle.setPointerCapture(event.pointerId)
@@ -297,8 +400,8 @@ function endDrag() {
   }
 }
 
-function canDrop(entry: PresetEntry) {
-  return !isEntryDisabled(entry) && draggedEntry.value && !isEntryDisabled(draggedEntry.value)
+function canDrop(entry: PresetListEntry) {
+  return entry.origin === 'user' && !isEntryDisabled(entry) && draggedEntry.value?.origin === 'user' && !isEntryDisabled(draggedEntry.value)
     && draggedEntry.value.favorite === entry.favorite
 }
 
@@ -366,7 +469,7 @@ async function finishPointerDrag(event: PointerEvent) {
   const target = dropTarget.value
   const source = draggedEntry.value
   const valid = drag.moved && id && source && !isEntryDisabled(source) && (target || dropAtGroupEnd.value)
-  const group = source ? entries.value.filter(candidate => candidate.favorite === source.favorite) : []
+  const group = source ? entries.value.filter(candidate => candidate.origin === 'user' && candidate.favorite === source.favorite) : []
   const beforeId = target ? target.after ? group[group.findIndex(candidate => candidate.id === target.id) + 1]?.id : target.id : undefined
   endDrag()
   if (!valid || id === beforeId) return
@@ -388,7 +491,7 @@ function cancelPointerDrag(event: PointerEvent) {
     class="relative"
   >
     <div class="mb-2 flex flex-wrap items-center justify-between gap-3">
-      <h1 class="m-0 text-lg font-semibold">
+      <h1 class="m-0 text-lg text-color-1 font-semibold">
         {{ $t('pages.preference.presets.title') }}
       </h1>
       <div class="flex flex-wrap items-center gap-2">
@@ -398,6 +501,7 @@ function cancelPointerDrag(event: PointerEvent) {
           :aria-label="$t('pages.preference.presets.transfer.buttons.import')"
           class="hidden"
           :disabled="importDisabled"
+          multiple
           type="file"
           @change="onFileInputChange"
         >
@@ -415,14 +519,15 @@ function cancelPointerDrag(event: PointerEvent) {
           {{ $t('pages.preference.presets.transfer.buttons.import') }}
         </Button>
         <Button
-          :disabled="disabled"
+          class="preset-new-button"
+          :disabled="importDisabled"
           type="primary"
           @click="openNewDialog"
         >
           <template #icon>
             <span
               aria-hidden="true"
-              class="i-lucide:plus mr-1.5 inline-block size-4 align-middle"
+              class="i-lucide:plus mr-1.5 size-4"
             />
           </template>
           {{ $t('pages.preference.presets.buttons.new') }}
@@ -442,8 +547,45 @@ function cancelPointerDrag(event: PointerEvent) {
         aria-hidden="true"
         class="i-lucide:loader-circle size-4 animate-spin"
       />
-      {{ $t(`pages.preference.presets.transfer.phases.${transferPhase}`) }}
+      <span>
+        {{ importProgress && isBatchImport ? $t('pages.preference.presets.transfer.batch.progress', importProgress) : '' }}
+        {{ $t(`pages.preference.presets.transfer.phases.${transferPhase}`) }}
+      </span>
     </p>
+    <div
+      v-if="isBatchImport"
+      aria-live="polite"
+      class="mb-4 rounded-lg bg-color-8 p-3 text-sm"
+    >
+      <p class="m-0 text-color-2">
+        {{ importSummary }}
+      </p>
+      <ul class="mb-2 mt-2 max-h-40 overflow-y-auto pl-5">
+        <li
+          v-for="result in importResults"
+          :key="result.key"
+          class="break-words"
+          :class="result.status === 'failed' ? 'text-danger' : 'text-color-3'"
+        >
+          {{ result.file }} — {{ result.error ?? $t(`pages.preference.presets.transfer.batch.${result.status}`) }}
+        </li>
+      </ul>
+      <p
+        v-if="importBatchStopped"
+        class="my-2 text-danger"
+        role="alert"
+      >
+        {{ $t('pages.preference.presets.transfer.batch.stopped') }}
+      </p>
+      <Button
+        v-if="canRetryImport"
+        :disabled="importDisabled"
+        size="small"
+        @click="retryImport"
+      >
+        {{ $t('pages.preference.presets.transfer.batch.retry') }}
+      </Button>
+    </div>
     <div
       v-if="importErrorText"
       class="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm"
@@ -457,6 +599,21 @@ function cancelPointerDrag(event: PointerEvent) {
         @click="retryImport"
       >
         {{ $t('pages.preference.presets.buttons.retry') }}
+      </Button>
+    </div>
+    <div
+      v-if="createErrorText"
+      class="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm"
+      role="alert"
+    >
+      <span class="min-w-0 flex-1 text-red-6">{{ createErrorText }}</span>
+      <Button
+        v-if="canRetryCreate"
+        :disabled="importDisabled"
+        size="small"
+        @click="retryCreate"
+      >
+        {{ $t(`pages.preference.presets.buttons.${createNeedsName ? 'rename' : 'retry'}`) }}
       </Button>
     </div>
     <div
@@ -481,12 +638,20 @@ function cancelPointerDrag(event: PointerEvent) {
       {{ $t('pages.preference.presets.status.loading') }}
     </p>
     <PreferenceSections v-else>
+      <div
+        v-if="entries.length === 0"
+        class="preset-grid preset-empty"
+      >
+        <p class="col-span-full m-0 py-6 text-center text-sm text-color-3">
+          {{ $t('pages.preference.presets.hints.empty') }}
+        </p>
+      </div>
       <section
         v-for="group in groups"
-        :key="String(group.favorite)"
+        :key="group.id"
         :aria-label="group.label"
       >
-        <h2 class="mb-2 mt-0 text-sm text-color-3 font-medium">
+        <h2 class="mb-2 mt-0 text-lg text-color-1 font-semibold">
           {{ group.label }}
         </h2>
         <ul class="preset-grid m-0 list-none p-0">
@@ -496,7 +661,6 @@ function cancelPointerDrag(event: PointerEvent) {
             :aria-busy="Boolean(cardPending[entry.id])"
             class="preset-card"
             :class="{
-              'preset-card-active': entry.id === activeId,
               'preset-card-dragging': entry.id === draggedId,
               'preset-card-drop-before': dropTarget?.id === entry.id && !dropTarget.after,
               'preset-card-drop-after': dropTarget?.id === entry.id && dropTarget.after,
@@ -505,7 +669,8 @@ function cancelPointerDrag(event: PointerEvent) {
             @click="selectEntry(entry)"
           >
             <button
-              :aria-label="$t('pages.preference.presets.labels.reorder', { name: displayName(entry) })"
+              v-if="entry.origin === 'user'"
+              :aria-label="$t('pages.preference.presets.labels.reorder', { name: entry.name })"
               class="preset-action preset-drag-handle"
               :disabled="isEntryDisabled(entry)"
               :title="$t('pages.preference.presets.hints.reorder')"
@@ -524,8 +689,7 @@ function cancelPointerDrag(event: PointerEvent) {
               />
             </button>
             <button
-              :aria-label="$t('pages.preference.presets.labels.apply', { name: displayName(entry) })"
-              :aria-pressed="entry.id === activeId"
+              :aria-label="$t('pages.preference.presets.labels.apply', { name: entry.name })"
               class="preset-select"
               :disabled="isEntryDisabled(entry)"
               type="button"
@@ -547,20 +711,17 @@ function cancelPointerDrag(event: PointerEvent) {
               <span class="preset-details">
                 <span
                   class="preset-name text-sm font-medium"
-                  :title="displayName(entry)"
-                >{{ displayName(entry) }}</span>
-                <Tag
-                  v-if="entry.id === activeId"
-                  class="shrink-0 m-0!"
-                  color="green"
-                >
-                  {{ $t('pages.preference.presets.status.active') }}
-                </Tag>
+                  :title="entry.name"
+                >{{ entry.name }}</span>
               </span>
             </button>
-            <div class="preset-actions">
+            <div
+              v-if="entry.origin === 'user'"
+              class="preset-actions"
+            >
               <button
-                :aria-label="$t(`pages.preference.presets.labels.${entry.favorite ? 'unfavorite' : 'favorite'}`, { name: displayName(entry) })"
+                v-if="entry.origin === 'user'"
+                :aria-label="$t(`pages.preference.presets.labels.${entry.favorite ? 'unfavorite' : 'favorite'}`, { name: entry.name })"
                 :aria-pressed="entry.favorite"
                 class="preset-action"
                 :class="{ 'preset-favorite-active': entry.favorite }"
@@ -572,7 +733,8 @@ function cancelPointerDrag(event: PointerEvent) {
               >
                 <span
                   aria-hidden="true"
-                  class="i-lucide:star size-4"
+                  class="size-4"
+                  :class="entry.favorite ? 'i-solar:star-bold' : 'i-lucide:star'"
                 />
               </button>
               <Dropdown
@@ -581,7 +743,7 @@ function cancelPointerDrag(event: PointerEvent) {
               >
                 <button
                   aria-haspopup="menu"
-                  :aria-label="$t('pages.preference.presets.labels.more', { name: displayName(entry) })"
+                  :aria-label="$t('pages.preference.presets.labels.more', { name: entry.name })"
                   class="preset-action"
                   :disabled="isEntryDisabled(entry)"
                   :title="$t('pages.preference.presets.buttons.more')"
@@ -597,6 +759,7 @@ function cancelPointerDrag(event: PointerEvent) {
                 <template #overlay>
                   <Menu @click="({ key }) => onEntryMenu(key, entry)">
                     <Menu.Item
+                      v-if="entry.origin === 'user'"
                       key="export"
                       :disabled="isEntryDisabled(entry)"
                     >
@@ -609,15 +772,17 @@ function cancelPointerDrag(event: PointerEvent) {
                       {{ $t('pages.preference.presets.buttons.duplicate') }}
                     </Menu.Item>
                     <Menu.Item
+                      v-if="entry.origin === 'user'"
                       key="rename"
-                      :disabled="entry.builtin || isEntryDisabled(entry)"
+                      :disabled="isEntryDisabled(entry)"
                     >
                       {{ $t('pages.preference.presets.buttons.rename') }}
                     </Menu.Item>
                     <Menu.Item
+                      v-if="entry.origin === 'user'"
                       key="delete"
                       danger
-                      :disabled="entry.builtin || isEntryDisabled(entry)"
+                      :disabled="isEntryDisabled(entry)"
                     >
                       {{ $t('pages.preference.presets.buttons.delete') }}
                     </Menu.Item>
@@ -657,7 +822,7 @@ function cancelPointerDrag(event: PointerEvent) {
           </li>
         </ul>
         <div
-          v-if="draggedEntry?.favorite === group.favorite"
+          v-if="group.id !== 'builtin' && draggedEntry?.favorite === group.favorite"
           class="mt-2 b b-color-2 rounded-lg b-dashed p-2 text-center text-xs text-color-3"
           :class="{ 'preset-group-drop-active': dropAtGroupEnd }"
           :data-preset-group-end="String(group.favorite)"
@@ -665,14 +830,15 @@ function cancelPointerDrag(event: PointerEvent) {
           {{ $t('pages.preference.presets.hints.moveToEnd') }}
         </div>
       </section>
+      <div
+        v-if="fileDropActive && fileDropRegion"
+        class="preset-file-drop bg-color-1/95 pointer-events-none fixed z-10 flex items-center justify-center b-2 b-primary-6 rounded-xl b-dashed p-6 text-center text-primary-7"
+        role="status"
+        :style="fileDropRegion"
+      >
+        {{ $t('pages.preference.presets.transfer.hints.drop') }}
+      </div>
     </PreferenceSections>
-    <div
-      v-if="fileDropActive"
-      class="bg-color-1/95 pointer-events-none absolute inset-0 z-10 flex items-center justify-center b-2 b-primary-6 rounded-xl b-dashed p-6 text-center text-primary-7"
-      role="status"
-    >
-      {{ $t('pages.preference.presets.transfer.hints.drop') }}
-    </div>
     <span
       aria-live="polite"
       class="sr-only"
@@ -680,9 +846,11 @@ function cancelPointerDrag(event: PointerEvent) {
     >{{ announcement }}</span>
     <NameDialog
       :entry="editingEntry"
+      :initial-name="retryingCreate ? createName : undefined"
       :manager="manager"
       :mode="nameDialogMode"
       :open="nameDialogOpen"
+      :retry-creation="retryingCreate"
       @close="nameDialogOpen = false"
     />
     <ExportDialog
@@ -692,24 +860,58 @@ function cancelPointerDrag(event: PointerEvent) {
       @close="exportingId = undefined"
     />
     <Modal
+      :cancel-button-props="{ disabled: applying }"
+      :cancel-text="$t('pages.preference.presets.buttons.cancel')"
+      :closable="!applying"
+      :confirm-loading="applying"
+      :keyboard="!applying"
+      :mask-closable="false"
+      :ok-button-props="{ disabled: applyDisabled }"
+      :ok-text="$t('pages.preference.presets.buttons.apply')"
+      :open="Boolean(applyingEntry)"
+      :title="$t('pages.preference.presets.dialog.applyTitle', { name: applyingEntry?.name ?? '' })"
+      @cancel="closeApplyDialog"
+      @ok="applyEntry"
+    >
+      <p class="text-primary-7">
+        {{ $t('pages.preference.presets.dialog.applyWarning') }}
+      </p>
+      <div class="my-4 flex items-center">
+        <Checkbox
+          v-model:checked="generalStore.app.applyPresetSkin"
+          :disabled="applyDisabled"
+        >
+          {{ $t('pages.preference.presets.dialog.applySkin') }}
+        </Checkbox>
+        <PreferenceInfo
+          :label="$t('pages.preference.presets.dialog.applySkin')"
+          :text="$t('pages.preference.presets.dialog.applySkinHint')"
+        />
+      </div>
+      <p
+        v-if="applyError"
+        class="mb-0 text-danger"
+        role="alert"
+      >
+        {{ applyError }}
+      </p>
+    </Modal>
+    <Modal
       :cancel-button-props="{ disabled: deleting || busy }"
       :cancel-text="$t('pages.preference.presets.buttons.cancel')"
       :closable="!deleting && !busy"
       :confirm-loading="deleting"
       :keyboard="!deleting && !busy"
       :mask-closable="false"
-      :ok-button-props="{ disabled: disabled || deleting || Boolean(deletingEntry && isEntryDisabled(deletingEntry)) }"
+      :ok-button-props="{ disabled: disabled || deleting || Boolean(deletingEntry && cardPending[deletingEntry.id]) }"
       :ok-text="$t('pages.preference.presets.buttons.delete')"
       ok-type="danger"
       :open="Boolean(deletingEntry)"
-      :title="$t('pages.preference.presets.dialog.deleteTitle', { name: deletingEntry ? displayName(deletingEntry) : '' })"
+      :title="$t('pages.preference.presets.dialog.deleteTitle', { name: deletingEntry?.name ?? '' })"
       @cancel="closeDeleteDialog"
       @ok="deleteEntry"
     >
       <p>{{ $t('pages.preference.presets.dialog.deleteHint') }}</p>
-      <p v-if="replacementEntry">
-        {{ $t('pages.preference.presets.dialog.deleteActiveHint', { name: displayName(replacementEntry) }) }}
-      </p>
       <p
         v-if="deleteError"
         class="mb-0 text-red-6"
@@ -722,10 +924,16 @@ function cancelPointerDrag(event: PointerEvent) {
 </template>
 
 <style scoped>
-.preset-import-button {
+.preset-import-button,
+.preset-new-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.preset-file-drop {
+  box-sizing: border-box;
+  font-size: 125%;
 }
 
 .preset-grid {
@@ -752,13 +960,8 @@ function cancelPointerDrag(event: PointerEvent) {
     background-color 0.15s;
 }
 
-.preset-card:hover,
-.preset-card-active {
+.preset-card:hover {
   border-color: var(--ant-color-primary, #3aa76d);
-}
-
-.preset-card-active {
-  background: var(--ant-color-primary-bg, #e3f6e9);
 }
 
 .preset-card-dragging {
@@ -875,7 +1078,6 @@ function cancelPointerDrag(event: PointerEvent) {
 }
 
 .preset-favorite-active {
-  background: var(--ant-color-primary-bg, #e3f6e9);
   color: var(--ant-color-primary, #3aa76d);
 }
 

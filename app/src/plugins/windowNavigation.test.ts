@@ -51,6 +51,31 @@ function preferenceNavigation(router: ReturnType<typeof makeRouter>) {
 }
 
 describe('window destination and preference navigation', () => {
+  it('starts on General in a fresh session and retains each selected tab when reopening', async () => {
+    const router = makeRouter()
+    await router.push('/preference')
+    const page = preferenceNavigation(router)
+    const shown: number[] = []
+    const handler = windowNavigation.createShowWindowRequestHandler({
+      label: 'preference',
+      router,
+      show: async () => {
+        shown.push(page.current.value)
+      },
+    })
+    await handler('preference')
+    assert.deepEqual(shown, [6])
+    for (const tab of [1, 2, 3, 0, 4, 6, 5, 7]) {
+      page.current.value = tab
+      await flush()
+      await handler('preference')
+      assert.equal(shown.at(-1), tab)
+    }
+    const restartedRouter = makeRouter()
+    await restartedRouter.push('/preference')
+    assert.equal(preferenceNavigation(restartedRouter).current.value, 6)
+  })
+
   it('stores the skin target before the hidden preference page is ready, then shows and focuses it', async () => {
     const router = makeRouter()
     const ready = deferred()
@@ -71,7 +96,7 @@ describe('window destination and preference navigation', () => {
     assert.deepEqual(shown, ['/preference?retained=yes&view=skin-library'])
     // The page mounts after the root listener has already retained the target.
     const page = preferenceNavigation(router)
-    assert.equal(page.current.value, 0)
+    assert.equal(page.current.value, 6)
     assert.equal(page.innerView.value, 'skin-library')
     await page.closeInnerView()
     assert.equal(page.current.value, 1)

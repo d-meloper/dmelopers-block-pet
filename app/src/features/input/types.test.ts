@@ -78,6 +78,8 @@ describe('semantic mouse input contract', () => {
     const event = { kind: 'pointer_activity' as const, x: 0.2, y: 0.8, mouseGeneration: 1 }
     assert.equal(isCurrentSemanticInput(event, { mouseEnabled: true, mouseGeneration: 1 }), true)
     assert.equal(isCurrentSemanticInput(event, { mouseEnabled: false, mouseGeneration: 2 }), false)
+    assert.equal(isCurrentSemanticInput({ ...event, mouseGeneration: 2 }, { mouseEnabled: false, mouseGeneration: 2 }), true)
+    assert.equal(isCurrentSemanticInput({ kind: 'mouse_primary', active: true, mouseGeneration: 2 }, { mouseEnabled: false, mouseGeneration: 2 }), false)
     assert.equal(isCurrentSemanticInput(event, { mouseEnabled: true, mouseGeneration: 3 }), false)
     assert.equal(isCurrentSemanticInput({ ...event, mouseGeneration: 3 }, { mouseEnabled: true, mouseGeneration: 3 }), true)
     assert.equal(isCurrentSemanticInput({ kind: 'typing', active: false, intensity: 0 }, { mouseEnabled: false, mouseGeneration: 2 }), true)

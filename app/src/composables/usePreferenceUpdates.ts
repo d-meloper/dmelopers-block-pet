@@ -29,7 +29,7 @@ export function providePreferenceUpdates() {
       general.app.updateReminderHiddenUntil = deadline
     },
     report: (operation, error) => {
-      reportDiagnostic('warn', `updates.${operation}`, error)
+      reportDiagnostic(operation === 'install' ? 'error' : 'warn', `updates.${operation}`, error)
       if (operation === 'install') message.error(t('inAppUpdates.failed'))
     },
   })

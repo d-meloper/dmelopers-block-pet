@@ -27,6 +27,7 @@ impl Channel {
         match self {
             Self::Github => "com.dmeloper.blockpet",
             Self::Store => "com.dmeloper.blockpet.store",
+            Self::Test if cfg!(feature = "wix-local-test") => "com.dmeloper.blockpet.wixlocal",
             Self::Test => "com.dmeloper.blockpet.test",
             Self::Development => "com.dmeloper.blockpet.development",
         }
@@ -38,6 +39,7 @@ impl Channel {
     pub fn autostart_name(self) -> &'static str {
         match self {
             Self::Github | Self::Store => "DMeloper's Block Pet",
+            Self::Test if cfg!(feature = "wix-local-test") => "DMeloper's Block Pet",
             Self::Test => "DMeloper's Block Pet Test",
             Self::Development => "DMeloper's Block Pet Development",
         }
@@ -88,6 +90,22 @@ pub fn distribution_info(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[cfg(not(feature = "channel-store"))]
+    fn installer_autostart_names_use_clean_product_names() {
+        assert_eq!(Channel::Github.autostart_name(), "DMeloper's Block Pet");
+        if cfg!(feature = "wix-local-test") {
+            assert_eq!(Channel::Test.autostart_name(), "DMeloper's Block Pet");
+        }
+        assert_eq!(
+            Channel::Test.identifier(),
+            if cfg!(feature = "wix-local-test") {
+                "com.dmeloper.blockpet.wixlocal"
+            } else {
+                "com.dmeloper.blockpet.test"
+            }
+        );
+    }
     #[test]
     fn only_official_channels_share_identity() {
         assert_eq!(

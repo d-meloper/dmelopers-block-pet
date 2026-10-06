@@ -21,7 +21,14 @@
     "custom-window:default",
     "os:default",
     "process:allow-exit",
-    "opener:allow-open-url",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "ms-windows-store://downloadsandupdates"
+        }
+      ]
+    },
     "opener:allow-default-urls",
     {
       "identifier": "opener:allow-open-path",

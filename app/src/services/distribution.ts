@@ -17,7 +17,9 @@ export async function getDistributionInfo(): Promise<DistributionInfo> {
 
 export async function openStore(): Promise<void> {
   const info = await getDistributionInfo()
-  if (info.channel !== 'store' || !/^https:\/\/apps\.microsoft\.com\/detail\/[A-Z0-9]{12}$/i.test(info.updateUrl)) {
+  const isStoreDestination = info.updateUrl === 'ms-windows-store://downloadsandupdates'
+    || /^https:\/\/apps\.microsoft\.com\/detail\/[A-Z0-9]{12}$/i.test(info.updateUrl)
+  if (info.channel !== 'store' || !isStoreDestination) {
     throw new Error('STORE_ID_UNAVAILABLE')
   }
   await openUrl(info.updateUrl)

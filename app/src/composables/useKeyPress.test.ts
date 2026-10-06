@@ -35,7 +35,10 @@ function harness(initial: string) {
   const otherCalls: ShortcutEvent[] = []
   const errors: unknown[] = []
   const scope = vue.effectScope()
-  const exports = {} as { useKeyPress: (value: vue.Ref<string>, callback: (event: ShortcutEvent) => void) => void }
+  const exports = {} as {
+    useKeyPress: (value: vue.Ref<string>, callback: (event: ShortcutEvent) => void) => void
+    beginShortcutRecording: (cancel: () => void) => (value?: string) => void
+  }
   const source = readFileSync(new URL('./useKeyPress.ts', import.meta.url), 'utf8')
   // These two recorder outputs resolve to the same native modifier bitmask/key.
   const nativeKey = (key: string) => key === 'Shift+Control+A' ? 'Control+Shift+A' : key
@@ -70,6 +73,7 @@ function harness(initial: string) {
     active,
     errors,
     calls,
+    record: exports.beginShortcutRecording,
     otherCalls,
     hold: (key: string) => {
       const held = deferred()
@@ -94,6 +98,32 @@ function harness(initial: string) {
 }
 
 describe('global shortcut registration ownership', () => {
+  it('clears recorded-key suppression on release during an editor lock and accepts the first unlocked press', async () => {
+    const h = harness('Control+KeyA')
+    let endRecording: ((value?: string) => void) | undefined
+    try {
+      h.mount()
+      await flush()
+      endRecording = h.record(() => {})
+      h.fire('Control+KeyA')
+      endRecording('Control+KeyA')
+      assert.equal(h.calls.length, 0)
+      dataBridge.editorsLocked.value = true
+      h.fire('Control+KeyA', 'Released')
+      h.fire('Control+KeyA')
+      assert.equal(h.calls.length, 0)
+      h.fire('Control+KeyA', 'Released')
+      dataBridge.editorsLocked.value = false
+      h.fire('Control+KeyA')
+      assert.equal(h.calls.length, 1)
+    } finally {
+      dataBridge.editorsLocked.value = false
+      endRecording?.()
+      h.unmount()
+      await flush()
+    }
+  })
+
   it('does not steal a live binding recorded with the same modifiers in another order', async () => {
     const h = harness('Control+Shift+A')
     try {

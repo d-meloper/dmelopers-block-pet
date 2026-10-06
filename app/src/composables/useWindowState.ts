@@ -15,10 +15,11 @@ import type {
 } from '@/utils/viewportGeometry'
 
 import { MODEL_3D_CONFIG } from '@/config/model3d'
+import { DEFAULT_PREFERENCE_SIZE, MIN_PREFERENCE_SIZE } from '@/config/window'
 import { WINDOW_LABEL } from '@/constants'
 import { editorsLocked } from '@/features/stateSafety/bridge'
 import { useAppStore } from '@/stores/app'
-import { useCatStore } from '@/stores/cat'
+import { useBlockStore } from '@/stores/block'
 import {
   classifyNativePositionEvent,
   classifyNativeSizeEvent,
@@ -67,7 +68,7 @@ export type MainViewportSnapshotListener = (
 
 interface MainWindowContext {
   appStore: ReturnType<typeof useAppStore>
-  catStore: ReturnType<typeof useCatStore>
+  blockStore: ReturnType<typeof useBlockStore>
 }
 
 interface PendingProgrammaticValue<T> {
@@ -116,6 +117,10 @@ export function setAutomaticViewportMutationGuard(guard: () => boolean): void {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isPositiveDimension(value: unknown): value is number {
+  return isFiniteNumber(value) && value > 0
 }
 
 function cloneMainViewportSnapshot(
@@ -342,7 +347,7 @@ async function getInitialVirtualOrigin(): Promise<ViewportPoint> {
   const state = context.appStore.windowState[WINDOW_LABEL.MAIN]
   const persisted = resolvePersistedVirtualOrigin(state)
   if (!persisted) return currentPosition
-  if (context.catStore.window.keepInScreen) return persisted
+  if (context.blockStore.window.keepInScreen) return persisted
 
   const monitors = await availableMonitors()
   return isPersistedWindowOnAMonitor(state, monitors) ? persisted : currentPosition
@@ -562,7 +567,7 @@ async function applyMainViewportGeometryInternal(
     let monitorId = mainViewportSnapshot?.monitorId
     if (
       input.clampToWorkArea !== false
-      && context.catStore.window.keepInScreen
+      && context.blockStore.window.keepInScreen
     ) {
       const contained = applyContainment(geometry, monitors, monitorId)
       geometry = contained.geometry
@@ -830,7 +835,7 @@ async function clampMainViewportInternal(
       snapshot.physicalOffset,
     ),
   }
-  const contained = (forceContainment || context.catStore.window.keepInScreen)
+  const contained = (forceContainment || context.blockStore.window.keepInScreen)
     ? applyContainment(currentGeometry, monitors, snapshot.monitorId)
     : { geometry: currentGeometry, monitorId: snapshot.monitorId }
   mainViewportSnapshot = {
@@ -884,7 +889,7 @@ function isMainViewportClampBlocked(): boolean {
 const mainViewportClampPump = createSerializedRetryPump(async () => {
   const context = mainWindowContext
   if (!context || label !== WINDOW_LABEL.MAIN) return 'blocked'
-  if (!context.catStore.window.keepInScreen) return 'complete'
+  if (!context.blockStore.window.keepInScreen) return 'complete'
   if (isMainViewportClampBlocked()) return 'blocked'
 
   const snapshot = await clampMainViewportInternal()
@@ -909,9 +914,9 @@ function requestMainViewportClamp(): void {
 export function useWindowState() {
   disposeWindowState?.()
   const appStore = useAppStore()
-  const catStore = useCatStore()
+  const blockStore = useBlockStore()
   const isRestored = ref(false)
-  const context = { appStore, catStore }
+  const context = { appStore, blockStore }
   if (label === WINDOW_LABEL.MAIN) mainWindowContext = context
   let disposed = false
   const unlisteners: Array<() => void> = []
@@ -1011,6 +1016,9 @@ export function useWindowState() {
     Object.assign(appStore.windowState[label], { x: position.x, y: position.y })
   }
   const persistRegularWindowSize = (size: PhysicalSize) => {
+    // A delayed minimized/empty resize may arrive after isMinimized() is false.
+    // Preserve the last usable size rather than persisting an invisible window.
+    if (!isPositiveDimension(size.width) || !isPositiveDimension(size.height)) return
     appStore.windowState[label] ??= {}
     Object.assign(appStore.windowState[label], { width: size.width, height: size.height })
   }
@@ -1110,7 +1118,7 @@ export function useWindowState() {
   })
 
   watch(
-    () => catStore.window.keepInScreen,
+    () => blockStore.window.keepInScreen,
     (keepInScreen) => {
       if (disposed) return
       if (keepInScreen) requestMainViewportClamp()
@@ -1127,7 +1135,7 @@ export function useWindowState() {
         await applyMainViewportGeometryInternal({
           isCurrent: () => !disposed,
           clampToWorkArea: false,
-          mirrored: catStore.model.mirror,
+          mirrored: blockStore.model.mirror,
           sourceRect: { x: 0, y: 0, width, height },
           windowScalePercent: 100,
         }, {
@@ -1162,10 +1170,10 @@ export function useWindowState() {
         && position.y >= item.position.y && position.y < item.position.y + item.size.height) ?? monitors[0]
       const factor = monitor?.scaleFactor ?? await appWindow.scaleFactor()
       if (disposed) return
-      const availableWidth = monitor?.workArea.size.width ?? 800 * factor
-      const availableHeight = Math.max(100, (monitor?.workArea.size.height ?? 760 * factor) - 40 * factor)
-      const desiredWidth = isFiniteNumber(width) ? width : 800 * factor
-      const desiredHeight = isFiniteNumber(height) ? height : 720 * factor
+      const availableWidth = monitor?.workArea.size.width ?? DEFAULT_PREFERENCE_SIZE.width * factor
+      const availableHeight = Math.max(100, (monitor?.workArea.size.height ?? (DEFAULT_PREFERENCE_SIZE.height + 40) * factor) - 40 * factor)
+      const desiredWidth = isPositiveDimension(width) ? Math.max(width, MIN_PREFERENCE_SIZE.width * factor) : DEFAULT_PREFERENCE_SIZE.width * factor
+      const desiredHeight = isPositiveDimension(height) ? Math.max(height, MIN_PREFERENCE_SIZE.height * factor) : DEFAULT_PREFERENCE_SIZE.height * factor
       await appWindow.setSize(new PhysicalSize(Math.min(desiredWidth, availableWidth), Math.min(desiredHeight, availableHeight)))
       if (disposed) return
       if (monitor) {

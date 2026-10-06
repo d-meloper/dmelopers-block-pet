@@ -31,10 +31,10 @@
         "label": "preference",
         "url": "index.html/#/preference",
         "visible": false,
-        "width": 800,
-        "height": 720,
-        "minWidth": 600,
-        "minHeight": 320,
+        "width": 911,
+        "height": 692,
+        "minWidth": 669,
+        "minHeight": 458,
         "skipTaskbar": false
       }
     ],
@@ -47,11 +47,9 @@
     }
   },
   "bundle": {
-    "active": true,
+    "active": false,
     "category": "Entertainment",
-    "targets": [
-      "nsis"
-    ],
+    "targets": [],
     "shortDescription": "DMeloper's Block Pet",
     "icon": [
       "icons/32x32.png",
@@ -67,12 +65,6 @@
     "windows": {
       "webviewInstallMode": {
         "type": "skip"
-      },
-      "nsis": {
-        "installMode": "currentUser",
-        "displayLanguageSelector": false,
-        "installerIcon": "icons/icon.ico",
-        "template": "./windows/github-installer.nsi"
       },
       "minimumWebview2Version": "120.0.0.0"
     }

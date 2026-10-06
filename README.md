@@ -1,4 +1,6 @@
-<img src="assets/hero.png" alt="DMeloper's Block Pet hero image" width="40%">
+<p align="center">
+  <img src="assets/hero.png" alt="DMeloper's Block Pet hero image" width="36%">
+</p>
 
 # DMeloper's Block Pet
 

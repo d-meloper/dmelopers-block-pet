@@ -1,4 +1,5 @@
-![DMeloper's Block Pet hero image](assets/hero.png)
+<img src="assets/hero.png" alt="DMeloper's Block Pet hero image" width="40%">
+
 # DMeloper's Block Pet
 
 English | [한국어](README.ko-KR.md)

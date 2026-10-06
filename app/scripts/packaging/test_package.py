@@ -162,10 +162,10 @@ class PackageContracts(unittest.TestCase):
         self.assertEqual(root.find('.//desktop:StartupTask', ns).get('Enabled'), 'false')
         self.assertEqual(root.find('f:Capabilities/rescap:Capability', ns).get('Name'), 'runFullTrust')
 
-    def test_store_display_names_are_distinct_without_changing_package_identity(self):
+    def test_store_display_names_match_reservation_without_changing_package_identity(self):
         root = ET.fromstring(builder.manifest(builder.SYNTHETIC, '1.0.1'))
         ns = {k or 'f': v for k, v in builder.NS.items()}
-        expected = "DMeloper's Block Pet (Store)"
+        expected = "DMeloper's Block Pet"
         self.assertEqual(root.find('f:Properties/f:DisplayName', ns).text, expected)
         self.assertEqual(root.find('.//uap:VisualElements', ns).get('DisplayName'), expected)
         startup = root.find('.//desktop:StartupTask', ns)
@@ -174,6 +174,30 @@ class PackageContracts(unittest.TestCase):
         self.assertEqual(root.find('f:Identity', ns).attrib, {
             'Name': builder.SYNTHETIC['name'], 'Publisher': builder.SYNTHETIC['publisher'],
             'Version': '1.0.1.0', 'ProcessorArchitecture': 'x64'})
+
+    def test_new_msix_rejects_unreserved_package_visual_and_startup_names(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            file = Path(temporary) / 'fixture.msix'
+            original = ET.fromstring(builder.manifest(builder.SYNTHETIC, '1.0.1'))
+            ns = {k or 'f': v for k, v in builder.NS.items()}
+            for element, attribute in (('f:Properties/f:DisplayName', None),
+                                       ('.//uap:VisualElements', 'DisplayName'),
+                                       ('.//desktop:StartupTask', 'DisplayName')):
+                with self.subTest(element=element):
+                    changed = ET.fromstring(ET.tostring(original))
+                    node = changed.find(element, ns)
+                    if attribute:
+                        node.set(attribute, "DMeloper's Block Pet (Store)")
+                    else:
+                        node.text = "DMeloper's Block Pet (Store)"
+                    with zipfile.ZipFile(file, 'w') as archive:
+                        archive.writestr('AppxManifest.xml', ET.tostring(changed))
+                        archive.writestr(builder.MAIN, b'MZfixture')
+                    with self.assertRaisesRegex(ValueError, 'reserved Store'):
+                        builder.verify_msix(file, '1.0.1', builder.SYNTHETIC,
+                                            expected_minimum_windows=builder.MINIMUM_WINDOWS_VERSION)
+                    # Retained evidence is still inspectable under its original contract.
+                    self.assertEqual(len(builder.verify_msix(file, '1.0.1', builder.SYNTHETIC)), 2)
 
     def test_msix_rejects_wrong_identity_and_installer_payload(self):
         with tempfile.TemporaryDirectory() as root:

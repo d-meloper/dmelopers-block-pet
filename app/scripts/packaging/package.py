@@ -23,7 +23,8 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = 'x86_64-pc-windows-msvc'
 MAIN = 'dmelopers-block-pet.exe'
-STORE_DISPLAY_NAME = "DMeloper's Block Pet (Store)"
+# Partner Center's reserved name; a channel suffix is not another reservation.
+STORE_DISPLAY_NAME = "DMeloper's Block Pet"
 MINIMUM_WINDOWS_VERSION = '10.0.19045.3448'
 MAXIMUM_WINDOWS_VERSION_TESTED = '10.0.26100.0'
 SYNTHETIC = {'name': 'Dmeloper.BlockPet.BuildValidation',
@@ -288,6 +289,13 @@ def verify_msix(path, app_version, store, *, expected_minimum_windows=None):
         require(found is not None and found.attrib == {'Name': store['name'], 'Publisher': store['publisher'],
                 'Version': version(app_version), 'ProcessorArchitecture': 'x64'}, 'MSIX identity drift')
         if expected_minimum_windows is not None:
+            display = node.find('{' + NS[''] + '}Properties/{' + NS[''] + '}DisplayName')
+            visual = node.find('.//{' + NS['uap'] + '}VisualElements')
+            startup = node.find('.//{' + NS['desktop'] + '}StartupTask')
+            require(display is not None and display.text == STORE_DISPLAY_NAME
+                    and visual is not None and visual.get('DisplayName') == STORE_DISPLAY_NAME
+                    and startup is not None and startup.get('DisplayName') == STORE_DISPLAY_NAME,
+                    'MSIX display names must match the reserved Store product name')
             family = node.find('{' + NS[''] + '}Dependencies/{' + NS[''] + '}TargetDeviceFamily')
             require(family is not None and family.attrib == {'Name': 'Windows.Desktop',
                     'MinVersion': expected_minimum_windows,

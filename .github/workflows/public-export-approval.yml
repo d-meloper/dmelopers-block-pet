@@ -12,8 +12,8 @@ concurrency:
 jobs:
   public-export-approval:
     name: public-export-approval
-    runs-on: windows-2025
-    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -22,12 +22,15 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Verify inspected source identity
-        shell: pwsh
+        shell: bash
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          $actual = git rev-parse HEAD
-          if ($actual -ne $env:EXPECTED_HEAD) { throw 'Inspected source differs from the requested head' }
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$EXPECTED_HEAD" ]; then
+            echo 'Inspected source differs from the requested head' >&2
+            exit 1
+          fi
       - name: Review introduced dependencies for vulnerabilities
         # Personal private source previews cannot use GitHub dependency review.
         if: github.event_name == 'pull_request' && github.event.repository.private == false
@@ -39,17 +42,9 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24'
-      - run: node --test .github/scripts/public-check.test.mjs
-      - run: node .github/scripts/public-check.mjs
-      - run: npm install --global pnpm@11.15.1
-      - run: pnpm install --frozen-lockfile
-        working-directory: app
-      - run: python -m unittest discover -s scripts/packaging -p test_*.py
-        working-directory: app
-      - name: Build and validate Store MSIX (synthetic identity only)
-        shell: pwsh
-        working-directory: app
-        run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/packaging/build.ps1 --validation --reviewed-public-commit (git rev-parse HEAD) --output "$env:RUNNER_TEMP/block-pet-package-check"
-      # No upload-artifact, release upload, or binary-bearing public cache.
-      # These outputs prove build checks only; releases are produced locally.
+      - name: Test public source checks
+        run: node --test .github/scripts/public-check.test.mjs
+      - name: Verify public source files and assets
+        run: node .github/scripts/public-check.mjs
+      # Native/Store production is verified locally from reviewed source once.
+      # Public CI does not build binaries, upload artifacts or retain binary caches.

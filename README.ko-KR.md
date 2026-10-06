@@ -1,4 +1,6 @@
-<img src="assets/hero.png" alt="DMeloper's Block Pet 대표 이미지" width="40%">
+<p align="center">
+  <img src="assets/hero.png" alt="DMeloper's Block Pet 대표 이미지" width="36%">
+</p>
 
 # DMeloper's Block Pet
 

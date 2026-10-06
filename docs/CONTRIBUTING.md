@@ -35,7 +35,7 @@ For repeated local builds, add `--cache-root C:/BlockPetBuild/compiler-cache`. K
 
 ## Release Builds
 
-Public CI checks the source and packaging tests and validates a Store MSIX with a sample identity. It does not upload binaries, build artifacts or binary caches. Passing CI does not establish that its files match a local release byte for byte.
+Public CI verifies the exact source commit, approved public files and assets, and private-content checks. It reviews introduced dependencies when GitHub dependency review is available. Native app and Store package builds are verified locally; CI does not produce or upload binaries, build artifacts or binary caches.
 
 Store release builds are produced locally from the reviewed public commit, with the retained source export manifest, registered Store identity and exact tool versions. Signing, security checks, installation checks and publication checks follow separately. You do not need the maintainer's private tools to build the public app.
 
@@ -46,3 +46,5 @@ Store packages declare `packagedClassicApp`, `mediumIL`, `runFullTrust`, `Startu
 See Microsoft's [package manifest guidance](https://learn.microsoft.com/windows/msix/desktop/desktop-to-uwp-manual-conversion) and [update deferral reference](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-uap17-updatewhileinuse).
 
 Accepting a source change does not publish a release. Maintainer issue and PR descriptions use English first, followed by Korean.
+
+Maintainer source updates use squash merges after the source checks pass.

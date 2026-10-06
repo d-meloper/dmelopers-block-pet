@@ -35,7 +35,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/packaging/build.ps1 
 
 ## 배포 빌드
 
-공개 CI는 소스와 패키징 테스트를 검사하고 예시 식별자를 사용한 Store MSIX를 검증하며, 바이너리·빌드 결과·바이너리 캐시를 업로드하지 않습니다. CI가 통과해도 로컬 배포 파일과 내용이 완전히 같다는 뜻은 아닙니다.
+공개 CI는 정확한 소스 커밋, 허용된 공개 파일과 자산, 비공개 정보 포함 여부를 검사합니다. GitHub에서 의존성 검토를 제공하면 새로 추가한 의존성도 확인합니다. 앱과 Store 패키지 빌드는 로컬에서 검증하며, CI는 바이너리·빌드 결과·바이너리 캐시를 만들거나 업로드하지 않습니다.
 
 Store 배포 파일은 검토한 공개 커밋, 보존한 소스 내보내기 명세, 등록한 Store 식별자와 정확한 도구 버전으로 로컬에서 만듭니다. 이후 서명·보안·설치·게시 검증을 따로 진행합니다. 공개 앱을 빌드하는 데 운영자의 비공개 도구는 필요하지 않습니다.
 
@@ -46,3 +46,5 @@ Store 패키지는 `packagedClassicApp`, `mediumIL`, `runFullTrust`, `StartupTas
 Microsoft의 [패키지 매니페스트 안내](https://learn.microsoft.com/windows/msix/desktop/desktop-to-uwp-manual-conversion)와 [업데이트 지연 문서](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-uap17-updatewhileinuse)를 참고하세요.
 
 소스 수정이 반영되어도 배포가 바로 이루어지는 것은 아닙니다. 운영자가 작성하는 이슈·PR 본문은 영어 다음 한국어 순서로 작성합니다.
+
+운영자의 공개 소스 변경은 소스 검사를 통과한 뒤 squash 방식으로 병합합니다.

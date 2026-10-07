@@ -1,6 +1,6 @@
 # 보안 안내
 
-한국어 · [English](SECURITY.md)
+한국어 · [English](https://github.com/d-meloper/dmelopers-block-pet/blob/main/docs/SECURITY.md)
 
 ## 취약점 제보
 
@@ -32,6 +32,6 @@ Store 패키지의 서명과 업데이트는 Microsoft가 관리합니다. Micro
 
 ## 설치 중 문제가 생겼을 때
 
-WiX 설치에서는 Windows Installer가 프로그램 파일 변경의 롤백을 처리합니다. 개인 데이터를 이전 백업으로 되돌리는 기능과는 별개이며 앱 데이터의 자동 롤백은 제공하지 않습니다. 설치가 중단되었다면 같은 설치파일을 다시 실행해 프로그램 파일을 복구하세요. 일반 설치와 복구는 Saved Games 공유 데이터를 유지합니다. 개인 데이터 삭제는 제거기에서 별도로 확인하는 옵션이며 적용 범위는 [데이터·권한 안내](PRIVACY.ko-KR.md)를 확인하세요.
+WiX 설치에서는 Windows Installer가 프로그램 파일 변경의 롤백을 처리합니다. 개인 데이터를 이전 백업으로 되돌리는 기능과는 별개이며 앱 데이터의 자동 롤백은 제공하지 않습니다. 설치가 중단되었다면 같은 설치파일을 다시 실행해 프로그램 파일을 복구하세요. 일반 설치와 복구는 Saved Games 공유 데이터를 유지합니다. 개인 데이터 삭제는 제거기에서 별도로 확인하는 옵션이며 적용 범위는 [데이터·권한 안내](https://github.com/d-meloper/dmelopers-block-pet/blob/main/docs/PRIVACY.ko-KR.md)를 확인하세요.
 
-로그를 공유하기 전에는 개인정보를 확인하세요. 설치 도움말은 [지원 안내](SUPPORT.ko-KR.md)를 확인하세요.
+로그를 공유하기 전에는 개인정보를 확인하세요. 설치 도움말은 [지원 안내](https://github.com/d-meloper/dmelopers-block-pet/blob/main/docs/SUPPORT.ko-KR.md)를 확인하세요.

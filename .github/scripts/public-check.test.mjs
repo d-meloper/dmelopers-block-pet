@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deflateSync } from 'node:zlib'
-import { inspectFile, inspectText, inspectPng, inspectGlb, checkTree } from './public-check.mjs'
+import { inspectFile, inspectText, inspectPng, inspectGlb, inspectMarkdownLinks, checkTree } from './public-check.mjs'
 
 const secret = ['sk', 'proj', 'x'.repeat(24)].join('-')
 const pngPath = 'app/public/logo.png'
@@ -93,6 +93,44 @@ test('GLB JSON escapes are decoded, with malformed and oversized documents rejec
   assert.throws(() => inspectGlb(broken, 'model.glb'), /invalid/)
 })
 
+const documentationFiles = ['LICENSE', 'README.md', 'assets/hero.png', 'docs/CONTRIBUTING.md',
+  'docs/CONTRIBUTING.ko-KR.md', 'docs/SECURITY.md', 'docs/SECURITY.ko-KR.md', 'docs/PRIVACY.md', 'docs/SUPPORT.md']
+const documentationBase = 'https://github.com/d-meloper/dmelopers-block-pet/blob/main/'
+
+test('contribution and security links survive both GitHub root-rendered and ordinary file views', () => {
+  for (const [path, target] of [['docs/CONTRIBUTING.md', 'CONTRIBUTING.ko-KR.md'],
+    ['docs/SECURITY.md', 'SECURITY.ko-KR.md'], ['docs/SECURITY.md', 'PRIVACY.md'], ['docs/SECURITY.md', 'SUPPORT.md']]) {
+    const fileView = new URL(target, documentationBase + path)
+    const rootView = new URL(target, documentationBase)
+    assert(documentationFiles.includes(fileView.pathname.split('/blob/main/')[1]))
+    assert(!documentationFiles.includes(rootView.pathname.split('/blob/main/')[1]))
+    assert.throws(() => inspectMarkdownLinks(`[link](${target})`, path, documentationFiles), /root-rendered/)
+    const canonical = documentationBase + 'docs/' + target
+    assert.equal(new URL(canonical, fileView).href, new URL(canonical, rootView).href)
+    inspectMarkdownLinks(`[link](${canonical})`, path, documentationFiles)
+  }
+  assert.throws(() => inspectMarkdownLinks('[English](CONTRIBUTING.md)', 'docs/CONTRIBUTING.ko-KR.md', documentationFiles), /root-rendered/)
+  assert.throws(() => inspectMarkdownLinks('[English](SECURITY.md)', 'docs/SECURITY.ko-KR.md', documentationFiles), /root-rendered/)
+})
+
+test('metadata links use exact projected paths, including HTML and reference-style links', () => {
+  inspectMarkdownLinks('[Support](docs/SUPPORT.md#installation) [Directory](docs/) [License](LICENSE)\n' +
+    '<img src="assets/hero.png"> [External](https://example.com/missing.md) [Mail](mailto:fixture@example.com) [Here](#usage)',
+  'README.md', documentationFiles)
+  inspectMarkdownLinks('[License](../LICENSE) [Data](PRIVACY.md)\n[help]: SUPPORT.md "Support"', 'docs/SUPPORT.md', documentationFiles)
+  for (const prose of ['[Missing](docs/MISSING.md)', '[Case](docs/Support.md)', '<img src="assets/Hero.png">', '[help]: docs/MISSING.md'])
+    assert.throws(() => inspectMarkdownLinks(prose, 'README.md', documentationFiles), /missing or wrong-case/)
+  assert.throws(() => inspectMarkdownLinks(`[Data](${documentationBase}docs/privacy.md)`, 'docs/SECURITY.md', documentationFiles), /wrong-case/)
+  assert.throws(() => inspectMarkdownLinks('[Data](/d-meloper/dmelopers-block-pet/blob/main/docs/PRIVACY.md)', 'docs/SECURITY.md', documentationFiles), /canonical/)
+  assert.throws(() => inspectMarkdownLinks('[Data](/docs/PRIVACY.md)', 'README.md', documentationFiles), /canonical/)
+})
+
+test('Markdown examples and application documentation are outside metadata link checks', () => {
+  inspectMarkdownLinks('`[example](missing.md)`\n```markdown\n[example](missing.md)\n```\n' +
+    '~~~markdown\n[example](missing.md)\n~~~\n[License](LICENSE)', 'README.md', documentationFiles)
+  inspectMarkdownLinks('[Local source](missing.md)', 'app/vendor/README.md', documentationFiles)
+})
+
 test('tree check excludes only root Git metadata and detects file/inventory drift', async () => {
   const root = await mkdtemp(join(tmpdir(), 'block-pet-public-check-'))
   try {
@@ -112,5 +150,20 @@ test('tree check excludes only root Git metadata and detects file/inventory drif
     await writeFile(inventory, JSON.stringify({ schemaVersion: 1, files }))
     await mkdir(join(root, 'app/.git'))
     await assert.rejects(checkTree(root), /forbidden path/)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('tree check rejects missing Markdown destinations even when the file inventory is exact', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'block-pet-public-links-'))
+  try {
+    await mkdir(join(root, '.github')); await mkdir(join(root, 'app/src-tauri'), { recursive: true })
+    const files = ['.github/public-files.json', 'README.md', 'app/package.json', 'app/src-tauri/tauri.conf.json']
+    await writeFile(join(root, files[0]), JSON.stringify({ schemaVersion: 1, files }))
+    await writeFile(join(root, files[1]), '[Missing](docs/SUPPORT.md)')
+    await writeFile(join(root, files[2]), JSON.stringify({ name: 'dmelopers-block-pet', scripts: {} }))
+    await writeFile(join(root, files[3]), JSON.stringify({ productName: "DMeloper's Block Pet", identifier: 'com.dmeloper.blockpet' }))
+    await assert.rejects(checkTree(root), /Markdown target/)
+    await writeFile(join(root, files[1]), '[External](https://example.com/help)')
+    assert.equal(await checkTree(root), 4)
   } finally { await rm(root, { recursive: true, force: true }) }
 })

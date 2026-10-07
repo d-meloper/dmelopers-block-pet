@@ -1,6 +1,6 @@
 # Contributing
 
-[한국어](CONTRIBUTING.ko-KR.md) · English
+[한국어](https://github.com/d-meloper/dmelopers-block-pet/blob/main/docs/CONTRIBUTING.ko-KR.md) · English
 
 ## Suggestions and Changes
 

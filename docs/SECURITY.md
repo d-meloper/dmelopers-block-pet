@@ -1,6 +1,6 @@
 # Security Policy
 
-[한국어](SECURITY.ko-KR.md) · English
+[한국어](https://github.com/d-meloper/dmelopers-block-pet/blob/main/docs/SECURITY.ko-KR.md) · English
 
 ## Reporting a Vulnerability
 
@@ -32,6 +32,6 @@ For more information, see Microsoft's [SmartScreen FAQ](https://feedback.smartsc
 
 ## Installation Problems
 
-WiX installations use Windows Installer rollback for program-file changes. This does not restore personal data from an earlier backup; automatic app-data rollback is not provided. If installation is interrupted, run the same installer again to repair the program files. Normal installation and repair preserve shared Saved Games data. Removing personal data is a separate confirmed uninstaller option; see [Data and Permissions](PRIVACY.md) for its scope.
+WiX installations use Windows Installer rollback for program-file changes. This does not restore personal data from an earlier backup; automatic app-data rollback is not provided. If installation is interrupted, run the same installer again to repair the program files. Normal installation and repair preserve shared Saved Games data. Removing personal data is a separate confirmed uninstaller option; see [Data and Permissions](https://github.com/d-meloper/dmelopers-block-pet/blob/main/docs/PRIVACY.md) for its scope.
 
-Review logs before sharing them. See [Support](SUPPORT.md) for installation help.
+Review logs before sharing them. See [Support](https://github.com/d-meloper/dmelopers-block-pet/blob/main/docs/SUPPORT.md) for installation help.

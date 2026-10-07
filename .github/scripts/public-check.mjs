@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFile, readdir, lstat } from 'node:fs/promises'
-import { resolve, join } from 'node:path'
+import { resolve, join, posix } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { inflateSync } from 'node:zlib'
 
@@ -123,6 +123,43 @@ export function inspectFile(path, bytes) {
   else assert(!bytes.subarray(0, 4).equals(Buffer.from('glTF')) && !bytes.subarray(0, 4).equals(Buffer.from([137, 80, 78, 71])), `disguised asset: ${path}`)
 }
 
+export function inspectMarkdownLinks(text, path, files) {
+  if (!path.endsWith('.md') || (path.includes('/') && !path.startsWith('docs/'))) return
+  const inventory = new Set(files)
+  const repository = 'https://github.com/d-meloper/dmelopers-block-pet/'
+  const specialView = /^docs\/(?:CONTRIBUTING|SECURITY)(?:\.ko-KR)?\.md$/.test(path)
+  // GitHub's repository tabs and security/policy render these files from the
+  // repository root, even though ordinary file views retain their docs/ path.
+  const prose = text.replace(/(^|\n)[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\r?\n|$)/g, '$1')
+    .replace(/(`+)[^`]*?\1/g, '')
+  const targets = []
+  for (const match of prose.matchAll(/!?\[[^\]\n]*\]\(\s*(?:<([^>\n]+)>|([^\s)]+))(?:\s+["'][^\n]*?["'])?\s*\)/g))
+    targets.push(match[1] ?? match[2])
+  for (const match of prose.matchAll(/^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*(?:<([^>\n]+)>|([^\s]+))/gm))
+    targets.push(match[1] ?? match[2])
+  for (const match of prose.matchAll(/<(?:a|img)\b[^>]*?\b(?:href|src)\s*=\s*["']([^"']+)["']/gi))
+    targets.push(match[1])
+  for (const target of targets) {
+    if (target.startsWith('#')) continue
+    let destination
+    const repositoryTarget = target.startsWith(repository) ? target.slice(repository.length)
+      : target.startsWith('/d-meloper/dmelopers-block-pet/') ? target.slice('/d-meloper/dmelopers-block-pet/'.length) : null
+    if (repositoryTarget !== null) {
+      if (!/^(?:blob|tree)\/main\//.test(repositoryTarget)) continue
+      assert(!specialView || target.startsWith(repository + 'blob/main/'), `use canonical repository link: ${path}: ${target}`)
+      destination = repositoryTarget.replace(/^(?:blob|tree)\/main\//, '')
+    } else {
+      if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('//')) continue
+      assert(!specialView, `root-rendered document needs canonical repository link: ${path}: ${target}`)
+      assert(!target.startsWith('/'), `use canonical repository link: ${path}: ${target}`)
+      destination = posix.join(posix.dirname(path), target.split(/[?#]/)[0])
+    }
+    destination = posix.normalize(decodeURIComponent(destination.split(/[?#]/)[0])).replace(/\/$/, '')
+    assert(inventory.has(destination) || [...inventory].some(file => file.startsWith(destination + '/')),
+      `missing or wrong-case Markdown target: ${path}: ${target} -> ${destination}`)
+  }
+}
+
 export async function checkTree(root = '.') {
   const inventory = JSON.parse(await readFile(join(root, '.github/public-files.json'), 'utf8'))
   const expected = inventory.files
@@ -143,7 +180,11 @@ export async function checkTree(root = '.') {
   }
   await visit()
   assert.deepEqual(actual.sort(), expected, 'public file inventory changed')
-  for (const path of actual) inspectFile(path, await readFile(join(root, path)))
+  for (const path of actual) {
+    const bytes = await readFile(join(root, path))
+    inspectFile(path, bytes)
+    inspectMarkdownLinks(bytes.toString('utf8'), path, expected)
+  }
   const manifest = JSON.parse(await readFile(join(root, 'app/package.json'), 'utf8'))
   assert.equal(manifest.name, 'dmelopers-block-pet')
   assert(!manifest.scripts['distribution:audit'] && !manifest.scripts['distribution:gate'])

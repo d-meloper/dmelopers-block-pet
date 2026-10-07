@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deflateSync } from 'node:zlib'
-import { inspectFile, inspectText, inspectPng, inspectGlb, inspectMarkdownLinks, checkTree } from './public-check.mjs'
+import { inspectFile, inspectText, inspectPng, inspectGif, inspectGlb, inspectMarkdownLinks, checkTree } from './public-check.mjs'
 
 const secret = ['sk', 'proj', 'x'.repeat(24)].join('-')
 const pngPath = 'app/public/logo.png'
@@ -30,6 +30,22 @@ function glb(json) {
   header.write('glTF'); header.writeUInt32LE(2, 4); header.writeUInt32LE(20 + document.length, 8)
   header.writeUInt32LE(document.length, 12); header.writeUInt32LE(0x4e4f534a, 16)
   return Buffer.concat([header, document])
+}
+
+function gifSubblocks(data, size = 255) {
+  const pieces = []
+  for (let offset = 0; offset < data.length; offset += size) {
+    const part = data.subarray(offset, offset + size)
+    pieces.push(Buffer.from([part.length]), part)
+  }
+  return Buffer.concat([...pieces, Buffer.from([0])])
+}
+function gif(extension = Buffer.alloc(0), local = false, version = 'GIF89a') {
+  const screen = Buffer.from([1, 0, 1, 0, local ? 0 : 0x80, 0, 0])
+  const palette = Buffer.from([0, 0, 0, 255, 255, 255])
+  const image = Buffer.from([0x2c, 0, 0, 0, 0, 1, 0, 1, 0, local ? 0x80 : 0])
+  return Buffer.concat([Buffer.from(version), screen, local ? Buffer.alloc(0) : palette, extension,
+    image, local ? palette : Buffer.alloc(0), Buffer.from([2, 2, 0x44, 1, 0, 0x3b])])
 }
 
 test('credential and personal paths are found across byte encodings and alignments', () => {
@@ -91,6 +107,66 @@ test('GLB JSON escapes are decoded, with malformed and oversized documents rejec
   assert.throws(() => inspectGlb(glb('{"note":"' + 'a'.repeat(1024 * 1024) + '"}'), 'model.glb'), /limit/)
   const broken = glb('{}'); broken.writeUInt32LE(99, 8)
   assert.throws(() => inspectGlb(broken, 'model.glb'), /invalid/)
+})
+
+test('GIF structure accepts both headers, global and local palettes, and known extension blocks', () => {
+  const extension = Buffer.concat([Buffer.from([0x21, 0xfe]), gifSubblocks(Buffer.from('Owner screenshot'), 3),
+    Buffer.from([0x21, 0xff, 11]), Buffer.from('NETSCAPE2.0'), gifSubblocks(Buffer.from([1, 0, 0])),
+    Buffer.from([0x21, 0xf9, 4, 0, 0, 0, 0, 0])])
+  for (const bytes of [gif(extension), gif(Buffer.alloc(0), true), gif(Buffer.alloc(0), false, 'GIF87a')])
+    assert.deepEqual(inspectGif(bytes, 'fixture'), { width: 1, height: 1, frames: 1 })
+  const text = Buffer.from([0x21, 1, 12, 0, 0, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1])
+  assert.equal(inspectGif(gif(Buffer.concat([text, gifSubblocks(Buffer.from('A'))])), 'fixture').frames, 1)
+})
+
+test('GIF extension metadata detects credentials and profiles across subblocks with bounded work', () => {
+  const text = Buffer.from([0x21, 1, 12, 0, 0, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1])
+  for (const data of [Buffer.from(secret), Buffer.from(secret, 'utf16le'), Buffer.from(['C:', 'Users', 'fixture', 'private.txt'].join('/'))]) {
+    for (const header of [Buffer.from([0x21, 0xfe]), Buffer.concat([Buffer.from([0x21, 0xff, 11]), Buffer.from('TESTAPP0001')]), text])
+      assert.throws(() => inspectGif(gif(Buffer.concat([header, gifSubblocks(data, 3)])), 'fixture'), /credential|personal profile/)
+  }
+  const oversized = Buffer.concat([Buffer.from([0x21, 0xfe]), gifSubblocks(Buffer.alloc(1024 * 1024 + 1, 65))])
+  assert.throws(() => inspectGif(gif(oversized), 'fixture'), /metadata limit/)
+  const excessive = Buffer.from([0x21, 0xfe, 0])
+  assert.throws(() => inspectGif(gif(Buffer.concat(Array(65537).fill(excessive))), 'fixture'), /block limit/)
+})
+
+test('GIF truncation, frame bounds, missing palette, LZW chain and trailing data fail closed', () => {
+  const bytes = gif()
+  const highBitHeader = Buffer.from(bytes); highBitHeader[0] |= 0x80
+  assert.throws(() => inspectGif(highBitHeader, 'fixture'), /GIF header/)
+  for (let length = 0; length < bytes.length; length++) assert.throws(() => inspectGif(bytes.subarray(0, length), 'fixture'))
+  const bounds = Buffer.from(bytes); bounds.writeUInt16LE(2, 24)
+  const code = Buffer.from(bytes); code[29] = 1
+  const noPalette = Buffer.concat([bytes.subarray(0, 13), bytes.subarray(19)]); noPalette[10] = 0
+  for (const broken of [bounds, code, noPalette, Buffer.concat([bytes.subarray(0, 19), Buffer.from([0x3b])]),
+    Buffer.concat([bytes.subarray(0, 30), Buffer.from([0, 0x3b])]), Buffer.concat([bytes, Buffer.from('MZ trailing payload')]),
+    gif(Buffer.from([0x21, 0xee, 0])), gif(Buffer.from([0x21, 0xf9, 3, 0, 0, 0, 0])),
+    gif(Buffer.from([0x21, 0xf9, 4, 1, 0, 0, 3, 0]))]) assert.throws(() => inspectGif(broken, 'fixture'))
+})
+
+test('only the seven exact reviewed README GIF bytes are admitted; changes and disguises are rejected', async () => {
+  const records = [
+    ['assets/features/input-mouse.gif', 640, 480, 76], ['assets/features/input-keyboard.gif', 640, 480, 47],
+    ['assets/features/skin-selection.gif', 640, 480, 66], ['assets/features/pet-customization.gif', 640, 480, 65],
+    ['assets/features/display-customization.gif', 640, 480, 58], ['assets/features/object-customization.gif', 640, 480, 71],
+    ['assets/features/presets.gif', 1200, 532, 152],
+  ]
+  const inventory = JSON.parse(await readFile(new URL('../public-files.json', import.meta.url), 'utf8'))
+  assert.deepEqual(inventory.files.filter(path => path.endsWith('.gif')), records.map(row => row[0]).sort())
+  for (const [path, width, height, frames] of records) {
+    const bytes = await readFile(new URL('../../' + path, import.meta.url))
+    inspectFile(path, bytes)
+    assert.deepEqual(inspectGif(bytes, path), { width, height, frames })
+    const changed = Buffer.from(bytes); changed[12] ^= 1
+    assert.throws(() => inspectFile(path, changed), /reviewed GIF bytes/)
+    assert.throws(() => inspectFile(path.toUpperCase(), bytes), /unreviewed GIF/)
+  }
+  for (const path of ['assets/features/other.gif', 'app/public/animation.gif'])
+    assert.throws(() => inspectFile(path, gif()), /unreviewed GIF/)
+  for (const path of ['app/source.txt', 'assets/hero.png', 'app/public/logo.png'])
+    assert.throws(() => inspectFile(path, gif()), /disguised GIF/)
+  assert.throws(() => inspectFile('assets/features/input-mouse.gif', gif()), /reviewed GIF bytes/)
 })
 
 const documentationFiles = ['LICENSE', 'README.md', 'assets/hero.png', 'docs/CONTRIBUTING.md',

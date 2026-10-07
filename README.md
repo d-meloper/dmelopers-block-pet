@@ -19,12 +19,53 @@ Change the pet's skin, save your settings as presets and export them. Customize 
 
 ## Main Features
 
-- A 3D pet that responds to keyboard input, mouse movement and clicks
-- Skins from 64×64 or legacy 64×32 PNGs and Minecraft Java Edition nicknames
-- Adjustable head size, pet rotation, arm bend and spread, eyebrow shape and color, and palm color
-- Zoom, rotation, opacity, mirror, and automatic or manual display-area sizing
-- Desk size, height, color and transparency, plus keyboard and mouse position, size and colors
-- Presets with previews, favorites, duplication, custom ordering, and `.petpreset` import and export
+- **A 3D pet that responds to keyboard input, mouse movement and clicks**
+
+  <p align="center">
+    <img src="assets/features/input-mouse.gif" alt="Keyboard and mouse reactions" width="35%">
+    &nbsp;&nbsp;
+    <img src="assets/features/input-keyboard.gif" alt="Keyboard-only reactions" width="35%">
+  </p>
+
+  <br>
+
+- **Skins from 64×64 or legacy 64×32 PNGs and Minecraft Java Edition nicknames**
+
+  <p align="center">
+    <img src="assets/features/skin-selection.gif" alt="Selecting Minecraft skins" width="400">
+  </p>
+
+  <br>
+
+- **Adjustable head size, pet rotation, arm bend and spread, eyebrow shape and color, and palm color**
+
+  <p align="center">
+    <img src="assets/features/pet-customization.gif" alt="Customizing the pet appearance" width="400">
+  </p>
+
+  <br>
+
+- **Zoom, rotation, opacity, mirror, and automatic or manual display-area sizing**
+
+  <p align="center">
+    <img src="assets/features/display-customization.gif" alt="Customizing the display area" width="400">
+  </p>
+
+  <br>
+
+- **Desk size, height, color and transparency, plus keyboard and mouse position, size and colors**
+
+  <p align="center">
+    <img src="assets/features/object-customization.gif" alt="Customizing desk, keyboard and mouse" width="400">
+  </p>
+
+  <br>
+
+- **Presets with previews, favorites, duplication, custom ordering, and `.petpreset` import and export**
+
+  <p align="center">
+    <img src="assets/features/presets.gif" alt="Applying saved presets" width="520">
+  </p>
 
 ## Download
 

@@ -19,12 +19,53 @@ DMeloper's Block Pet은 키보드와 마우스에 반응하는 마인크래프�
 
 ## 주요 기능
 
-- 키보드 입력과 마우스 움직임·클릭에 반응하는 3D 펫
-- 64×64 또는 기존 64×32 PNG 스킨과 Minecraft Java Edition 닉네임으로 스킨 적용
-- 머리 크기, 펫 방향, 양팔의 굽힘·벌림, 눈썹 모양·색상과 손바닥 색상 변경
-- 화면 확대·회전·투명도·좌우 반전과 표시 영역의 자동·수동 변경
-- 책상의 크기·높이·색상·투명 여부와 키보드·마우스의 위치·크기·색상 변경
-- 미리보기, 즐겨찾기, 복제, 순서 변경과 `.petpreset` 가져오기·내보내기를 지원하는 프리셋
+- **키보드 입력과 마우스 움직임·클릭에 반응하는 3D 펫**
+
+  <p align="center">
+    <img src="assets/features/input-mouse.gif" alt="키보드와 마우스에 반응하는 펫" width="35%">
+    &nbsp;&nbsp;
+    <img src="assets/features/input-keyboard.gif" alt="키보드 입력에 반응하는 펫" width="35%">
+  </p>
+
+  <br>
+
+- **64×64 또는 기존 64×32 PNG 스킨과 Minecraft Java Edition 닉네임으로 스킨 적용**
+
+  <p align="center">
+    <img src="assets/features/skin-selection.gif" alt="Minecraft 스킨 적용" width="400">
+  </p>
+
+  <br>
+
+- **머리 크기, 펫 방향, 양팔의 굽힘·벌림, 눈썹 모양·색상과 손바닥 색상 변경**
+
+  <p align="center">
+    <img src="assets/features/pet-customization.gif" alt="펫 외형 사용자 지정" width="400">
+  </p>
+
+  <br>
+
+- **화면 확대·회전·투명도·좌우 반전과 표시 영역의 자동·수동 변경**
+
+  <p align="center">
+    <img src="assets/features/display-customization.gif" alt="화면 영역 사용자 지정" width="400">
+  </p>
+
+  <br>
+
+- **책상의 크기·높이·색상·투명 여부와 키보드·마우스의 위치·크기·색상 변경**
+
+  <p align="center">
+    <img src="assets/features/object-customization.gif" alt="책상·키보드·마우스 사용자 지정" width="400">
+  </p>
+
+  <br>
+
+- **미리보기, 즐겨찾기, 복제, 순서 변경과 `.petpreset` 가져오기·내보내기를 지원하는 프리셋**
+
+  <p align="center">
+    <img src="assets/features/presets.gif" alt="저장한 프리셋 적용" width="520">
+  </p>
 
 ## 다운로드
 

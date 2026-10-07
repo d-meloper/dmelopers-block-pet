@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readFile, readdir, lstat } from 'node:fs/promises'
 import { resolve, join, posix } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,6 +9,17 @@ const metadataLimit = 1024 * 1024
 const fileLimit = 16 * 1024 * 1024
 const pngPaths = new Set(['assets/hero.png', 'app/public/logo.png', 'app/src-tauri/assets/tray.png', 'app/src-tauri/assets/models/dmeloper/default.png'])
 const glbPath = 'app/src-tauri/assets/models/dmeloper/dmeloper.glb'
+const gifBlockLimit = 131072
+const gifHeaders = [Buffer.from('GIF87a'), Buffer.from('GIF89a')]
+const gifAssets = new Map([
+  ['assets/features/input-mouse.gif', { sha256: '80a56ce10ce85718f2508dce729bc66eeafaa037203ae590982dbabe06810b84', bytes: 8182388, width: 640, height: 480, frames: 76 }],
+  ['assets/features/input-keyboard.gif', { sha256: 'c1093f1f9814dc973902fdab1b1b711f93db1193201fff074e34a9ec2d57839b', bytes: 4986372, width: 640, height: 480, frames: 47 }],
+  ['assets/features/skin-selection.gif', { sha256: '2fe26fe62d35a4ae7ffe42df977d4530ce2166de902c20eb96cd4e38cf6a6be8', bytes: 7293479, width: 640, height: 480, frames: 66 }],
+  ['assets/features/pet-customization.gif', { sha256: '2261c379ebfa60ac0ca985389f77bb28faccb4bff62951fee99fc99197cc8f46', bytes: 7339596, width: 640, height: 480, frames: 65 }],
+  ['assets/features/display-customization.gif', { sha256: '338828fbd25860a82f02b064b113c61c428d05fa8f5fb7da7699865cb8d101b9', bytes: 6629896, width: 640, height: 480, frames: 58 }],
+  ['assets/features/object-customization.gif', { sha256: '55835c6555735d44347e60b53f889882496a8bfde711b59351cb58e364f52bff', bytes: 7885064, width: 640, height: 480, frames: 71 }],
+  ['assets/features/presets.gif', { sha256: '890f340c8af432fa52b2952eee65808a221e801791773878646f4e9a4b920e7f', bytes: 13760171, width: 1200, height: 532, frames: 152 }],
+])
 
 export function inspectText(bytes, path) {
   const forms = [bytes.toString('utf8')]
@@ -85,6 +97,85 @@ export function inspectPng(bytes, path) {
   assert(ended, `PNG end missing: ${path}`)
 }
 
+export function inspectGif(bytes, path) {
+  assert(bytes.length <= fileLimit && gifHeaders.some(header => bytes.subarray(0, 6).equals(header)), `invalid GIF header or size: ${path}`)
+  let offset = 6, blocks = 0, frames = 0, metadataSize = 0, control = null
+  function take(length) {
+    assert(offset + length <= bytes.length, `truncated GIF: ${path}`)
+    const value = bytes.subarray(offset, offset + length)
+    offset += length
+    return value
+  }
+  function inspect(data) {
+    metadataSize += data.length
+    assert(metadataSize <= metadataLimit, `GIF metadata limit: ${path}`)
+    inspectText(data, path)
+  }
+  function subblocks(text = false) {
+    const pieces = []
+    let total = 0
+    while (true) {
+      assert(++blocks <= gifBlockLimit, `GIF block limit: ${path}`)
+      const length = take(1)[0]
+      if (!length) {
+        if (text) inspect(Buffer.concat(pieces))
+        return total
+      }
+      const value = take(length)
+      total += length
+      if (text) {
+        assert(total + metadataSize <= metadataLimit, `GIF metadata limit: ${path}`)
+        pieces.push(value)
+      }
+    }
+  }
+  const screen = take(7), width = screen.readUInt16LE(0), height = screen.readUInt16LE(2)
+  assert(width && height && width * height <= 16 * 1024 * 1024, `invalid GIF canvas: ${path}`)
+  const globalColors = screen[4] & 0x80 ? 1 << ((screen[4] & 7) + 1) : 0
+  if (globalColors) { take(3 * globalColors); assert(screen[5] < globalColors, `invalid GIF background: ${path}`) }
+  while (true) {
+    assert(++blocks <= gifBlockLimit, `GIF block limit: ${path}`)
+    const marker = take(1)[0]
+    if (marker === 0x3b) {
+      assert(offset === bytes.length && frames && control === null, `GIF trailer, trailing data or frames: ${path}`)
+      return { width, height, frames }
+    }
+    if (marker === 0x2c) {
+      const image = take(9), left = image.readUInt16LE(0), top = image.readUInt16LE(2)
+      const frameWidth = image.readUInt16LE(4), frameHeight = image.readUInt16LE(6), flags = image[8]
+      assert(frameWidth && frameHeight && left + frameWidth <= width && top + frameHeight <= height && !(flags & 0x18), `invalid GIF image bounds: ${path}`)
+      const colors = flags & 0x80 ? 1 << ((flags & 7) + 1) : globalColors
+      assert(colors, `GIF image palette missing: ${path}`)
+      if (flags & 0x80) take(3 * colors)
+      assert(control === null || !(control[0] & 1) || control[3] < colors, `invalid GIF transparency index: ${path}`)
+      control = null
+      const minimumCode = take(1)[0]
+      assert(minimumCode >= 2 && minimumCode <= 8 && subblocks(), `invalid GIF LZW data: ${path}`)
+      assert(++frames <= 1024, `GIF frame limit: ${path}`)
+    } else if (marker === 0x21) {
+      const kind = take(1)[0]
+      if (kind === 0xf9) {
+        assert(control === null && take(1)[0] === 4, `invalid GIF graphic control: ${path}`)
+        control = take(4)
+        assert(!(control[0] & 0xe0) && ((control[0] >> 2) & 7) <= 3 && take(1)[0] === 0, `invalid GIF graphic control: ${path}`)
+        inspect(control)
+      } else if (kind === 0xff) {
+        assert(take(1)[0] === 11, `invalid GIF application header: ${path}`)
+        inspect(take(11)); subblocks(true)
+      } else if (kind === 0xfe) subblocks(true)
+      else if (kind === 0x01) {
+        assert(take(1)[0] === 12, `invalid GIF text header: ${path}`)
+        const header = take(12)
+        assert(globalColors && header.readUInt16LE(4) && header.readUInt16LE(6) && header[8] && header[9]
+          && header.readUInt16LE(0) + header.readUInt16LE(4) <= width && header.readUInt16LE(2) + header.readUInt16LE(6) <= height
+          && Math.max(header[10], header[11]) < globalColors, `invalid GIF text bounds or palette: ${path}`)
+        control = null
+        inspect(header); subblocks(true)
+      } else assert.fail(`unknown GIF extension: ${path}`)
+    } else assert.fail(`unknown GIF block: ${path}`)
+  }
+}
+
 export function inspectGlb(bytes, path) {
   assert(bytes.length >= 20 && bytes.toString('ascii', 0, 4) === 'glTF' &&
     bytes.readUInt32LE(4) === 2 && bytes.readUInt32LE(8) === bytes.length, `invalid GLB: ${path}`)
@@ -117,6 +208,14 @@ export function inspectFile(path, bytes) {
   assert(bytes.length <= fileLimit, `file size limit: ${path}`)
   const forbiddenMagic = ['4d5a', '7f454c46', '504b0304', '504b0506', '504b0708', '377abcaf271c', '526172211a07', '1f8b', '53514c69746520666f726d6174203300', 'd0cf11e0a1b11ae1', 'feedface', 'feedfacf', 'cefaedfe', 'cffaedfe', 'cafebabe', '0061736d', '213c617263683e0a']
   assert(!forbiddenMagic.some(hex => bytes.subarray(0, hex.length / 2).equals(Buffer.from(hex, 'hex'))), `forbidden binary: ${path}`)
+  if (path.toLowerCase().endsWith('.gif')) {
+    assert(gifAssets.has(path), `unreviewed GIF: ${path}`)
+    const expected = gifAssets.get(path), info = inspectGif(bytes, path)
+    assert(bytes.length === expected.bytes && createHash('sha256').update(bytes).digest('hex') === expected.sha256
+      && Object.entries(info).every(([key, value]) => expected[key] === value), `reviewed GIF bytes or dimensions differ: ${path}`)
+    return
+  }
+  assert(!gifHeaders.some(header => bytes.subarray(0, 6).equals(header)), `disguised GIF: ${path}`)
   inspectText(bytes, path)
   if (path.toLowerCase().endsWith('.png')) { assert(pngPaths.has(path), `unreviewed PNG: ${path}`); inspectPng(bytes, path) }
   else if (path.toLowerCase().endsWith('.glb')) { assert(path === glbPath, `unreviewed GLB: ${path}`); inspectGlb(bytes, path) }

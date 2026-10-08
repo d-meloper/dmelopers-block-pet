@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include "AppExternalLinks.h"
 #include "BootstrapperApplication.h"
 #include "dutil.h"
 #include "dictutil.h"
@@ -46,7 +47,6 @@ constexpr wchar_t kUpdateCommit[] = L"Local\\DMeloper.BlockPet.WixLocal.UpdateCo
 #endif
 constexpr wchar_t kExe[] = L"dmelopers-block-pet.exe";
 constexpr wchar_t kRemovalLink[] = L"Uninstall.lnk";
-constexpr wchar_t kWebViewGuide[] = L"https://app.notion.com/p/aismash/WebView2-Runtime-3f02dc0bb4ae80cf87f8e8a02efe0adb?source=copy_link";
 constexpr wchar_t kUninstallRegistry[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\";
 constexpr wchar_t kDependencyRegistry[] = L"Software\\Classes\\Installer\\Dependencies\\";
 constexpr UINT kDetected = WM_APP + 1, kPlanned = WM_APP + 2, kCompleted = WM_APP + 3, kProgress = WM_APP + 4, kMsiRemoved = WM_APP + 5;
@@ -615,10 +615,11 @@ bool MinimumPlatform(DWORD build, DWORD revision, bool revisionKnown, WORD archi
     if (build == 22621) return revisionKnown && revision >= 2283;
     return build > 22621;
 }
-HRESULT CALLBACK WebViewGuideCallback(HWND window, UINT notification, WPARAM, LPARAM parameter, LONG_PTR) {
-    if (notification == TDN_HYPERLINK_CLICKED && parameter &&
-        wcscmp(reinterpret_cast<LPCWSTR>(parameter), kWebViewGuide) == 0)
-        ShellExecuteW(window, L"open", kWebViewGuide, nullptr, nullptr, SW_SHOWNORMAL);
+HRESULT CALLBACK WebViewGuideCallback(HWND window, UINT notification, WPARAM, LPARAM parameter, LONG_PTR context) {
+    auto guide = reinterpret_cast<LPCWSTR>(context);
+    if (notification == TDN_HYPERLINK_CLICKED && parameter && guide &&
+        wcscmp(reinterpret_cast<LPCWSTR>(parameter), guide) == 0)
+        ShellExecuteW(window, L"open", guide, nullptr, nullptr, SW_SHOWNORMAL);
     return S_OK;
 }
 bool AutomaticDisplay(BOOTSTRAPPER_DISPLAY display) {
@@ -1155,17 +1156,19 @@ class BlockPetBootstrapper final : public CBootstrapperApplicationBase {
         CloseHandle(parent); return ok;
     }
     bool RequireWebView() {
+        const auto guide = WebViewGuide(korean_);
         if (!WebViewAvailable()) {
             auto message = std::wstring(T(L"3D 렌더링을 위해 Microsoft WebView2 Runtime 프로그램이 필요합니다. ", L"Microsoft WebView2 Runtime is needed for 3D rendering. "));
             auto closing = T(L" 에서 수동으로 설치한 뒤 다시 실행해 주세요.", L" to install it manually, then try again.");
-            auto plain = message + kWebViewGuide + closing;
+            auto plain = message + guide + closing;
             if (Unattended()) Error(plain);
             else {
-                auto content = message + L"<a href=\"" + kWebViewGuide + L"\">" + T(L"다음 링크", L"Follow this link") + L"</a>" + closing;
+                auto content = message + L"<a href=\"" + guide + L"\">" + T(L"다음 링크", L"Follow this link") + L"</a>" + closing;
                 TASKDIALOGCONFIG dialog{ sizeof(dialog) };
                 dialog.hwndParent = window_; dialog.dwFlags = TDF_ENABLE_HYPERLINKS | TDF_ALLOW_DIALOG_CANCELLATION | TDF_SIZE_TO_CONTENT;
                 dialog.dwCommonButtons = TDCBF_OK_BUTTON; dialog.pszWindowTitle = kDisplayProduct;
                 dialog.pszMainIcon = TD_ERROR_ICON; dialog.pszContent = content.c_str(); dialog.pfCallback = WebViewGuideCallback;
+                dialog.lpCallbackData = reinterpret_cast<LONG_PTR>(guide);
                 if (FAILED(TaskDialogIndirect(&dialog, nullptr, nullptr, nullptr))) Error(plain);
             }
             return false;

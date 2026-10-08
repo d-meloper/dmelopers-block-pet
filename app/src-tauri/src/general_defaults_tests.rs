@@ -1,6 +1,9 @@
 #[path = "state_safety/general_defaults.rs"]
 mod general_defaults;
 mod settings_defaults;
+#[path = "system_language.rs"]
+#[allow(dead_code)]
+mod system_language;
 #[path = "state_safety/startup_stores.rs"]
 mod startup_stores;
 
@@ -92,6 +95,26 @@ fn missing_defaults_reach_native_memory_before_frontends_without_an_eager_save()
             serde_json::from_slice::<Value>(&fs::read(&path).unwrap()).unwrap(),
             expected
         );
+    }
+}
+
+#[test]
+fn shared_language_default_is_system_and_existing_explicit_choices_survive() {
+    let defaults: Value = settings_defaults::section("general").unwrap();
+    assert_eq!(defaults["appearance"]["language"], "system");
+    for language in ["ko-KR", "en-US", "system"] {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join(filename());
+        let initial = json!({"appearance":{"language":language,"retained":0}});
+        let before = serde_json::to_vec(&initial).unwrap();
+        fs::write(&path, &before).unwrap();
+        let app = app(temp.path());
+        initialize_store(app.handle()).unwrap();
+        let state = app.pinia().try_state::<Value>("general").unwrap();
+        assert_eq!(state["appearance"]["language"], language);
+        assert_eq!(state["appearance"]["retained"], 0);
+        assert_eq!(state["appearance"]["theme"], defaults["appearance"]["theme"]);
+        assert_eq!(fs::read(&path).unwrap(), before);
     }
 }
 

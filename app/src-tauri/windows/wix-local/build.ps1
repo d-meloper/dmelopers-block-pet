@@ -29,6 +29,9 @@ if ((Test-Path -LiteralPath $out -PathType Leaf) -or
   throw 'Choose a fresh output directory; previous and failed build files are immutable.'
 }
 New-Item -ItemType Directory -Force -Path $out | Out-Null
+# Generate compiler literals from the same source consumed by Vue and Rust.
+$linkSource = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../src/config/externalLinks.json'))
+& (Join-Path $PSScriptRoot 'write-external-links.ps1') -Source $linkSource -Output (Join-Path $out 'AppExternalLinks.h')
 $savedInclude=$env:INCLUDE; $savedLib=$env:LIB; $savedPath=$env:PATH
 try {
   $env:INCLUDE = (@("$MsvcRoot/include", "$WindowsSdkRoot/Include/$WindowsSdkVersion/ucrt", "$WindowsSdkRoot/Include/$WindowsSdkVersion/shared", "$WindowsSdkRoot/Include/$WindowsSdkVersion/um", "$ba/include", "$dutil/include") -join ';')
@@ -43,7 +46,7 @@ try {
     $linkerFlags = @('/SUBSYSTEM:WINDOWS','/MANIFEST:NO','/INCREMENTAL:NO','/DYNAMICBASE','/NXCOMPAT','/HIGHENTROPYVA','balutil.lib','dutil.lib','user32.lib','gdi32.lib','shell32.lib','ole32.lib','oleaut32.lib','advapi32.lib','bcrypt.lib','comctl32.lib','msi.lib','shlwapi.lib','version.lib','wininet.lib','urlmon.lib','uuid.lib','wintrust.lib','crypt32.lib')
     function Build-NativeBa {
       param([string]$Name, [string[]]$ProfileFlags = @())
-      & "$MsvcRoot/bin/Hostx64/x64/cl.exe" @compilerFlags @ProfileFlags /sourceDependencies "$out/$Name-source-dependencies.json" "/Fo$out/$Name.obj" "/Fe$out/$Name.exe" Bootstrapper.cpp "$out/Bootstrapper.res" /link @linkerFlags
+      & "$MsvcRoot/bin/Hostx64/x64/cl.exe" @compilerFlags @ProfileFlags "/I$out" /sourceDependencies "$out/$Name-source-dependencies.json" "/Fo$out/$Name.obj" "/Fe$out/$Name.exe" Bootstrapper.cpp "$out/Bootstrapper.res" /link @linkerFlags
       if ($LASTEXITCODE -ne 0) { throw "Native BA compilation failed: $Name" }
     }
     # QA fixtures and their command are compiled only into this retained test binary.
@@ -56,6 +59,7 @@ try {
   $notice = "WiX Toolset native SDK 7.0.0`r`nCopyright (c) .NET Foundation and contributors.`r`nSource: https://github.com/wixtoolset/wix/tree/b8977d6f88e7b68e000bac226a2814f236770570`r`nBootstrapperApplicationApi and DUtil static libraries are unmodified.`r`n`r`n" + (Get-Content -LiteralPath (Join-Path $ToolRoot 'LICENSE.TXT') -Raw) + "`r`n`r`n" + (Get-Content -LiteralPath (Join-Path $ToolRoot 'wixtoolset.dutil/OSMFEULA.txt') -Raw)
   [IO.File]::WriteAllText((Join-Path $out 'ThirdParty-WiX.txt'), $notice, [Text.UTF8Encoding]::new($false))
   $inputFiles = @(Get-ChildItem -LiteralPath $PSScriptRoot -File | Where-Object Extension -in '.cpp','.rc','.manifest','.ps1')
+  $inputFiles += @(Get-Item -LiteralPath $linkSource)
   $inputFiles += @(Get-Item "$ToolRoot/wixtoolset.bootstrapperapplicationapi.7.0.0.nupkg", "$ToolRoot/wixtoolset.dutil.7.0.0.nupkg", "$MsvcRoot/bin/Hostx64/x64/cl.exe", "$MsvcRoot/bin/Hostx64/x64/link.exe", "$WindowsSdkRoot/bin/$WindowsSdkVersion/x64/rc.exe")
   $inputFiles += @(Get-ChildItem "$ba/include", "$dutil/include" -Recurse -File)
   $inputFiles += @(Get-Item "$ba/v14/x64/balutil.lib", "$dutil/v14/x64/dutil.lib", "$PSScriptRoot/../../icons/icon.ico", "$ToolRoot/LICENSE.TXT", "$ToolRoot/wixtoolset.dutil/OSMFEULA.txt")

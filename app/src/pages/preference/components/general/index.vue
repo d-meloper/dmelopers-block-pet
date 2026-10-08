@@ -196,6 +196,9 @@ function confirmGeneralReset() {
 
       <ProListItem :title="$t('pages.preference.general.labels.language')">
         <Select v-model:value="generalStore.appearance.language">
+          <Select.Option value="system">
+            {{ $t('pages.preference.general.options.systemLanguage') }}
+          </Select.Option>
           <Select.Option value="ko-KR">
             한국어
           </Select.Option>

@@ -102,7 +102,7 @@
             "default": "스킨 공유 안함",
             "defaultHint": "기본 펫 스킨으로 프리셋을 내보냅니다. 주변요소 배치, 조명, 펫 외형 등 스킨을 제외한 옵션만 내보낼 때 이 옵션을 선택하세요.",
             "imageHint": "PNG 스킨 이미지를 프리셋에 포함해 내보냅니다. 이 프리셋을 외부에 공유할 때는 스킨 이미지 원작자의 허락을 받거나 공유 권한이 있는 경우에만 진행해주세요. \n(무단으로 스킨 이미지를 외부에 공유하는 것은 저작권 침해에 해당할 수 있습니다.)",
-            "nicknameHint": "스킨 닉네임을 프리셋에 포함해 내보냅니다. 이 프리셋을 불러올 때 해당 스킨 닉네임으로 최신 스킨을 가져오며, 적용 확인 후 펫에 반영합니다.\n(닉네임에 연결된 스킨이 중간에 변경되면 프리셋을 내보낼 때와 불러올 때의 스킨이 달라질 수 있습니다.)\n닉네임을 내보내도 스킨 이미지의 이용·공유 권한이 함께 이전되는 것은 아닙니다.",
+            "nicknameHint": "스킨 닉네임을 프리셋에 포함해 내보냅니다. 이 프리셋을 불러올 때 해당 스킨 닉네임으로 최신 스킨을 가져오며, 적용 확인 후 펫에 반영합니다.\n(닉네임에 연결된 스킨이 중간에 변경되면 프리셋을 내보낼 때와 불러올 때의 스킨이 달라질 수 있습니다.)",
             "username": "연결된 닉네임",
             "noNickname": "이 프리셋에는 연결된 Java 닉네임이 없습니다. 펫 탭에서 닉네임으로 스킨을 적용하면 선택할 수 있습니다."
           },
@@ -252,7 +252,7 @@
           "hideOnHover": "마우스가 올라오면 설정한 지연 뒤 펫 창을 숨깁니다.",
           "maxFPS": "렌더링 프레임을 제한해 CPU와 GPU 사용량을 줄일 수 있습니다.",
           "petModel": "펫 모델을 선택합니다.",
-          "minecraftSkinUsername": "Minecraft: Java Edition 닉네임에 연결된 스킨을 조회해 펫에 적용합니다. 인터넷 연결이 필요하며, 조회 가능한 스킨이라도 사용·공유 권한이 자동으로 부여되지는 않습니다.",
+          "minecraftSkinUsername": "Minecraft: Java Edition 닉네임에 연결된 스킨을 조회해 펫에 적용합니다.",
           "dmeloperSkinModel": "와이드 모델은 스킨이 지원하는 경우에만 선택할 수 있습니다.",
           "petHeadScale": "펫의 머리 크기를 변경합니다.",
           "petRightArmBend": "오른쪽 팔꿈치의 구부림을 조절합니다.",
@@ -553,6 +553,7 @@
         },
         "options": {
           "auto": "시스템",
+          "systemLanguage": "시스템 설정",
           "lightMode": "라이트",
           "darkMode": "다크"
         },
@@ -602,7 +603,7 @@
         },
         "hints": {
           "broadcastUsage": "OBS에 연동된 펫은 OBS에서 별도로 렌더링 되므로 현재 지표에 포함되지 않습니다. Windows 작업 관리자에서 OBS 리소스 사용량을 확인할 수 있으나, 해당 수치는 OBS 프로그램 전체의 사용량을 나타내기 때문에, 펫 렌더링에 쓰이는 정확한 사용량을 의미하지 않습니다.",
-          "sampling": "성능 지표는 1초마다 측정되며, 하단의 옵션을 적절히 조절해 성능을 향상시킬 수 있습니다.",
+          "sampling": "성능 지표는 성능 탭이 켜져있을 때만 1초 마다 측정되며, 하단의 옵션을 적절히 조절해 성능을 향상시킬 수 있습니다.",
           "average": "괄호 안의 수치는 최근 {duration}간 측정한 평균 사용량입니다.",
           "durationSeconds": "{seconds}초",
           "durationMinutesSeconds": "{minutes}분 {seconds}초",
@@ -695,7 +696,8 @@
           "lucideIcons": "Lucide Contributors의 ISC 고지와 Cole Bemis의 Feather 유래 MIT 고지를 함께 제공합니다.",
           "antDesignIcons": "GitHub 아이콘은 MIT 라이선스의 Ant Design Icons에서 가져왔습니다. 원래 저작권과 라이선스 원문은 제3자 라이선스 안내에 포함합니다.",
           "notionIcon": "Notion 링크에는 제공된 참고 이미지에 맞춰 만든 로컬 벡터를 사용합니다. Notion의 이름과 표시는 해당 권리자에게 속합니다.",
-          "legalNotices": "제3자 라이선스와 출처를 확인합니다.",
+          "microsoftStoreIcon": "Microsoft Store 링크에는 제공된 쇼핑백·창문 참고 이미지를 바탕으로 만든 로컬 벡터를 사용합니다. Microsoft Store의 이름과 표시는 Microsoft에 속합니다.",
+          "legalNotices": "앱의 MIT 라이선스와 제3자 라이선스·출처를 확인합니다.",
           "dataNotice": "앱에서 사용하는 데이터·권한과 외부 통신을 확인합니다.",
           "unofficialProduct": "본 앱은 공식 Minecraft 제품이 아니며, Mojang Studios 또는 Microsoft의 승인·제휴·후원을 받지 않았습니다."
         },
@@ -706,6 +708,7 @@
           "viewLegalNotices": "안내문 보기",
           "github": "깃허브",
           "notion": "노션",
+          "microsoftStore": "Microsoft Store",
           "openLinktree": "링크트리 열기"
         },
         "confirm": {
@@ -837,7 +840,7 @@
     "cancel": "업데이트 취소"
   },
   "storeUpdates": {
-    "hint": "업데이트는 Microsoft Store가 관리합니다. 적용하려면 트레이 메뉴에서 앱을 완전히 종료하세요. 일반 재시작만으로 업데이트가 적용되지는 않을 수 있습니다.",
+    "hint": "버전 정보는 Microsoft Store가 관리합니다.",
     "open": "Microsoft Store 열기",
     "openFailed": "Microsoft Store 페이지를 열지 못했습니다. Store 앱에서 업데이트를 확인해 주세요."
   },

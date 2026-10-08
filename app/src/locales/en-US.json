@@ -102,7 +102,7 @@
             "default": "Do not share skin",
             "defaultHint": "Exports the preset with the default pet skin. Choose this option to export settings such as surrounding object placement, lighting, and pet appearance without sharing the skin.",
             "imageHint": "Includes the PNG skin image in the exported preset.\nShare it externally only if you have the skin image creator's permission or the right to share it. Unauthorized sharing may infringe copyright.",
-            "nicknameHint": "Exports the skin's username in the preset.\nImporting this preset fetches the latest skin associated with that username. The skin is applied to your pet only after you confirm.\nSharing a username does not grant permission to use or redistribute its associated skin.",
+            "nicknameHint": "Exports the skin's username in the preset.\nImporting this preset fetches the latest skin associated with that username. The skin is applied to your pet only after you confirm.",
             "username": "Linked username",
             "noNickname": "This preset has no linked Java username. Apply a skin by username in the Pet tab to use this option."
           },
@@ -252,7 +252,7 @@
           "hideOnHover": "When enabled, the window hides automatically on mouse hover. You can set a delay; 0 means hide immediately.",
           "maxFPS": "Limit the maximum frame rate for model rendering. Lowering the frame rate can reduce CPU/GPU usage.",
           "petModel": "Select the pet model.",
-          "minecraftSkinUsername": "Look up the skin associated with a Minecraft: Java Edition username and apply it to this app’s pet. An internet connection is required. Being able to look up a skin does not automatically grant permission to use or share it.",
+          "minecraftSkinUsername": "Look up the skin associated with a Minecraft: Java Edition username and apply it to the pet.",
           "dmeloperSkinModel": "Wide is available only when it is supported by the loaded skin.",
           "petHeadScale": "Adjust the pet's head size.",
           "petRightArmBend": "Adjust the right elbow bend.",
@@ -553,6 +553,7 @@
         },
         "options": {
           "auto": "System",
+          "systemLanguage": "System settings",
           "lightMode": "Light",
           "darkMode": "Dark"
         },
@@ -695,7 +696,8 @@
           "lucideIcons": "Lucide ISC notices and the MIT notices for Feather-derived icons by Cole Bemis are provided together.",
           "antDesignIcons": "The filled GitHub icon is from Ant Design Icons under the MIT License. Its original copyright and license are included in Third-party Licenses.",
           "notionIcon": "The Notion link uses a local vector drawn to match a supplied reference image. Notion's name and mark belong to their rights holder.",
-          "legalNotices": "Read third-party licenses and credits.",
+          "microsoftStoreIcon": "The Microsoft Store links use a local vector based on the supplied shopping-bag and window reference image. Microsoft Store’s name and mark belong to Microsoft.",
+          "legalNotices": "Read the app’s MIT license, third-party licenses, and credits.",
           "dataNotice": "Read about the data, permissions and network connections the app uses.",
           "unofficialProduct": "This is not an official Minecraft product. It is not approved by, affiliated with, or endorsed by Mojang Studios or Microsoft."
         },
@@ -706,6 +708,7 @@
           "viewLegalNotices": "Read Notices",
           "github": "GitHub",
           "notion": "Notion",
+          "microsoftStore": "Microsoft Store",
           "openLinktree": "Open Linktree"
         },
         "confirm": {
@@ -837,7 +840,7 @@
     "cancel": "Cancel update"
   },
   "storeUpdates": {
-    "hint": "Microsoft Store manages updates. Quit the app completely from its tray menu to allow an update. Restarting the app alone may not apply it.",
+    "hint": "Microsoft Store manages version information.",
     "open": "Open Microsoft Store",
     "openFailed": "Could not open the Store page. Check for updates in Microsoft Store."
   },

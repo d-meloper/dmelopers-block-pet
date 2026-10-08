@@ -69,30 +69,110 @@ DMeloper's Block Pet은 키보드와 마우스에 반응하는 마인크래프�
 
 ## 다운로드
 
-앱은 다음 경로에서 내려 받을 수 있습니다.
+##### Microsoft Store (Windows 10 빌드 19045.3448+ / Windows 11 빌드 22621.2283+, x64)
+
+<a href="https://apps.microsoft.com/detail/9PLKW6NBMKQ7?hl=ko-KR" target="_self">
+  <img src="https://get.microsoft.com/images/ko%20dark.svg" alt="Microsoft Store에서 다운로드" width="200">
+</a>
+
+#### ⚠️ 주의사항
+
+Microsoft Store에서 설치하면 아래에서 설명하는 SmartScreen 다운로드·알 수 없는 게시자 경고가 나타나지 않습니다. 다만 새 버전이 출시된 뒤 Store에 게시되기까지 **최대 3영업일이 소요될 수 있습니다.**
+
+그전에 최신 버전을 미리 내려받거나, 앱 내 업데이터로 새 버전을 신속하게 내려받고 싶으시다면 아래 GitHub Releases에서 GitHub판을 내려받아 주세요.
+
+<a name="installation-warnings"></a>
+
+<details>
+<summary><strong>이 프로그램은 바이러스가 아닙니다 🛡️ · 경고 안내와 해결 방법</strong></summary>
+
+프로그램 설치를 시도하면 사용 중인 웹 브라우저에 따라 하단의 이미지처럼 설치가 제한되거나 격리 검사가 이루어지는 경우가 있을 수 있습니다.
+
+<p align="center">
+  <img src="assets/install-warnings/엣지0.png" alt="Microsoft Edge 다운로드 경고" width="28%">
+  &nbsp;
+  <img src="assets/install-warnings/스마트스크린0.png" alt="Windows SmartScreen 실행 경고" width="28%">
+  &nbsp;
+  <img src="assets/install-warnings/백신 1.png" alt="AhnLab V3 Lite 앱 격리 검사" width="28%">
+</p>
+
+### Q1. 왜 이런 경고가 발생하나요?
+
+**A1. 다운로드 이력이 적어서**<br>
+새로 출시한 버전인 경우, 많은 다운로드가 이루어지지 않아 검증되지 않은 프로그램으로 판별해 안전을 위해 경고가 표시됩니다.
+
+**A2. 프로그램의 서명이 돼있지 않아서**<br>
+프로그램 개발자가 누구인지 서명이 되어있지 않아서 안전을 위해 경고가 표시됩니다.
+
+### Q2. 왜 프로그램 서명을 하지 않았나요?
+
+**A. 프로그램 서명은 주기적으로 비용을 지출해야 하기 때문에** 무료로 운영하고 배포되는 프로그램에 서명을 진행하지 않았습니다. 하지만 이러한 경고를 줄이기 위해 [**Azure 아티팩트 서명 작업**](https://azure.microsoft.com/ko-kr/products/artifact-signing/)을 검토 중입니다.(2026년 10월 8일 기준) 다만, 우선 신청할 자격이 되는지 검증해야 하고, 웹 사이트 개설과 심사 기간이 필요해 최소 한 달 정도 시간이 소요될 예정됩니다. 그 전까지는 경고가 계속해서 나타날 수 있습니다.
+
+하단의 임시 조치 방법이 찝찝하시다면 [마이크로소프트 앱스토어 공식 DMeloper’s Block Pet 다운로드 경로](https://apps.microsoft.com/detail/9PLKW6NBMKQ7?hl=ko-KR)에서 프로그램을 설치해주세요. 이 경로에서는 경고가 발생하지 않습니다.
+
+### 경고창 임시 조치 방법
+
+#### Microsoft Edge에서 다운로드 중 경고가 발생하는 경우
+
+1. **[···]** → **[유지]** 를 클릭합니다.
+
+<p align="center">
+  <img src="assets/install-warnings/엣지1.png" alt="Microsoft Edge 다운로드 메뉴의 유지 버튼" width="360">
+</p>
+
+2. 삭제 버튼 우측의 **[⌵] → [그래도 계속]** 버튼을 클릭합니다.
+
+<p align="center">
+  <img src="assets/install-warnings/엣지2.png" alt="Microsoft Edge의 그래도 계속 버튼" width="280">
+</p>
+
+3. 완료
+
+#### 설치파일 실행 시 SmartScreen 경고가 발생하는 경우
+
+1. **[ 추가 정보 ]** 버튼을 클릭합니다.
+
+<p align="center">
+  <img src="assets/install-warnings/스마트스크린0.png" alt="Windows SmartScreen의 추가 정보 버튼" width="360">
+</p>
+
+2. **[ 실행 ]** 을 클릭합니다.
+
+<p align="center">
+  <img src="assets/install-warnings/스마트스크린.png" alt="Windows SmartScreen의 실행 버튼" width="360">
+</p>
+
+3. 완료
+
+### 백신 임시 조치 방법
+
+격리 검사가 완료되고 나면 **‘파일 처리 방법’** 중 **[한 번만 실행]** 또는 **[파일 해시 예외 처리 후 실행]** 을 선택한 뒤 실행해주시면 됩니다.
+
+<p align="center">
+  <img src="assets/install-warnings/백신 2.png" alt="AhnLab V3 Lite의 알려지지 않은 새로운 파일 안내와 파일 처리 메뉴" width="330">
+</p>
+
+</details>
 
 [GitHub Releases](https://github.com/d-meloper/dmelopers-block-pet/releases)
 
 GitHub에서 직접 설치할 때는 `.exe` 설치파일을 실행하세요. 함께 제공하는 `.sig` 파일은 파일 검증용이므로 일반 설치 시 별도로 내려받지 않아도 됩니다. 공개된 릴리즈 노트에서 변경 사항과 설치파일의 SHA-256을 확인해 주세요. 다운로드 경고와 서명 검증에 관한 내용은 [보안 안내](docs/SECURITY.ko-KR.md)에 정리했습니다.
 
-Microsoft Store 배포를 준비하고 있습니다. 앱을 사용할 수 있게 되면 Store 링크가 공개될 예정입니다.
-
 ## 요구 사항
 
 - Windows 10 22H2, 빌드 19045.3448 이상, x64
 - Windows 11 22H2, 빌드 22621.2283 이상, x64
-- Microsoft Edge WebView2 Runtime
+- Microsoft Edge WebView2 Runtime 120 이상
 
 - 권장 환경: Windows 11 24H2, 빌드 26100 이상, x64
+
+GitHub 설치 프로그램은 필요한 경우 WebView2를 설치하며, 이 과정에는 인터넷 연결이 필요합니다.
 
 macOS, Linux와 Windows ARM용 배포는 지원하지 않습니다.
 
 ## 기본 사용 방법
 
-설치, 스킨 적용, 사용자 지정, 프리셋과 OBS 사용 방법은 프로그램 노션 페이지와 커스터마이징 가이드에서 확인할 수 있습니다.
-
-- [프로그램 노션 페이지](https://app.notion.com/p/aismash/DMeloper-s-Block-Pet-0da2dc0bb4ae82ab8db301718dde497b?source=copy_link)
-- [커스터마이징 가이드](https://app.notion.com/p/84f2dc0bb4ae83c6a5c28193dca38b20)
+설치, 스킨 적용, 프리셋과 OBS 사용 방법은 [프로그램 노션 페이지](https://aismash.notion.site/DMeloper-s-Block-Pet-0da2dc0bb4ae82ab8db301718dde497b)에서 확인하세요.
 
 현재 설정은 자동 저장됩니다. 마음에 드는 구성을 보관하려면 `프리셋 > +새 프리셋`을 사용하세요.
 
@@ -113,8 +193,8 @@ macOS, Linux와 Windows ARM용 배포는 지원하지 않습니다.
 
 문의나 버그 제보 전에 아래 문서를 먼저 확인해 주세요.
 
-- [자주 묻는 질문](https://app.notion.com/p/6a62dc0bb4ae8219902f81f8e89cbc28)
-- [알려진 버그](https://app.notion.com/p/d5e2dc0bb4ae82a7ac9a01e543e1c84a)
+- [자주 묻는 질문](https://aismash.notion.site/6a62dc0bb4ae8219902f81f8e89cbc28)
+- [알려진 버그](https://aismash.notion.site/d5e2dc0bb4ae82a7ac9a01e543e1c84a)
 
 사용 문의, 버그 제보와 기능 제안은 아래 설문지로 보낼 수 있습니다.
 
@@ -141,6 +221,6 @@ GitHub에서도 [Issues](https://github.com/d-meloper/dmelopers-block-pet/issues
 
 ## 라이선스 및 권리 고지
 
-앱 소스에는 [MIT 라이선스](LICENSE)가 적용됩니다. 원본 코드의 저작권과 제3자 자산·의존성의 라이선스 고지는 각각 유지됩니다. DMeloper's Block Pet은 BongoCat의 일부 코드에서 파생된 독립 프로젝트이며 공식 BongoCat 배포판이 아닙니다.
+앱 소스와 DMeloper가 직접 제작한 기본 3D 모델·기본 PNG 스킨·앱 아이콘 및 그 파생 아이콘에는 [MIT 라이선스](LICENSE)가 적용됩니다. 저작권·허가 고지를 유지하면 수정·재배포·상업적 이용이 가능합니다. 원본 코드의 저작권과 제3자 자산·의존성의 라이선스 고지는 각각 유지됩니다. DMeloper's Block Pet은 BongoCat의 일부 코드에서 파생된 독립 프로젝트이며 공식 BongoCat 배포판이 아닙니다.
 
 이 프로그램은 공식 Minecraft 제품이 아니며 Mojang Studios 또는 Microsoft의 승인·제휴·후원을 받지 않았습니다. Minecraft와 관련 상표·이름·저작권은 각 권리자에게 귀속됩니다.

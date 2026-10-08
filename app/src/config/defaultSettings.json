@@ -100,7 +100,7 @@
     "appearance": {
       "theme": "auto",
       "isDark": false,
-      "language": "ko-KR"
+      "language": "system"
     }
   },
   "shortcuts": {

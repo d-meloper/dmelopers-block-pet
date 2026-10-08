@@ -4,7 +4,7 @@
 
 ## Installation
 
-Download the `.exe` installer from [Releases](https://github.com/d-meloper/dmelopers-block-pet/releases). The accompanying `.sig` file is used for verification and is not required for normal installation. GitHub installations are for the current Windows account. Microsoft Store distribution is being prepared.
+Install from the [Microsoft Store](https://apps.microsoft.com/detail/9PLKW6NBMKQ7?hl=en-US), or download the `.exe` installer from [GitHub Releases](https://github.com/d-meloper/dmelopers-block-pet/releases). The accompanying `.sig` file is used for verification and is not required for normal installation. GitHub installations are for the current Windows account.
 
 DMeloper's Block Pet requires x64 Windows 10 22H2 with the September 2023 cumulative update (build 19045.3448) or later. Windows 11 requires 22H2 with the September 2023 cumulative update (build 22621.2283) or later. Windows 11 24H2 (build 26100) or newer is recommended. The app is available in English and Korean.
 
@@ -34,7 +34,7 @@ See [Data and Permissions](PRIVACY.md) for details and removal options.
 
 Use [GitHub Issues](https://github.com/d-meloper/dmelopers-block-pet/issues) for questions, bugs and suggestions. Include:
 
-- App version or source commit, and whether you use GitHub, a test edition or a source build.
+- App version or source commit, and whether you use GitHub, Microsoft Store, a test edition or a source build.
 - Whether this was a new installation, update or reinstall; include the previous version if applicable.
 - Installer filename, if applicable, Windows version and display scaling.
 - Steps to reproduce the problem, what you expected and what happened.

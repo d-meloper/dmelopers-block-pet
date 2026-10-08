@@ -5,7 +5,7 @@ import { appLogDir } from '@tauri-apps/api/path'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 import { openPath, openUrl } from '@tauri-apps/plugin-opener'
 import { Button, message, Modal, Switch } from 'ant-design-vue'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { ProgramSettingsResetOptions } from '@/utils/programSettingsReset'
@@ -13,13 +13,15 @@ import type { ProgramSettingsResetOptions } from '@/utils/programSettingsReset'
 import PreferenceSections from '@/components/preference-sections/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
+import { useAppLanguage } from '@/composables/useAppLanguage'
 import { useProgramSettingsReset } from '@/composables/useProgramSettingsReset'
-import { selectByLanguage } from '@/locales/languageBranch'
+import externalLinks from '@/config/externalLinks.json'
 import { reportDiagnostic } from '@/services/diagnostics'
 import { collectEnvironmentInfo } from '@/services/environmentInfo'
 import { DEFAULT_PROGRAM_SETTINGS_RESET_OPTIONS, ProgramSettingsResetError } from '@/utils/programSettingsReset'
 
 import AutomaticUpdates from './AutomaticUpdates.vue'
+import MicrosoftStoreIcon from './MicrosoftStoreIcon.vue'
 import NotionIcon from './NotionIcon.vue'
 
 const copyingInfo = ref(false)
@@ -35,8 +37,11 @@ const resetOpen = ref(false)
 const resetting = ref(false)
 const resetOptions = ref<ProgramSettingsResetOptions>({ ...DEFAULT_PROGRAM_SETTINGS_RESET_OPTIONS })
 const submittedResetOptions = ref<ProgramSettingsResetOptions>()
-const { t, locale } = useI18n()
+const { t } = useI18n()
+const { select } = useAppLanguage()
 const developerEmail = 'dmeloper@gmail.com'
+// Every localized destination follows the same effective application language.
+const resourceLinks = computed(() => select(externalLinks.korean, externalLinks.global))
 const { resetProgramSettings } = useProgramSettingsReset()
 
 onMounted(async () => {
@@ -68,7 +73,7 @@ async function openLogs() {
 
 async function openDeveloperLink() {
   try {
-    await openUrl(selectByLanguage(locale.value, 'https://litt.ly/dmeloper', 'https://linktr.ee/dmeloper.dev'))
+    await openUrl(resourceLinks.value.developer)
   } catch (error) {
     reportDiagnostic('error', 'about.open_developer_link', error)
     message.error(t('pages.preference.about.errors.openDeveloperLink'))
@@ -117,8 +122,7 @@ async function showDataNotice() {
   if (dataNoticeLoading.value) return
   dataNoticeLoading.value = true
   try {
-    const load = selectByLanguage(
-      locale.value,
+    const load = select(
       () => import('@/legal/data-permissions.ko-KR.txt?raw'),
       () => import('@/legal/data-permissions.en-US.txt?raw'),
     )
@@ -185,10 +189,6 @@ async function submitProgramReset() {
         </template>
       </AutomaticUpdates>
 
-      <p class="about-unofficial-notice">
-        {{ $t('pages.preference.about.hints.unofficialProduct') }}
-      </p>
-
       <div class="about-resource-grid">
         <div
           :aria-label="$t('pages.preference.about.labels.introduction')"
@@ -204,7 +204,7 @@ async function submitProgramReset() {
               class="about-brand-action"
               :title="$t('pages.preference.about.buttons.notion')"
               type="text"
-              @click="openAboutLink('https://app.notion.com/p/aismash/0da2dc0bb4ae82ab8db301718dde497b?source=copy_link')"
+              @click="openAboutLink(resourceLinks.introduction)"
             >
               <NotionIcon />
             </Button>
@@ -219,6 +219,15 @@ async function submitProgramReset() {
                 aria-hidden="true"
                 class="about-github-icon"
               />
+            </Button>
+            <Button
+              :aria-label="$t('pages.preference.about.buttons.microsoftStore')"
+              class="about-brand-action"
+              :title="$t('pages.preference.about.buttons.microsoftStore')"
+              type="text"
+              @click="openAboutLink(resourceLinks.microsoftStore)"
+            >
+              <MicrosoftStoreIcon />
             </Button>
           </div>
         </div>
@@ -236,7 +245,7 @@ async function submitProgramReset() {
               class="about-brand-action"
               :title="$t('pages.preference.about.buttons.notion')"
               type="text"
-              @click="openAboutLink('https://app.notion.com/p/aismash/DMeloper-s-Block-Pet-b872dc0bb4ae83d5b15681b53f73d0f9?source=copy_link')"
+              @click="openAboutLink(resourceLinks.releaseNotes)"
             >
               <NotionIcon />
             </Button>
@@ -251,6 +260,15 @@ async function submitProgramReset() {
                 aria-hidden="true"
                 class="about-github-icon"
               />
+            </Button>
+            <Button
+              :aria-label="$t('pages.preference.about.buttons.microsoftStore')"
+              class="about-brand-action"
+              :title="$t('pages.preference.about.buttons.microsoftStore')"
+              type="text"
+              @click="openAboutLink(resourceLinks.microsoftStore)"
+            >
+              <MicrosoftStoreIcon />
             </Button>
           </div>
         </div>
@@ -296,7 +314,7 @@ async function submitProgramReset() {
               <Button
                 class="about-contact-link"
                 type="text"
-                @click="openAboutLink('https://aismash.notion.site/9cff9655595342d78a22c17b61a2084c')"
+                @click="openAboutLink(resourceLinks.support)"
               >
                 {{ $t('pages.preference.about.labels.contactUs') }}
                 <span
@@ -412,6 +430,9 @@ async function submitProgramReset() {
     :title="$t('pages.preference.about.labels.legalNotices')"
     :width="900"
   >
+    <p class="about-unofficial-notice">
+      {{ $t('pages.preference.about.hints.unofficialProduct') }}
+    </p>
     <pre
       class="legal-notices"
       tabindex="0"
@@ -456,13 +477,18 @@ async function submitProgramReset() {
         :description="$t('pages.preference.about.hints.notionIcon')"
         title="Notion"
       />
+      <ProListItem
+        class="about-credit-item"
+        :description="$t('pages.preference.about.hints.microsoftStoreIcon')"
+        title="Microsoft Store"
+      />
     </div>
   </Modal>
 </template>
 
 <style scoped>
 .about-unofficial-notice {
-  margin: 16px 0 0;
+  margin: 0 0 16px;
   color: var(--ant-color-text-secondary);
   font-size: 12px;
   line-height: 1.65;

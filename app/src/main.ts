@@ -8,6 +8,7 @@ import { i18n } from './locales'
 import { createSettingsStorePlugin } from './plugins/settingsStore'
 import router from './router'
 import { installDiagnostics, reportDiagnostic } from './services/diagnostics'
+import { initializeSystemLanguage } from './services/systemLanguage'
 
 import 'virtual:uno.css'
 
@@ -22,6 +23,7 @@ watch(i18n.global.locale, (locale) => {
 async function bootstrap() {
   await invoke('await_native_startup')
   await initializeStateSafety()
+  await initializeSystemLanguage()
   const pinia = createPinia()
   pinia.use(createSettingsStorePlugin({
     isSavingAllowed: () => !editorsLocked.value,

@@ -7,7 +7,23 @@ import { inflateSync } from 'node:zlib'
 
 const metadataLimit = 1024 * 1024
 const fileLimit = 16 * 1024 * 1024
-const pngPaths = new Set(['assets/hero.png', 'app/public/logo.png', 'app/src-tauri/assets/tray.png', 'app/src-tauri/assets/models/dmeloper/default.png'])
+const pngPaths = new Set([
+  'assets/hero.png', 'app/public/logo.png', 'app/src-tauri/assets/tray.png', 'app/src-tauri/assets/models/dmeloper/default.png',
+  'assets/install-warnings/백신 1.png',
+  'assets/install-warnings/백신 2.png',
+  'assets/install-warnings/스마트스크린.png',
+  'assets/install-warnings/스마트스크린0.png',
+  'assets/install-warnings/엣지0.png',
+  'assets/install-warnings/엣지1.png',
+  'assets/install-warnings/엣지2.png',
+  'assets/install-warnings/en/edge-download-warning.png',
+  'assets/install-warnings/en/edge-keep-anyway.png',
+  'assets/install-warnings/en/edge-keep.png',
+  'assets/install-warnings/en/smartscreen-more-info.png',
+  'assets/install-warnings/en/smartscreen-run-anyway.png',
+  'assets/install-warnings/en/v3-file-actions.png',
+  'assets/install-warnings/en/v3-isolation-scan.png',
+])
 const glbPath = 'app/src-tauri/assets/models/dmeloper/dmeloper.glb'
 const gifBlockLimit = 131072
 const gifHeaders = [Buffer.from('GIF87a'), Buffer.from('GIF89a')]

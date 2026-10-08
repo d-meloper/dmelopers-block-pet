@@ -10,10 +10,11 @@ import { useI18n } from 'vue-i18n'
 import { RouterView, useRouter } from 'vue-router'
 
 import { createMenuViewportSettingHandler } from './composables/menuViewportSetting'
+import { useAppLanguage } from './composables/useAppLanguage'
 import { useTauriListen } from './composables/useTauriListen'
 import { useWindowState } from './composables/useWindowState'
 import { BLOCK_STORE_ID } from './config/persistedNames'
-import { APP_DISPLAY_NAME, LANGUAGE, LISTEN_KEY, WINDOW_LABEL } from './constants'
+import { APP_DISPLAY_NAME, LISTEN_KEY, WINDOW_LABEL } from './constants'
 import { isDesktopPetVisible } from './features/broadcast/visibility'
 import { PET_RUNTIME_SHOW } from './features/petRuntime/types'
 import { requestPresetEdit } from './features/presets/editRequests'
@@ -42,6 +43,7 @@ registerStateSnapshots(() => [appStore, blockStore, generalStore, shortcutStore]
 })))
 const { isRestored, restoreState } = useWindowState()
 const { locale } = useI18n()
+const { language } = useAppLanguage()
 const router = useRouter()
 let settingsReady: Promise<void>
 let disposed = false
@@ -71,9 +73,9 @@ onMounted(async () => {
   await restoreState()
 })
 
-watch(() => generalStore.appearance.language, (value) => {
-  locale.value = value ?? LANGUAGE.EN_US
-}, { immediate: true })
+watch(language, (value) => {
+  locale.value = value
+}, { immediate: true, flush: 'sync' })
 
 const handleShowWindowRequest = createShowWindowRequestHandler({
   label: appWindow.label,

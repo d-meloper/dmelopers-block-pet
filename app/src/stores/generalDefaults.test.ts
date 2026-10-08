@@ -10,6 +10,7 @@ import { createPinia } from 'pinia'
 import ts from 'typescript'
 import { createSSRApp, nextTick } from 'vue'
 
+import type { Language } from '@/locales/languageBranch'
 import type { SettingsPersistenceSteps } from '@/utils/settingsPersistence'
 
 import { DEFAULT_GENERAL_SETTINGS } from '@/config/defaultSettings'
@@ -25,6 +26,7 @@ interface SettingsStore {
   init?: () => void | Promise<void>
   reset?: () => void
   resetWindowState?: () => void
+  resolvedLanguage?: Language
 }
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
@@ -44,7 +46,7 @@ async function settle() {
 }
 
 /** Native storage/event boundaries only; all four stores and both plugin packages are real. */
-function harness() {
+function harness(systemLanguage: Language = 'ko-KR') {
   const backend = new Map<string, State>()
   const handlers = new Map<string, Set<(event: { payload: { id: string, state: State } }) => void>>()
   const heldPatches: Array<() => void> = []
@@ -92,7 +94,7 @@ function harness() {
           return () => listeners.delete(handler)
         },
       }) },
-      'tauri-plugin-locale-api': { getLocale: async () => 'ko-KR' },
+      '@/services/systemLanguage': { getSystemLanguage: () => systemLanguage },
       '@/services/diagnostics': { reportDiagnostic: () => {} },
     }
     function load(name: string, from = root): any {
@@ -193,8 +195,8 @@ function harness() {
   }
 }
 
-async function seededHarness() {
-  const h = harness()
+async function seededHarness(systemLanguage: Language = 'ko-KR') {
+  const h = harness(systemLanguage)
   const seed = h.window('fixture')
   for (const store of seed.stores) {
     await store.init?.()
@@ -205,6 +207,75 @@ async function seededHarness() {
 }
 
 describe('general defaults and real two-window Pinia persistence', () => {
+  for (const systemLanguage of ['ko-KR', 'en-US'] as const) {
+    it(`retains raw language choices across both windows, save, restart and reset on ${systemLanguage}`, async () => {
+      const h = await seededHarness(systemLanguage)
+      const main = h.window('main')
+      const preference = h.window('preference')
+      const generalStore = (window: typeof main) => window.stores.find(store => store.$id === 'general')!
+      try {
+        await main.initialize()
+        await preference.initialize()
+        assert.equal(preference.general.appearance.language, 'system')
+        assert.equal(generalStore(preference).resolvedLanguage, systemLanguage)
+        for (const choice of ['ko-KR', 'en-US', 'system'] as const) {
+          preference.general.appearance.language = choice
+          await settle()
+          await preference.save()
+          await main.save()
+          const resolved = choice === 'system' ? systemLanguage : choice
+          assert.equal(main.general.appearance.language, choice)
+          assert.equal(generalStore(main).resolvedLanguage, resolved)
+          assert.equal(generalStore(preference).resolvedLanguage, resolved)
+          assert.equal(h.backend.get('general')!.appearance.language, choice)
+          assert.equal('resolvedLanguage' in h.backend.get('general')!, false)
+          const restarted = h.window('restart')
+          try {
+            await restarted.initialize()
+            assert.equal(restarted.general.appearance.language, choice)
+            assert.equal(generalStore(restarted).resolvedLanguage, resolved)
+            assert.equal('resolvedLanguage' in restarted.general, false)
+          } finally {
+            restarted.dispose()
+          }
+        }
+        preference.general.appearance.language = 'en-US'
+        await settle()
+        generalStore(preference).reset!()
+        await generalStore(preference).init!()
+        await settle()
+        await preference.save()
+        assert.equal(main.general.appearance.language, 'system')
+        assert.equal(generalStore(main).resolvedLanguage, systemLanguage)
+      } finally {
+        main.dispose()
+        preference.dispose()
+      }
+    })
+  }
+
+  it('preserves previously saved explicit languages and repairs invalid language choices to system', async () => {
+    for (const [stored, expected] of [
+      ['ko-KR', 'ko-KR'],
+      ['en-US', 'en-US'],
+      ['system', 'system'],
+      ['ja-JP', 'system'],
+      [null, 'system'],
+    ] as const) {
+      const h = await seededHarness()
+      h.backend.get('general')!.appearance.language = stored
+      const preference = h.window('preference')
+      try {
+        await preference.initialize()
+        await preference.save()
+        assert.equal(preference.general.appearance.language, expected)
+        assert.equal(h.backend.get('general')!.appearance.language, expected)
+      } finally {
+        preference.dispose()
+      }
+    }
+  })
+
   it('restores, synchronizes and saves legacy shortcut keys across real plugin instances', async () => {
     const h = await seededHarness()
     const persisted = h.backend.get('shortcut')!

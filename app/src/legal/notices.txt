@@ -60,10 +60,8 @@ retains the original Tauri Apps Contributors and Max Resch copyright notices.
 
 ■ Models and Skins
 
-The voxel humanoid geometry and default skin were authored by DMeloper. The application icon was supplied by the maintainer and approved for use in the application; no additional authorship claim is made. The GLB intentionally contains no embedded character skin.
-A separate default.png, authored by DMeloper, provides the default appearance.
-The author has approved its inclusion in the public source and installer.
-User-imported skins are not included in the public source or installer.
+DMeloper authored the voxel humanoid base model (dmeloper.glb), bundled PNG skin (default.png), and application icon (../app/public/logo.png and its generated icon variants). These project-authored assets are licensed under the project's MIT license (https://github.com/d-meloper/dmelopers-block-pet/blob/main/LICENSE), permitting modification, redistribution, and commercial use while retaining the copyright and permission notice. The GLB intentionally contains no embedded character skin; the separate PNG provides its default appearance.
+User-imported skins are not included in the public source or installer and do not inherit the project's MIT license. The application icon is separate from the third-party UI icons and marks listed below; those retain their own terms.
 
 Minecraft, Steve, Mojang, and Microsoft are names or marks of
 their respective owners. This independent project is not an official Minecraft

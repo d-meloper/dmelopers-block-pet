@@ -11,14 +11,19 @@ import { runInNewContext } from 'node:vm'
 import { createPinia, setActivePinia } from 'pinia'
 import ts from 'typescript'
 import * as Vue from 'vue'
+import { createI18n } from 'vue-i18n'
 import { compileScript, parse } from 'vue/compiler-sfc'
 
+import { useAppLanguage } from '@/composables/useAppLanguage'
 import * as performanceConfig from '@/config/performance'
 import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
 import { isMouseSettingResponse } from '@/features/input/types'
 import { createAntialiasSettingOwner } from '@/features/performance/antialiasSetting'
 import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import { createPreferenceUpdates } from '@/features/updates/preferenceUpdates'
+import { getAntdLocale } from '@/locales/antd'
+import en from '@/locales/en-US.json'
+import ko from '@/locales/ko-KR.json'
 import { useBlockStore } from '@/stores/block'
 import { useGeneralStore } from '@/stores/general'
 import { useShortcutStore } from '@/stores/shortcut'
@@ -145,8 +150,10 @@ async function flush() {
   for (let index = 0; index < 60; index++) await Vue.nextTick()
 }
 
-function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAntialiasSubscription = false, existingTray = false) {
+function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAntialiasSubscription = false, existingTray = false, languageIntegration = false) {
   setActivePinia(createPinia())
+  const i18n = createI18n({ legacy: false, locale: 'en-US', messages: { 'ko-KR': ko, 'en-US': en } })
+  const titles: string[] = []
   const blockStore = useBlockStore()
   const shortcutStore = useShortcutStore()
   const generalStore = useGeneralStore()
@@ -287,7 +294,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     if (id === '@/services/diagnostics') return { reportDiagnostic: (level: string, operation: string) => diagnostics.push({ level, operation }) }
     if (id === '@/utils/shortcutIdentity') return { shortcutIdentity }
     if (id === 'vue') return mockVue
-    if (id === 'vue-i18n') return { useI18n: () => ({ t: (key: string) => key }) }
+    if (id === 'vue-i18n') return { useI18n: () => languageIntegration ? i18n.global : { t: (key: string) => key } }
     if (id === 'pinia') return { storeToRefs: (store: object) => Vue.toRefs(store) }
     if (id === '@tauri-apps/plugin-global-shortcut') {
       return {
@@ -328,7 +335,9 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     if (id === '@tauri-apps/api/event') return eventApi
     if (id === '@tauri-apps/api/webviewWindow') {
       return { getCurrentWebviewWindow: () => ({
-        setTitle: async () => {},
+        setTitle: async (title: string) => {
+          titles.push(title)
+        },
         onResized: async () => () => {},
         onFocusChanged: async () => () => {},
         onCloseRequested: (handler: Parameters<Window['onCloseRequested']>[0]) => Window.prototype.onCloseRequested.call({
@@ -374,6 +383,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     if (id === '@/stores/block') return { useBlockStore: () => blockStore }
     if (id === '@/stores/shortcut.ts' || id === '@/stores/shortcut') return { useShortcutStore: () => shortcutStore }
     if (id === '@/stores/general') return { useGeneralStore: () => generalStore }
+    if (id === '@/composables/useAppLanguage' || id === './useAppLanguage') return { useAppLanguage }
     if (id === '@/stores/performance') {
       return { usePerformanceStore: () => ({
         start: async () => {
@@ -452,7 +462,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     if (id === '@/features/performance/antialiasSetting') return { createAntialiasSettingOwner }
     if (id === '@/composables/usePetRuntimeRecovery') return { usePetRuntimeRecovery: () => {} }
     if (id === '@/config/theme') return {}
-    if (id === '@/locales/antd') return { getAntdLocale: () => ({}) }
+    if (id === '@/locales/antd') return { getAntdLocale: languageIntegration ? getAntdLocale : () => ({}) }
     if (id === '@/utils/viewportInteraction') return { captureViewportPointer: () => {} }
     if (id === '@/features/input/types') return { isMouseSettingResponse }
     if (id === '@/features/presets/editIntent') {
@@ -525,9 +535,29 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     parentNode: node => node.parent,
     nextSibling: node => node.parent?.children[node.parent.children.indexOf(node) + 1] ?? null,
   })
-  const app = renderer.createApp(preferenceComponent)
+  const rootComponent = languageIntegration
+    ? Vue.defineComponent({
+        setup() {
+          // Run the actual App watcher before the preference child, matching mount order.
+          const appSource = parse(readFileSync(new URL('../../App.vue', import.meta.url), 'utf8')).descriptor.scriptSetup!.content
+          const appSyntax = ts.createSourceFile('App.ts', appSource, ts.ScriptTarget.Latest, true)
+          const languageWatch = appSyntax.statements.find(statement => ts.isExpressionStatement(statement)
+            && ts.isCallExpression(statement.expression)
+            && statement.expression.expression.getText(appSyntax) === 'watch'
+            && statement.expression.arguments[0]?.getText(appSyntax) === 'language')
+          assert.ok(languageWatch)
+          const bridge = ts.transpileModule(languageWatch.getText(appSyntax), {
+            compilerOptions: { target: ts.ScriptTarget.ES2022 },
+          }).outputText
+          // eslint-disable-next-line no-new-func
+          new Function('watch', 'language', 'locale', bridge)(Vue.watch, useAppLanguage().language, i18n.global.locale)
+          return () => Vue.h(preferenceComponent)
+        },
+      })
+    : preferenceComponent
+  const app = renderer.createApp(rootComponent)
   app.config.warnHandler = warning => warnings.push(warning)
-  app.config.globalProperties.$t = (key: string) => key
+  app.config.globalProperties.$t = languageIntegration ? i18n.global.t : (key: string) => key
   const root = element()
   app.mount(root)
   const flatten = (node: TestElement): TestElement[] => [node, ...node.children.flatMap(flatten)]
@@ -605,6 +635,8 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     blockStore,
     emitted,
     generalStore,
+    titles,
+    locale: i18n.global.locale,
     classes,
     nativeThemes,
     nativeCaptionColors,
@@ -1360,4 +1392,29 @@ describe('tray broadcast prompt in the mounted preference window', () => {
       await flush()
     }
   })
+})
+
+it('updates i18n synchronously before the mounted preference title and Ant Design consumers', async () => {
+  const h = mountPreferences('light', false, false, true)
+  try {
+    await flush()
+    const antLocale = () => h.nodes().find(node => node.props.locale)?.props.locale
+    assert.equal(h.generalStore.appearance.language, 'system')
+    assert.equal(h.locale.value, 'en-US')
+    assert.equal(h.titles.at(-1), `Test Pet — ${en.pages.preference.title}`)
+    assert.equal(antLocale(), getAntdLocale('en-US'))
+    h.generalStore.appearance.language = 'ko-KR'
+    assert.equal(h.locale.value, 'ko-KR', 'The root bridge updates before deferred consumer watches')
+    await flush()
+    assert.equal(h.titles.at(-1), `Test Pet — ${ko.pages.preference.title}`)
+    assert.equal(antLocale(), getAntdLocale('ko-KR'))
+    h.generalStore.appearance.language = 'system'
+    assert.equal(h.locale.value, 'en-US')
+    await flush()
+    assert.equal(h.titles.at(-1), `Test Pet — ${en.pages.preference.title}`)
+    assert.equal(antLocale(), getAntdLocale('en-US'))
+    assert.deepEqual(h.warnings, [])
+  } finally {
+    h.app.unmount()
+  }
 })

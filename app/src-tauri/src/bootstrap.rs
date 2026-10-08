@@ -10,7 +10,6 @@ use windows_sys::Win32::{
         ERROR_ALREADY_EXISTS, GetLastError, WAIT_ABANDONED, WAIT_FAILED, WAIT_OBJECT_0,
         WAIT_TIMEOUT,
     },
-    Globalization::GetUserDefaultUILanguage,
     System::Threading::{
         CreateEventW, CreateMutexW, INFINITE, ReleaseMutex, SetEvent, WaitForSingleObject,
     },
@@ -212,7 +211,7 @@ pub fn error(message: &str) {
     }
 }
 fn localized<'a>(korean: &'a str, english: &'a str) -> &'a str {
-    if unsafe { GetUserDefaultUILanguage() } & 0x3ff == 0x12 {
+    if crate::system_language::is_korean() {
         korean
     } else {
         english
@@ -289,8 +288,8 @@ fn webview_supported(version: &str) -> bool {
     let mut parts = version.split('.');
     matches!(parts.next().and_then(|part| part.parse::<u32>().ok()), Some(major) if major >= 120)
 }
-const WEBVIEW_GUIDE: &str = "https://app.notion.com/p/aismash/WebView2-Runtime-3f02dc0bb4ae80cf87f8e8a02efe0adb?source=copy_link";
 fn webview_preflight() -> bool {
+    let guide = crate::external_links::webview_guide(crate::system_language::is_korean());
     loop {
         if tauri::webview_version().is_ok_and(|version| webview_supported(&version)) {
             return true;
@@ -301,7 +300,7 @@ fn webview_preflight() -> bool {
                 "WebView2 Runtime required",
             ),
             &format!(
-                "{}\n\n{WEBVIEW_GUIDE}",
+                "{}\n\n{guide}",
                 localized(
                     "3D 렌더링을 위해 Microsoft WebView2 Runtime 프로그램이 필요합니다. 다음 링크에서 수동으로 설치한 뒤 다시 실행해 주세요.",
                     "Microsoft WebView2 Runtime is needed for 3D rendering. Follow this link to install it manually, then try again.",
@@ -311,7 +310,7 @@ fn webview_preflight() -> bool {
             localized("설치 안내 열기", "Open installation guide"),
         );
         match choice {
-            OPEN => open_url(WEBVIEW_GUIDE),
+            OPEN => open_url(guide),
             RECHECK => {}
             _ => return false,
         }

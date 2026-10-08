@@ -1,169 +1,44 @@
-Data and Permissions
+DMeloper's Block Pet Privacy Policy
 
-한국어 (https://github.com/d-meloper/dmelopers-block-pet/blob/main/docs/PRIVACY.ko-KR.md) · English
+Current online guidance: Privacy Policy (https://aismash.notion.site/3f32dc0bb4ae803ea9aed8d3b366c391)
 
-This notice explains the data and permissions used by DMeloper's Block Pet.
-The app has no account service, usage analytics or automatic crash-report uploads.
-Java Edition skin lookup, update checks and external pages you open use network
-connections as described below.
-
-■ Keyboard and mouse activity
-
-While enabled, global input monitoring observes key press/release, pointer
-position, mouse buttons, and scrolling to animate the pet and its devices.
-The app temporarily tracks pressed keys and uses contact positions and typing
-intensity to animate the pet. Typed text and an
-input-history log are not saved or sent to a server by this feature. Pointer
-coordinates and button state are processed locally. Quit the application to
-stop input monitoring. Settings can disable the mouse object and its click and
-scroll reactions; the pet still tracks the pointer with its gaze.
-
-■ Optional OBS browser output
-
-Broadcast output is off by default. When enabled, an HTTP/WebSocket service
-binds only to 127.0.0.1 on this computer. A browser source with the app's
-connection address receives the current scene, its active PNG skin, and the
-same animation events, including physical keyboard contact positions, press/release
-states and their timing. A holder of the connection address can use these events
-to infer keys or input activity. The app does not send the text you type, skin-library names, or other files. This feature does not use a public server. OBS or another
-capture program controls any subsequent recording or streaming.
-
-Hiding the desktop pet does not stop enabled broadcast output. Disabling
-broadcast output disconnects its sources. The connection address contains a
-random access token; copying the address writes it to the clipboard. Keep it
-private from other local applications or people who should not use the source.
-Its port and token are stored locally and retained by program reset so an OBS
-source keeps the same address. Reset turns broadcast output off.
-
-■ Skins and network requests
-
-A local PNG is read only after selection. The app stores a copy and thumbnail
-in its local skin library, together with its display name, original filename
-where available, and arm model. Eyebrow and palm colors belong to presets,
-not to individual library entries. Selecting a local skin
-does not upload it to the developer or a skin service.
-
-Applying a Java Edition nickname sends it to api.minecraftservices.com (with
-api.mojang.com as a supported fallback). The resulting public profile ID is
-used at sessionserver.mojang.com, and the skin is downloaded over HTTPS from
-textures.minecraft.net. Those services necessarily receive the request and
-the network address used to reach them, which can be a proxy address. Their
-own privacy policies apply. No Microsoft/Xbox login token or password is
-requested. Bedrock identities and Marketplace content are not supported. Being
-able to look up a skin does not automatically grant permission to use or share
-it. Check the skin creator's rights.
-
-Verified skin bytes and the canonical nickname are kept locally for restoration.
-The library can retain skins beyond the currently selected one. Raw downloaded
-PNGs also use a separate cache capped at 32 MiB. Startup restores local data;
-it does not automatically refresh a saved nickname from the network.
-
-You can export one preset to a .petpreset file. Image mode includes the PNG,
-its arm model, and any linked nickname; nickname mode includes the linked
-nickname without a PNG or skin thumbnail. The option to exclude the user skin
-uses the bundled default PNG and default eyebrow/palm colors, omitting the user's
-PNG and nickname. All three options include the preset name and pet, scene and
-object settings. Common settings, desktop position and internal
-library IDs are excluded. Exporting does not contact the skin service. Importing
-a nickname file performs the lookup described above once, then stores the PNG
-locally for future use. Files are saved locally; the app does not upload them.
-Review included images and nicknames before sharing a file yourself. Sharing a
-file that includes a skin image requires its creator's permission or the right
-to share it. Sharing a nickname does not transfer permission to use or
-redistribute its associated skin.
-
-■ Local data and removal
-
-Official GitHub and Store installations share settings, presets and the skin library
-under Saved Games\DMeloper's Block Pet. The first official instance keeps the shared
-data open; another installation does not become a second writer. Logs, caches and
-WebView data use each installation's separate AppData location.
-Skin images, thumbnails, filenames, nicknames and
-settings are personal data.
-
-Normal removal preserves personal data. The official GitHub uninstaller offers
-an unchecked “Remove all personal settings and files” option. Selecting and
-confirming it removes the shared Saved Games settings, presets and skins, plus
-the GitHub installation's local and roaming AppData, including logs, caches
-and WebView data. The Store edition also loses those shared settings, presets
-and skins because it uses the same Saved Games data.
-
-Development and test installations use separate AppData directories and do not
-share the official Saved Games data. The same option in the WiX test uninstaller
-removes only that test installation's local and roaming AppData; it does not
-delete the official Saved Games folder. Cleanup requires the running app to be
-closed and the removal request to be verified. If cleanup fails, app removal
-stops; some selected files may already have been deleted.
-
-Windows manages Store removal and its package-scoped data; the external Saved
-Games data remains. Selecting the default skin alone does not erase the library.
-
-■ Logs, clipboard, and system integration
-
-The About page opens the local log directory. New diagnostic file entries contain
-categorized warnings and errors, operation names, error codes, limited source
-locations, timestamps, app version, execution mode and process ID. They omit raw
-error messages, settings, personal file paths, skins, nicknames and broadcast
-connection addresses. Normal input activity is not logged.
-
-The app appends to one local diagnostic file and limits repeated messages. It does
-not automatically upload, rotate or delete that file, including on exit or reset.
-Earlier entries can remain. Review any log excerpt before sharing it, and keep
-personal paths, local data, skins, nicknames and credentials out of public issues.
-
-The screen eyedropper temporarily captures the desktop across connected displays
-in memory while you select a color. The image is not saved or transmitted and is
-released when selection ends. Only the selected RGB color is applied to appearance
-settings.
-
-Copying app information writes app/runtime and WebView2 versions, the distribution
-channel, Windows edition/release/build, graphics renderer, display sizes/scales,
-rendering options, and pet/broadcast visibility to the clipboard after a button
-click. It excludes personal paths, skin/preset content, nicknames and broadcast
-connection addresses. Review this environment information before sharing it. The app also uses window management, configured
-global shortcuts, and optional start-at-login integration for its desktop
-features. Start-at-login can be disabled in settings.
-
-If Microsoft WebView2 is absent, the GitHub installer runs its included
-Microsoft-signed setup tool. That tool downloads and installs the runtime from
-Microsoft services, which receive the request and network address. The app itself
-does not download or run a WebView2 installer. If the runtime is missing in the
-Store edition or remains unavailable after installation, the app provides
-manual installation guidance. Opening an external link launches the user's
-browser and is subject to that site's privacy practices. GitHub downloads,
-issues, and vulnerability reporting are GitHub services, separate from the
-running application.
-
-For data and privacy questions, contact dmeloper@gmail.com.
-For confidential security reports, follow the Security policy (https://github.com/d-meloper/dmelopers-block-pet/blob/main/docs/SECURITY.md).
-For general questions, see Support (https://github.com/d-meloper/dmelopers-block-pet/blob/main/docs/SUPPORT.md).
-
-■ Updates
-
-In the official GitHub edition, opening Settings checks
-raw.githubusercontent.com/d-meloper/dmelopers-block-pet/updates/tauri-stable.json
-and its detached signature. A successful check is cached for six hours and an
-error for ten minutes; the manual check button requests a fresh check. GitHub
-receives the request and network address. Requests include no settings, skins,
-input history, broadcast address or device identifier. Version information and
-check/error timing are cached locally. Opening the Releases link connects to
-GitHub through your browser.
-
-A GitHub update-test installation uses the separate
-raw.githubusercontent.com/oup030416/dmelopers-block-pet-test/updates/wix-test.json
-and its detached signature. A local update-test installation uses only
-127.0.0.1:17831 for its update information and installer download.
-
-Clicking Install Update downloads and verifies the installer from that
-installation's fixed update source, saves settings, and starts installation.
-Cancellation is available until settings saving begins. The app does not restore
-personal data from an earlier backup automatically. If installation is
-interrupted, close the app and run the same installer again to repair program
-files.
-
-The Microsoft Store edition uses Windows-managed updates. Its Open Store button
-contacts Microsoft through the Store app. It does not request either the GitHub
-update feed or the separate GitHub version information. Both editions provide
-the same input, pet and OBS features. Start-at-login is configured per installation; the first
-official instance started keeps running. Preset import retains its own recovery record
-until completion or recovery; whole-app data export and import are not provided.
+Last updated: 2026-10-08
+Developer: DMeloper
+Privacy inquiries: dmeloper@gmail.com (mailto:dmeloper@gmail.com)
+This policy explains the information processed by DMeloper's Block Pet for Windows, why it is used, and how it is retained and deleted. It applies to the Microsoft Store and official GitHub editions. Update and uninstall procedures differ between editions.
+■ 1. Basic Principles and Purposes of Processing
+Block Pet is a desktop pet app that reacts to your keyboard and mouse. It processes information needed for input reactions, applying skins, saving settings and presets, optional OBS output, picking screen colors, troubleshooting, and updates.
+The app does not offer its own account registration, advertising, usage analytics, or automatic crash-report uploads. It does not automatically upload saved settings or skins to the developer. Features that use the network and inquiries you choose to send are explained separately below.
+■ 2. Keyboard and Mouse Input and Screen Color Picking
+The app detects key presses and releases, pointer position, mouse buttons, and scrolling to move the pet. Currently pressed keys and input states are held in memory while displaying the movements. Typed sentences and input history are not saved to files or sent to the developer. Turning off Use Mouse hides the mouse object and disables click and scroll reactions, but the pet continues to follow the cursor with its eyes. All input detection stops when you fully quit the app.
+When you use the screen color picker, the app temporarily captures an image of your desktop in memory so you can select a color. The captured image is not saved to a file or sent over the network. Capture resources are released when you finish or cancel the selection. The selected color may be saved in the appearance settings you apply.
+■ 3. Skins, Usernames, Settings, and Presets
+A PNG skin you select is read on this computer, and a copy and preview are saved in the Skin Library. Its display name, original filename when available, arm model, and appearance settings may also be saved. Selecting a local PNG does not upload the file to an external service.
+When you use Minecraft Java Edition username lookup, the entered username is sent to api.minecraftservices.com (http://api.minecraftservices.com/) or the fallback service api.mojang.com. The returned public profile ID is queried at sessionserver.mojang.com, and the skin image is downloaded from textures.minecraft.net. These services receive the request details and the network address used for the connection. If you use a proxy, its address may be sent instead. The external services’ privacy policies apply. The app does not request Minecraft, Microsoft, or Xbox sign-in passwords or authentication tokens.
+Retrieved skin images and usernames are saved locally for use the next time you run the app. Skins that are not currently in use may remain in the library. A separate cache of downloaded original PNGs is limited to 32 MiB. Saved usernames are not automatically looked up again when the app starts.
+When you export a preset, the .petpreset file may include its name, pet, scene, and object settings, and, depending on the export method, a skin image and linked username. Export creates a local file and does not upload it to the developer. Importing a preset shared by username performs one skin lookup and saves the image locally for later use. Before sharing a preset file with someone else, check the images and usernames it contains.
+■ 4. Optional OBS Browser Output
+OBS output is off by default. When you enable it, an HTTP/WebSocket service opens only on 127.0.0.1 on this computer. It sends the current scene, active PNG skin, and movement events to Browser Sources using the app’s connection URL.
+Movement events include physical key positions, press/release states, and timing. A person or local program with the connection URL may be able to infer pressed keys or input activity from these events. Typed sentences, Skin Library names, and other files are not transmitted. Any subsequent recording or internet broadcast is managed by OBS or another program you configure.
+The connection URL contains a random access token. Copying the URL writes it to the Windows clipboard, so keep it private. The connection port and token are stored locally to preserve the OBS source URL and are retained after resetting the app. Resetting the app turns off OBS output. Hiding the desktop pet does not stop OBS output while it is enabled. Turning off output in the settings disconnects connected sources.
+■ 5. Diagnostic Records, Clipboard, and Updates
+New local diagnostic records created by the current version contain warning/error categories, operation names, error codes, limited source locations, timestamps, app version, run type, and process ID. Normal input activity is not recorded. New diagnostic records do not include original error messages, settings, personal file paths, skins, usernames, or OBS connection URLs. Records from earlier versions may remain.
+Diagnostic files are kept locally. They are not automatically uploaded or deleted when the app quits or is reset. Before sharing logs, review what you intend to share. Clicking the App Info copy button writes the app and runtime versions and operating system information to the Windows clipboard.
+Updates for the Microsoft Store edition are managed by Windows and the Microsoft Store. The Open Microsoft Store button connects to Microsoft services through the Microsoft Store app. The Store edition does not look up GitHub update information or GitHub version-display information.
+The official GitHub edition retrieves signed update information from the official GitHub repository when you open settings or request an update check. If you choose to install an update, it downloads a verified installer from the official GitHub release. GitHub receives the request and network address. The app does not include settings, skins, input history, OBS connection URLs, or device identifiers in these requests. Check results and error timestamps are stored locally.
+If WebView2 Runtime 120 or later is missing, the official GitHub edition’s WiX installer runs the included Microsoft-signed installation tool. This tool downloads and installs the runtime from Microsoft services, which receive the request and network address. An internet connection is required. The app itself does not download or run the installation tool. If the runtime is unavailable in the Store edition or after installation, the app provides manual installation instructions. The shared WebView2 Runtime is not removed when you uninstall Block Pet.
+Information processing by the Microsoft Store, Windows, WebView2, websites you open, and email services is subject to each provider’s policies and your settings. If automatic backup is enabled in Windows, app data may be backed up according to operating system settings. This option alone does not guarantee backup or restoration of all shared Saved Games data.
+■ 6. Storage Locations, Retention, and Deletion
+The official Microsoft Store and GitHub editions share settings, presets, and the Skin Library in the DMeloper's Block Pet folder under Windows Saved Games. Logs, caches, and WebView data are stored in a separate app data location for each installation. Skins, previews, filenames, usernames, and settings are treated as personal data.
+This local data is retained to maintain functionality and for your next session. It may remain until you remove the items or delete the relevant data. Resetting the app alone does not delete all diagnostic logs or the OBS connection port and token. Switching to the default skin does not delete the entire saved Skin Library.
+When you uninstall the Microsoft Store edition, Windows manages removal of package-specific data, but shared data outside the package in Saved Games remains. A normal uninstall of the GitHub edition also preserves shared data. Selecting Remove all personal settings and files in the GitHub uninstaller deletes shared Saved Games data and the GitHub edition’s local and roaming app data. This also affects shared settings, presets, and skins used by any remaining Store installation.
+To delete shared data yourself, fully quit both apps and delete the DMeloper's Block Pet folder in Windows Saved Games. Deleting this data makes your saved settings, presets, and skins unavailable. If you need help identifying the deletion scope or folder, contact the address below.
+■ 7. Information Requests and Your Choices
+You can use the app with local PNGs or the default skin without using username lookup or OBS output. OBS output can be turned off in the settings. Turning off Use Mouse hides the mouse object and disables click and scroll reactions, but the pet continues to follow the cursor with its eyes. Fully quit the app to stop all input detection. You can export saved presets to local files or delete the relevant local data.
+The developer does not remotely access or change the app’s saved settings or skins. Send privacy-related access, correction, or deletion requests and inquiries to the email address below. Local data that the developer does not hold must be managed on your computer; the developer can explain how to do this.
+If you contact the developer by email, the developer receives your email address, inquiry, and any materials you voluntarily attach. This information is used only as needed to respond to your inquiry and process your request, and is retained for as long as processing requires. Information is deleted when its purpose has ended, except where applicable laws require retention for a specified period. Do not send passwords, authentication tokens, OBS connection URLs, or other information unnecessary for your request.
+If you use the separate Notion contact form (https://aismash.notion.site/5402dc0bb4ae83fdb83681271f4b937e?pvs=105), your inquiry type, details, system information, optional email address, attachments, and submission time are stored in Notion. Collected email addresses are deleted after the reply is sent, as stated on the form. Inquiries are managed privately. For details about what is collected and how it is cleaned up, see the contact form data section in Data Management Guide (https://aismash.notion.site/3f32dc0bb4ae80808222e5e0cf123464).
+■ 8. Policy Changes and Contact
+If the app’s features or information processing changes, this policy and its last-updated date will be revised. Updated details will be made available through the app or the Store listing.
+Developer: DMeloper
+Privacy inquiries and requests: dmeloper@gmail.com (mailto:dmeloper@gmail.com)

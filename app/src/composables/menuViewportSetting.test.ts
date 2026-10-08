@@ -69,6 +69,7 @@ function appHarness(label = 'preference') {
     'vue-router': { useRouter: () => ({ isReady: async () => {}, currentRoute: { value: { query: {} } }, replace: async () => {} }) },
     '@tauri-apps/api/webviewWindow': { getCurrentWebviewWindow: () => ({ label, setTitle: async () => {} }) },
     '@vueuse/core': { useEventListener: () => {} },
+    './composables/useAppLanguage': { useAppLanguage: () => ({ language: { value: 'ko-KR' } }) },
     './composables/useTauriListen': { useTauriListen: (event: string, fn: (event: { payload: unknown }) => void) => listeners.set(event, fn) },
     './composables/useWindowState': { useWindowState: () => ({ isRestored: { value: false }, restoreState: async () => {
       geometryRestores += 1

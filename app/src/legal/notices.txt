@@ -2814,22 +2814,22 @@ Author metadata: Not supplied in package metadata
 Source: https://registry.npmjs.org/%40ant-design%2Ficons-vue/7.0.1
 Notice 5d367fb0a07340571542eb4ee8eb1add62d37b71bad6786a57c2e9a86bf76c70 — https://raw.githubusercontent.com/ant-design/ant-design-icons/a8b4733c27d0c49efe298e4a30146af0d91b10b3/LICENSE
 
-npm:@babel/helper-string-parser@7.27.1
+npm:@babel/helper-string-parser@7.29.7
 License: MIT
 Author metadata: The Babel Team (https://babel.dev/team)
-Source: https://registry.npmjs.org/%40babel%2Fhelper-string-parser/7.27.1
+Source: https://registry.npmjs.org/%40babel%2Fhelper-string-parser/7.29.7
 Notice 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76 — LICENSE
 
-npm:@babel/helper-validator-identifier@7.28.5
+npm:@babel/helper-validator-identifier@7.29.7
 License: MIT
 Author metadata: The Babel Team (https://babel.dev/team)
-Source: https://registry.npmjs.org/%40babel%2Fhelper-validator-identifier/7.28.5
+Source: https://registry.npmjs.org/%40babel%2Fhelper-validator-identifier/7.29.7
 Notice 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76 — LICENSE
 
-npm:@babel/parser@7.29.2
+npm:@babel/parser@7.29.9
 License: MIT
 Author metadata: The Babel Team (https://babel.dev/team)
-Source: https://registry.npmjs.org/%40babel%2Fparser/7.29.2
+Source: https://registry.npmjs.org/%40babel%2Fparser/7.29.9
 Notice 2e97627cb278aa7556fb9e8817368302301a595b6c7582512b8d74c57b773652 — LICENSE
 
 npm:@babel/runtime@7.29.2
@@ -2838,10 +2838,10 @@ Author metadata: The Babel Team (https://babel.dev/team)
 Source: https://registry.npmjs.org/%40babel%2Fruntime/7.29.2
 Notice 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76 — LICENSE
 
-npm:@babel/types@7.29.0
+npm:@babel/types@7.29.8
 License: MIT
 Author metadata: The Babel Team (https://babel.dev/team)
-Source: https://registry.npmjs.org/%40babel%2Ftypes/7.29.0
+Source: https://registry.npmjs.org/%40babel%2Ftypes/7.29.8
 Notice 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76 — LICENSE
 
 npm:@ctrl/tinycolor@3.6.1
@@ -2971,28 +2971,28 @@ Author metadata: Not supplied in package metadata
 Source: https://registry.npmjs.org/%40types%2Fweb-bluetooth/0.0.21
 Notice c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383 — LICENSE
 
-npm:@vue/compiler-core@3.5.32
+npm:@vue/compiler-core@3.5.43
 License: MIT
 Author metadata: Evan You
-Source: https://registry.npmjs.org/%40vue%2Fcompiler-core/3.5.32
+Source: https://registry.npmjs.org/%40vue%2Fcompiler-core/3.5.43
 Notice 1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175 — LICENSE
 
-npm:@vue/compiler-dom@3.5.32
+npm:@vue/compiler-dom@3.5.43
 License: MIT
 Author metadata: Evan You
-Source: https://registry.npmjs.org/%40vue%2Fcompiler-dom/3.5.32
+Source: https://registry.npmjs.org/%40vue%2Fcompiler-dom/3.5.43
 Notice 1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175 — LICENSE
 
-npm:@vue/compiler-sfc@3.5.32
+npm:@vue/compiler-sfc@3.5.43
 License: MIT
 Author metadata: Evan You
-Source: https://registry.npmjs.org/%40vue%2Fcompiler-sfc/3.5.32
+Source: https://registry.npmjs.org/%40vue%2Fcompiler-sfc/3.5.43
 Notice 1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175 — LICENSE
 
-npm:@vue/compiler-ssr@3.5.32
+npm:@vue/compiler-ssr@3.5.43
 License: MIT
 Author metadata: Evan You
-Source: https://registry.npmjs.org/%40vue%2Fcompiler-ssr/3.5.32
+Source: https://registry.npmjs.org/%40vue%2Fcompiler-ssr/3.5.43
 Notice 1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175 — LICENSE
 
 npm:@vue/devtools-api@6.6.4
@@ -3019,34 +3019,34 @@ Author metadata: webfansplz
 Source: https://registry.npmjs.org/%40vue%2Fdevtools-shared/7.7.9
 Notice d0ac09e8df2b54625ea1606dfae75d5b6af1cbc5d28a17eca1350be9c367175c — LICENSE
 
-npm:@vue/reactivity@3.5.32
+npm:@vue/reactivity@3.5.43
 License: MIT
 Author metadata: Evan You
-Source: https://registry.npmjs.org/%40vue%2Freactivity/3.5.32
+Source: https://registry.npmjs.org/%40vue%2Freactivity/3.5.43
 Notice 1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175 — LICENSE
 
-npm:@vue/runtime-core@3.5.32
+npm:@vue/runtime-core@3.5.43
 License: MIT
 Author metadata: Evan You
-Source: https://registry.npmjs.org/%40vue%2Fruntime-core/3.5.32
+Source: https://registry.npmjs.org/%40vue%2Fruntime-core/3.5.43
 Notice 1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175 — LICENSE
 
-npm:@vue/runtime-dom@3.5.32
+npm:@vue/runtime-dom@3.5.43
 License: MIT
 Author metadata: Evan You
-Source: https://registry.npmjs.org/%40vue%2Fruntime-dom/3.5.32
+Source: https://registry.npmjs.org/%40vue%2Fruntime-dom/3.5.43
 Notice 1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175 — LICENSE
 
-npm:@vue/server-renderer@3.5.32
+npm:@vue/server-renderer@3.5.43
 License: MIT
 Author metadata: Evan You
-Source: https://registry.npmjs.org/%40vue%2Fserver-renderer/3.5.32
+Source: https://registry.npmjs.org/%40vue%2Fserver-renderer/3.5.43
 Notice 1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175 — LICENSE
 
-npm:@vue/shared@3.5.32
+npm:@vue/shared@3.5.43
 License: MIT
 Author metadata: Evan You
-Source: https://registry.npmjs.org/%40vue%2Fshared/3.5.32
+Source: https://registry.npmjs.org/%40vue%2Fshared/3.5.43
 Notice 1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175 — LICENSE
 
 npm:@vueuse/core@13.9.0
@@ -3273,10 +3273,10 @@ Author metadata: Misha Moroshko <michael.moroshko@gmail.com>
 Source: https://registry.npmjs.org/shallow-equal/1.2.1
 Notice 4f63291fb1f53715b1864e41e3532407457a9b7bc440fb5526e4e5e69540c93e — LICENSE
 
-npm:source-map-js@1.2.1
+npm:source-map-js@1.2.2
 License: BSD-3-Clause
 Author metadata: Valentin 7rulnik Semirulnik <v7rulnik@gmail.com>
-Source: https://registry.npmjs.org/source-map-js/1.2.1
+Source: https://registry.npmjs.org/source-map-js/1.2.2
 Notice c9d85a24226fa4dd8c0756961de362cee34f6e9b1d19938bd480239950ad9a93 — LICENSE
 
 npm:speakingurl@14.0.1
@@ -3340,10 +3340,10 @@ Author metadata: Marco Solazzi
 Source: https://registry.npmjs.org/vue-types/3.0.2
 Notice 51c95c7270d16f7dc1d0fad35d98cc8445614b82f6298730303b49f1ca9c658c — LICENSE
 
-npm:vue@3.5.32
+npm:vue@3.5.43
 License: MIT
 Author metadata: Evan You
-Source: https://registry.npmjs.org/vue/3.5.32
+Source: https://registry.npmjs.org/vue/3.5.43
 Notice 1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175 — LICENSE
 
 npm:warning@4.0.3

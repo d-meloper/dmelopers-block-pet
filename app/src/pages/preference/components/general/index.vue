@@ -195,7 +195,10 @@ function confirmGeneralReset() {
       <ThemeMode />
 
       <ProListItem :title="$t('pages.preference.general.labels.language')">
-        <Select v-model:value="generalStore.appearance.language">
+        <Select
+          v-model:value="generalStore.appearance.language"
+          :dropdown-match-select-width="false"
+        >
           <Select.Option value="system">
             {{ $t('pages.preference.general.options.systemLanguage') }}
           </Select.Option>

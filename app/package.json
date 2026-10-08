@@ -1,7 +1,7 @@
 {
   "name": "dmelopers-block-pet",
   "type": "module",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "author": "DMeloper",
   "license": "MIT",
@@ -36,7 +36,7 @@
     "pinia": "^3.0.4",
     "tauri-plugin-locale-api": "^2.0.1",
     "three": "0.185.1",
-    "vue": "^3.5.32",
+    "vue": "^3.5.42",
     "vue-i18n": "^11.3.2",
     "vue-router": "^4.6.4"
   },
@@ -54,7 +54,7 @@
     "@vitejs/plugin-vue": "^5.2.4",
     "eslint": "^9.39.4",
     "eslint-plugin-format": "^1.5.0",
-    "lint-staged": "^15.5.2",
+    "lint-staged": "^16.4.0",
     "npm-run-all": "^4.1.5",
     "sass": "^1.99.0",
     "tsx": "^4.21.0",

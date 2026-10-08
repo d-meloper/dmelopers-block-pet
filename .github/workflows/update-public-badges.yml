@@ -3,8 +3,6 @@ on:
   schedule:
     - cron: '17 */6 * * *'
   workflow_dispatch:
-  release:
-    types: [published, edited]
 permissions:
   contents: read
 concurrency:
@@ -12,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   update-public-badges:
-    if: github.repository == 'd-meloper/dmelopers-block-pet'
+    if: github.repository == 'd-meloper/dmelopers-block-pet' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -35,4 +33,3 @@ jobs:
       - run: node .github/scripts/badges.mjs --publish
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
-          GITHUB_REF: refs/heads/main

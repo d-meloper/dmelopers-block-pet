@@ -96,8 +96,6 @@ For a direct GitHub installation, run the `.exe` installer. The accompanying `.s
 - Windows 11 22H2, build 22621.2283 or later, x64
 - Microsoft Edge WebView2 Runtime 120 or later
 
-- Recommended: Windows 11 24H2, build 26100 or later, x64
-
 The GitHub installer installs WebView2 when needed; this step requires an internet connection.
 
 No macOS, Linux or Windows ARM edition is provided.
@@ -107,19 +105,6 @@ No macOS, Linux or Windows ARM edition is provided.
 For installation, skins, presets and OBS setup, see the [App Notion page](https://aismash.notion.site/DMeloper-s-Block-Pet-Global-3f32dc0bb4ae807987f5df0a0f1b112e).
 
 Current settings are saved automatically. Use `Presets > +New Preset` to keep a configuration.
-
-## Troubleshooting
-
-Check the following first.
-
-- If the pet is hidden, check `Show Pet` in the tray menu and `Show Pet on My Desktop` in broadcast settings.
-- If the pet cannot be clicked or dragged, turn off `Pass Through` in the tray menu.
-- If a skin fails to apply, check the PNG format, 64×64 or 64×32 dimensions, Java Edition nickname and internet connection.
-- If OBS shows no pet, check that the app is running, broadcast output is enabled and the address is correct, then refresh the browser source.
-- If a problem persists, quit fully with `Quit App` in the tray menu and launch the app again.
-- Report errors through `About > Contact Us`.
-
-[Support](docs/SUPPORT.md) covers installation and repair. See the [Privacy Policy](https://aismash.notion.site/3f32dc0bb4ae803ea9aed8d3b366c391) and [Data Management Guide](https://aismash.notion.site/3f32dc0bb4ae80808222e5e0cf123464) on Notion for information processing, data retention, and deletion.
 
 ## Contact / Bug Reports / Contributions
 

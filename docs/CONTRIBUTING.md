@@ -8,7 +8,7 @@ Use [GitHub Issues](https://github.com/d-meloper/dmelopers-block-pet/issues) to 
 
 For a pull request, explain the problem, the change and how you checked it. Keep unrelated changes separate. Preserve licenses and asset sources, and leave out credentials, personal paths, user data and build outputs.
 
-This public source can be built on its own. Microsoft Store distribution is being prepared. Accepted changes are incorporated into the maintained source before the next public source update.
+This public source can be built on its own. Accepted changes are incorporated into the maintained source before the next public source update.
 
 ## Build Requirements
 

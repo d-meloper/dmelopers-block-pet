@@ -69,7 +69,7 @@ DMeloper's Block Pet은 키보드와 마우스에 반응하는 마인크래프�
 
 ## 다운로드
 
-##### Microsoft Store (Windows 10 빌드 19045.3448+ / Windows 11 빌드 22621.2283+, x64)
+##### 마이크로소프트 스토어 공식 다운로드 경로 (Windows 10 빌드 19045.3448+ / Windows 11 빌드 22621.2283+, x64)
 
 <a href="https://apps.microsoft.com/detail/9PLKW6NBMKQ7?hl=ko-KR" target="_self">
   <img src="https://get.microsoft.com/images/ko%20dark.svg" alt="Microsoft Store에서 다운로드" width="200">
@@ -77,82 +77,14 @@ DMeloper's Block Pet은 키보드와 마우스에 반응하는 마인크래프�
 
 #### ⚠️ 주의사항
 
-Microsoft Store에서 설치하면 아래에서 설명하는 SmartScreen 다운로드·알 수 없는 게시자 경고가 나타나지 않습니다. 다만 새 버전이 출시된 뒤 Store에 게시되기까지 **최대 3영업일이 소요될 수 있습니다.**
+마이크로소프트 스토어에서 설치하면 아래 안내의 설치 차단이나, 백신 격리 검사가 발생하지 않지만, 별도 심사를 거치기 때문에 새 버전이 반영되기까지 **최대 3 영업일이 소요될 수 있습니다.**
 
-그전에 최신 버전을 미리 내려받거나, 앱 내 업데이터로 새 버전을 신속하게 내려받고 싶으시다면 아래 GitHub Releases에서 GitHub판을 내려받아 주세요.
+그전에 미리 최신 버전을 내려 받고 싶으시거나, 앱 내의 자동 업데이터로 항상 빠르게 최신 버전을 내려 받고 싶으시다면 하단 GitHub Releases에서 프로그램을 설치해 주시기 바랍니다.
 
 <a name="installation-warnings"></a>
 
-<details>
-<summary><strong>이 프로그램은 바이러스가 아닙니다 🛡️ · 경고 안내와 해결 방법</strong></summary>
-
-프로그램 설치를 시도하면 사용 중인 웹 브라우저에 따라 하단의 이미지처럼 설치가 제한되거나 격리 검사가 이루어지는 경우가 있을 수 있습니다.
-
-<p align="center">
-  <img src="assets/install-warnings/엣지0.png" alt="Microsoft Edge 다운로드 경고" width="28%">
-  &nbsp;
-  <img src="assets/install-warnings/스마트스크린0.png" alt="Windows SmartScreen 실행 경고" width="28%">
-  &nbsp;
-  <img src="assets/install-warnings/백신 1.png" alt="AhnLab V3 Lite 앱 격리 검사" width="28%">
-</p>
-
-### Q1. 왜 이런 경고가 발생하나요?
-
-**A1. 다운로드 이력이 적어서**<br>
-새로 출시한 버전인 경우, 많은 다운로드가 이루어지지 않아 검증되지 않은 프로그램으로 판별해 안전을 위해 경고가 표시됩니다.
-
-**A2. 프로그램의 서명이 돼있지 않아서**<br>
-프로그램 개발자가 누구인지 서명이 되어있지 않아서 안전을 위해 경고가 표시됩니다.
-
-### Q2. 왜 프로그램 서명을 하지 않았나요?
-
-**A. 프로그램 서명은 주기적으로 비용을 지출해야 하기 때문에** 무료로 운영하고 배포되는 프로그램에 서명을 진행하지 않았습니다. 하지만 이러한 경고를 줄이기 위해 [**Azure 아티팩트 서명 작업**](https://azure.microsoft.com/ko-kr/products/artifact-signing/)을 검토 중입니다.(2026년 10월 8일 기준) 다만, 우선 신청할 자격이 되는지 검증해야 하고, 웹 사이트 개설과 심사 기간이 필요해 최소 한 달 정도 시간이 소요될 예정됩니다. 그 전까지는 경고가 계속해서 나타날 수 있습니다.
-
-하단의 임시 조치 방법이 찝찝하시다면 [마이크로소프트 앱스토어 공식 DMeloper’s Block Pet 다운로드 경로](https://apps.microsoft.com/detail/9PLKW6NBMKQ7?hl=ko-KR)에서 프로그램을 설치해주세요. 이 경로에서는 경고가 발생하지 않습니다.
-
-### 경고창 임시 조치 방법
-
-#### Microsoft Edge에서 다운로드 중 경고가 발생하는 경우
-
-1. **[···]** → **[유지]** 를 클릭합니다.
-
-<p align="center">
-  <img src="assets/install-warnings/엣지1.png" alt="Microsoft Edge 다운로드 메뉴의 유지 버튼" width="360">
-</p>
-
-2. 삭제 버튼 우측의 **[⌵] → [그래도 계속]** 버튼을 클릭합니다.
-
-<p align="center">
-  <img src="assets/install-warnings/엣지2.png" alt="Microsoft Edge의 그래도 계속 버튼" width="280">
-</p>
-
-3. 완료
-
-#### 설치파일 실행 시 SmartScreen 경고가 발생하는 경우
-
-1. **[ 추가 정보 ]** 버튼을 클릭합니다.
-
-<p align="center">
-  <img src="assets/install-warnings/스마트스크린0.png" alt="Windows SmartScreen의 추가 정보 버튼" width="360">
-</p>
-
-2. **[ 실행 ]** 을 클릭합니다.
-
-<p align="center">
-  <img src="assets/install-warnings/스마트스크린.png" alt="Windows SmartScreen의 실행 버튼" width="360">
-</p>
-
-3. 완료
-
-### 백신 임시 조치 방법
-
-격리 검사가 완료되고 나면 **‘파일 처리 방법’** 중 **[한 번만 실행]** 또는 **[파일 해시 예외 처리 후 실행]** 을 선택한 뒤 실행해주시면 됩니다.
-
-<p align="center">
-  <img src="assets/install-warnings/백신 2.png" alt="AhnLab V3 Lite의 알려지지 않은 새로운 파일 안내와 파일 처리 메뉴" width="330">
-</p>
-
-</details>
+> [!NOTE]
+> [**이 프로그램은 바이러스가 아닙니다 🛡️ (설치 차단, 백신 검사 안내)**](docs/INSTALLATION_WARNINGS.ko-KR.md)
 
 [GitHub Releases](https://github.com/d-meloper/dmelopers-block-pet/releases)
 
@@ -187,7 +119,7 @@ macOS, Linux와 Windows ARM용 배포는 지원하지 않습니다.
 - 문제가 계속되면 트레이 메뉴의 `앱 종료`로 완전히 종료한 뒤 다시 실행
 - 오류가 발생하면 `정보 > 문의하기`로 제보하기
 
-설치와 복구는 [지원 안내](docs/SUPPORT.ko-KR.md), 데이터 보관과 삭제는 [데이터·권한 안내](docs/PRIVACY.ko-KR.md)를 확인하세요.
+설치와 복구는 [지원 안내](docs/SUPPORT.ko-KR.md), 정보 처리와 데이터 보관·삭제는 노션의 [개인정보 처리방침](https://aismash.notion.site/3f12dc0bb4ae809fb5becfc2376d4a5c)과 [데이터 관리 안내](https://aismash.notion.site/0342dc0bb4ae831581878180c15c0059)를 확인하세요.
 
 ## 문의 / 버그 제보 / 기여
 
@@ -208,7 +140,7 @@ GitHub에서도 [Issues](https://github.com/d-meloper/dmelopers-block-pet/issues
 
 - 버그와 기능 요청: [설문지](https://aismash.notion.site/9cff9655595342d78a22c17b61a2084c), [GitHub Issues](https://github.com/d-meloper/dmelopers-block-pet/issues)
 - 코드·문서·번역 기여: [기여 안내](docs/CONTRIBUTING.ko-KR.md)
-- 데이터와 권한: [데이터·권한 안내](docs/PRIVACY.ko-KR.md)
+- 개인정보와 데이터: [개인정보 처리방침](https://aismash.notion.site/3f12dc0bb4ae809fb5becfc2376d4a5c) · [데이터 관리 안내](https://aismash.notion.site/0342dc0bb4ae831581878180c15c0059)
 - 보안 제보: [보안 안내](docs/SECURITY.ko-KR.md)의 비공개 제보 절차 이용
 
 ## 크레딧

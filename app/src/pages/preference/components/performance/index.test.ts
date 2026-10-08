@@ -11,6 +11,7 @@ import { compileScript, parse } from 'vue/compiler-sfc'
 import type { PerformanceUnavailableReasons } from '@/utils/performance'
 
 import { snapSliderValue } from '@/components/default-snap-slider/snapValue'
+import externalLinks from '@/config/externalLinks.json'
 import * as performanceConfig from '@/config/performance'
 import { WINDOW_LABEL } from '@/constants'
 import en from '@/locales/en-US.json'
@@ -167,6 +168,12 @@ function harness(component: 'performance' | 'about', options: {
           : undefined,
       }
     }
+    if (id === '@/composables/useAppLanguage') {
+      return { useAppLanguage: () => ({
+        language: Vue.computed(() => i18n.global.locale.value),
+        select: <T>(korean: T, global: T) => languageBranch.selectByLanguage(i18n.global.locale.value, korean, global),
+      }) }
+    }
     if (id === '@/composables/useBroadcast') return { BROADCAST_CONTROLLER: broadcastKey }
     if (id === 'vue-i18n') return { useI18n: () => ({ t: i18n.global.t }) }
     if (id === 'ant-design-vue') {
@@ -179,6 +186,7 @@ function harness(component: 'performance' | 'about', options: {
         message: { error: (key: string) => errors.push(key) },
       }
     }
+    if (id === '@/config/externalLinks.json') return { default: externalLinks }
     if (id === '@/config/performance') return performanceConfig
     if (options.render && id.startsWith('@/components/')) {
       return {
@@ -188,7 +196,7 @@ function harness(component: 'performance' | 'about', options: {
       }
     }
     if (id === '@/locales/languageBranch') return languageBranch
-    if (id === './AutomaticUpdates.vue' || id === './NotionIcon.vue') return { default: {} }
+    if (id === './AutomaticUpdates.vue' || id === './MicrosoftStoreIcon.vue' || id === './NotionIcon.vue') return { default: {} }
     if (id === '@ant-design/icons-vue') return { GithubFilled: {} }
     if (id === '@/services/environmentInfo') return { collectEnvironmentInfo: async () => '' }
     if (id === '@/services/diagnostics') return { reportDiagnostic: () => {} }

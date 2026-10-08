@@ -336,6 +336,7 @@ async function createPreferenceHarness() {
         '@vueuse/core': { useEventListener: () => { } },
         'pinia': { storeToRefs: () => ({}) },
         'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
+        '@/composables/useAppLanguage': { useAppLanguage: () => ({ language: { value: 'ko-KR' } }) },
         '@/composables/useTauriListen': { useTauriListen: (event: string, handler: typeof listeners[string]) => {
           listeners[event] = handler
         } },

@@ -11,10 +11,12 @@ import type { PreferenceUpdates } from '@/features/updates/preferenceUpdates'
 import type { DistributionChannel } from '@/services/distribution'
 import type { AppUpdateInfo, UpdatePhase } from '@/services/inAppUpdates'
 
+import externalLinks from '@/config/externalLinks.json'
 import { APP_DISPLAY_NAME } from '@/constants/branding'
 import { createPreferenceUpdates } from '@/features/updates/preferenceUpdates'
 import en from '@/locales/en-US.json'
 import ko from '@/locales/ko-KR.json'
+import { selectByLanguage } from '@/locales/languageBranch'
 import { DEFAULT_PROGRAM_SETTINGS_RESET_OPTIONS } from '@/utils/programSettingsReset'
 
 const listItem = { name: 'ListItem' }
@@ -90,8 +92,11 @@ function renderComponent(filename: string, updates?: PreferenceUpdates, override
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
     '@ant-design/icons-vue': { GithubFilled: 'github-icon' },
     './NotionIcon.vue': { default: 'notion-icon' },
+    './MicrosoftStoreIcon.vue': { default: 'microsoft-store-icon' },
     'ant-design-vue': { Button: 'button', Flex: 'flex', Progress: 'progress', Modal: 'modal', Switch: 'switch', message: { error: () => {} } },
     '@/components/preference-sections/index.vue': { default: 'sections' },
+    '@/composables/useAppLanguage': { useAppLanguage: () => ({ select: <T>(korean: T, global: T) => selectByLanguage('ko-KR', korean, global) }) },
+    '@/config/externalLinks.json': { default: externalLinks },
     '@/constants/branding': { APP_DISPLAY_NAME },
     '@/composables/useProgramSettingsReset': { useProgramSettingsReset: () => ({ resetProgramSettings: async () => {} }) },
     '@/components/pro-list-item/index.vue': { default: listItem },
@@ -125,6 +130,7 @@ it('uses the same single icon action to check or install on GitHub and test chan
     await h.updates.setVisible(true)
     assert.equal(h.nodes().filter(node => node.type === 'button').length, 1)
     assert.equal(h.action().props!['aria-label'], 'inAppUpdates.install')
+    assert.ok(!h.nodes().some(node => node.type === 'microsoft-store-icon'))
     assert.ok(h.nodes().some(node => String(node.props?.class).includes('i-lucide:download')))
     await h.click()
     assert.deepEqual(h.calls, ['check:cached', 'check:fresh', 'install'])
@@ -194,19 +200,23 @@ it('opens only Microsoft Store with a duplicate guard and reports an open failur
   const h = harness('store')
   await h.updates.setVisible(true)
   assert.equal(h.action().props!['aria-label'], 'storeUpdates.open')
-  assert.ok(h.nodes().some(node => String(node.props?.class).includes('i-lucide:refresh-cw')))
+  assert.ok(h.nodes().some(node => node.type === 'microsoft-store-icon'))
+  assert.ok(!h.nodes().some(node => String(node.props?.class).includes('i-lucide:refresh-cw')))
   let reject!: (reason: Error) => void
   h.storeRequest(() => new Promise<void>((_, no) => {
     reject = no
   }))
   const opening = h.click()
   assert.equal(h.action().props!.disabled, true)
+  assert.ok(h.nodes().some(node => String(node.props?.class).includes('i-lucide:loader-circle')))
+  assert.ok(!h.nodes().some(node => node.type === 'microsoft-store-icon'))
   await h.click()
   reject(new Error('Store unavailable'))
   await opening
   assert.deepEqual(h.calls, ['store'])
   assert.deepEqual(h.errors, ['storeUpdates.openFailed'])
   assert.equal(h.action().props!.disabled, false)
+  assert.ok(h.nodes().some(node => node.type === 'microsoft-store-icon'))
 })
 
 it('keeps the development refresh action disabled without development status or tooltip copy', async () => {
@@ -247,7 +257,7 @@ it('groups app information and support actions in their requested order', () => 
   }
   for (const index of [introductionIndex, releaseNotesIndex]) {
     const buttons = buttonsFor(index)
-    assert.equal(buttons.length, 2)
+    assert.equal(buttons.length, 3)
     for (const button of buttons) assert.equal(typeof button.props?.onClick, 'function')
   }
   for (const index of [environmentIndex, contactIndex, developerEmailIndex, appLogIndex]) {
@@ -268,7 +278,7 @@ it('shows localized current and latest versions together, including checking, fa
     h.result({ ...available(), available: false })
     await h.updates.check()
     assert.equal(description(), `v1.0.1 ${t('inAppUpdates.upToDate')}`)
-    if (language === 'ko-KR') assert.equal(description(), 'v1.0.1 최신 버전입니다.')
+    if (language === 'ko-KR') assert.equal(description(), 'v1.0.1 현재 프로그램이 최신 버전입니다.')
     h.updates.checking.value = true
     assert.equal(description(), `v1.0.1 ${t('inAppUpdates.checking')}`)
     h.updates.checking.value = false

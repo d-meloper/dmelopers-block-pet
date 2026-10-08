@@ -7,14 +7,18 @@ import ts from 'typescript'
 import * as Vue from 'vue'
 import { compileScript, parse } from 'vue/compiler-sfc'
 
+import type { Language, LanguagePreference } from '@/locales/languageBranch'
 import type { ProgramSettingsResetOptions } from '@/utils/programSettingsReset'
 
+import externalLinks from '@/config/externalLinks.json'
 import { APP_DISPLAY_NAME } from '@/constants/branding'
-import { isKoreanLanguage, selectByLanguage } from '@/locales/languageBranch'
+import { isKoreanLanguage, resolveLanguage, selectByLanguage } from '@/locales/languageBranch'
 import { DEFAULT_PROGRAM_SETTINGS_RESET_OPTIONS, ProgramSettingsResetError } from '@/utils/programSettingsReset'
 
 function harness(renderTemplate = false) {
-  const locale = Vue.ref('ko-KR')
+  const preference = Vue.ref<LanguagePreference>('system')
+  const systemLanguage = Vue.ref<Language>('ko-KR')
+  const locale = Vue.computed(() => resolveLanguage(preference.value, systemLanguage.value))
   const opened: string[] = []
   const openedPaths: string[] = []
   const logActions: string[] = []
@@ -34,6 +38,8 @@ function harness(renderTemplate = false) {
   const script = compileScript(descriptor, { id: 'about-actions', inlineTemplate: renderTemplate })
   interface Actions {
     openDeveloperLink: () => Promise<void>
+    showDataNotice: () => Promise<void>
+    dataNotice: Vue.Ref<string>
     copyDeveloperEmail: () => Promise<void>
     copyInfo: () => Promise<void>
     openLogs: () => Promise<void>
@@ -54,6 +60,7 @@ function harness(renderTemplate = false) {
     'vue-i18n': { useI18n: () => ({ locale, t: (key: string) => key }) },
     '@ant-design/icons-vue': { GithubFilled: 'github-icon' },
     './NotionIcon.vue': { default: 'notion-icon' },
+    './MicrosoftStoreIcon.vue': { default: 'microsoft-store-icon' },
     'ant-design-vue': {
       Button: 'button',
       Flex: 'flex',
@@ -86,8 +93,11 @@ function harness(renderTemplate = false) {
       if (failCopy) throw new Error('copy failed')
       copied.push(text)
     } },
-    '@/locales/languageBranch': { selectByLanguage },
+    '@/composables/useAppLanguage': { useAppLanguage: () => ({ select: <T>(korean: T, global: T) => selectByLanguage(locale.value, korean, global) }) },
+    '@/legal/data-permissions.ko-KR.txt?raw': { default: 'Korean data notice' },
+    '@/legal/data-permissions.en-US.txt?raw': { default: 'English data notice' },
     '@/constants/branding': { APP_DISPLAY_NAME },
+    '@/config/externalLinks.json': { default: externalLinks },
     '@/services/environmentInfo': { collectEnvironmentInfo: () => collectInfo() },
     '@/composables/useProgramSettingsReset': { useProgramSettingsReset: () => ({ resetProgramSettings: async (options: ProgramSettingsResetOptions) => {
       resetCalls.push({ ...options })
@@ -122,7 +132,8 @@ function harness(renderTemplate = false) {
       assert.ok(row)
       return flatten(row).filter(node => node.type === 'button')
     },
-    locale,
+    preference,
+    systemLanguage,
     opened,
     openedPaths,
     logActions,
@@ -160,9 +171,10 @@ it('selects Korean or other values using the current application locale', async 
   }
   const h = harness()
   await h.actions.openDeveloperLink()
-  h.locale.value = 'en-US'
+  h.preference.value = 'en-US'
   await h.actions.openDeveloperLink()
-  h.locale.value = 'ja-JP'
+  h.systemLanguage.value = 'en-US'
+  h.preference.value = 'system'
   await h.actions.openDeveloperLink()
   assert.deepEqual(h.opened, ['https://litt.ly/dmeloper', 'https://linktr.ee/dmeloper.dev', 'https://linktr.ee/dmeloper.dev'])
 })
@@ -224,16 +236,21 @@ it('reports native open and clipboard failures without success notifications', a
 it('opens the introduction, Release Notes and survey destinations and reports opener failures', async () => {
   const h = harness(true)
   const introductionButtons = h.buttons('pages.preference.about.labels.introduction')
-  assert.equal(introductionButtons.length, 2)
+  assert.equal(introductionButtons.length, 3)
   for (const button of introductionButtons) {
     assert.equal(typeof button.props?.onClick, 'function')
     await button.props!.onClick()
   }
   const releaseNotesButtons = h.buttons('pages.preference.about.labels.releaseNotes')
-  assert.equal(releaseNotesButtons.length, 2)
+  assert.equal(releaseNotesButtons.length, 3)
   for (const button of releaseNotesButtons) {
     assert.equal(typeof button.props?.onClick, 'function')
     await button.props!.onClick()
+  }
+  for (const buttons of [introductionButtons, releaseNotesButtons]) {
+    const store = buttons[2]
+    assert.equal(store.props?.['aria-label'], 'pages.preference.about.buttons.microsoftStore')
+    assert.equal(store.props?.title, 'pages.preference.about.buttons.microsoftStore')
   }
   const contactButtons = h.buttons('pages.preference.about.labels.contactUs')
   assert.equal(contactButtons.length, 1)
@@ -246,13 +263,15 @@ it('opens the introduction, Release Notes and survey destinations and reports op
   assert.deepEqual(h.opened, [
     'https://app.notion.com/p/aismash/0da2dc0bb4ae82ab8db301718dde497b?source=copy_link',
     'https://github.com/d-meloper/dmelopers-block-pet',
+    'https://apps.microsoft.com/detail/9PLKW6NBMKQ7?hl=ko-kr&gl=KR&ocid=pdpshare',
     'https://app.notion.com/p/aismash/DMeloper-s-Block-Pet-b872dc0bb4ae83d5b15681b53f73d0f9?source=copy_link',
     'https://github.com/d-meloper/dmelopers-block-pet/releases',
+    'https://apps.microsoft.com/detail/9PLKW6NBMKQ7?hl=ko-kr&gl=KR&ocid=pdpshare',
     'https://aismash.notion.site/9cff9655595342d78a22c17b61a2084c',
   ])
   const failed = harness(true)
   failed.fail()
-  await failed.buttons('pages.preference.about.labels.introduction')[0].props!.onClick()
+  await failed.buttons('pages.preference.about.labels.introduction')[2].props!.onClick()
   assert.deepEqual(failed.errors, ['pages.preference.about.errors.openLink'])
   assert.deepEqual(failed.opened, [])
 })
@@ -392,9 +411,63 @@ it('opens and closes all icon credits from the shared policy link', () => {
   assert.equal(creditDialog().props!.open, false)
   h.buttons('pages.preference.about.labels.iconCredits')[0].props!.onClick()
   assert.equal(creditDialog().props!.open, true)
-  for (const title of ['Solar Icons', 'Lucide Icons', 'Ant Design Icons', 'Notion']) {
+  for (const title of ['Solar Icons', 'Lucide Icons', 'Ant Design Icons', 'Notion', 'Microsoft Store']) {
     assert.ok(h.nodes().some(node => node.props?.title === title))
   }
   creditDialog().props!['onUpdate:open'](false)
   assert.equal(creditDialog().props!.open, false)
+})
+
+it('selects legal content from the resolved preference on every open', async () => {
+  const h = harness()
+  await h.actions.showDataNotice()
+  assert.equal(h.actions.dataNotice.value, 'Korean data notice')
+  h.preference.value = 'en-US'
+  await h.actions.showDataNotice()
+  assert.equal(h.actions.dataNotice.value, 'English data notice')
+  h.systemLanguage.value = 'en-US'
+  h.preference.value = 'ko-KR'
+  await h.actions.showDataNotice()
+  assert.equal(h.actions.dataNotice.value, 'Korean data notice')
+  h.preference.value = 'system'
+  await h.actions.showDataNotice()
+  assert.equal(h.actions.dataNotice.value, 'English data notice')
+})
+
+it('reacts to System and explicit overrides for all localized resource destinations', async () => {
+  const h = harness(true)
+  h.systemLanguage.value = 'en-US'
+  const introduction = h.buttons('pages.preference.about.labels.introduction')
+  await introduction[0].props!.onClick()
+  await introduction[2].props!.onClick()
+  await h.buttons('pages.preference.about.labels.contactUs')[0].props!.onClick()
+  await h.buttons('pages.preference.about.labels.releaseNotes')[2].props!.onClick()
+  await h.buttons('pages.preference.about.labels.releaseNotes')[0].props!.onClick()
+  assert.deepEqual(h.opened, [
+    'https://app.notion.com/p/aismash/DMeloper-s-Block-Pet-Global-3f32dc0bb4ae807987f5df0a0f1b112e?source=copy_link',
+    'https://apps.microsoft.com/detail/9plkw6nbmkq7?hl=en-US',
+    'https://aismash.notion.site/5402dc0bb4ae83fdb83681271f4b937e?pvs=105',
+    'https://apps.microsoft.com/detail/9plkw6nbmkq7?hl=en-US',
+    'https://app.notion.com/p/aismash/DMeloper-s-Block-Pet-Downloads-3f32dc0bb4ae800e9dc7e7fd7eeb55d7?source=copy_link',
+  ])
+  h.preference.value = 'ko-KR'
+  await introduction[0].props!.onClick()
+  await h.buttons('pages.preference.about.labels.contactUs')[0].props!.onClick()
+  await h.buttons('pages.preference.about.labels.releaseNotes')[0].props!.onClick()
+  assert.deepEqual(h.opened.slice(-3), [
+    'https://app.notion.com/p/aismash/0da2dc0bb4ae82ab8db301718dde497b?source=copy_link',
+    'https://aismash.notion.site/9cff9655595342d78a22c17b61a2084c',
+    'https://app.notion.com/p/aismash/DMeloper-s-Block-Pet-b872dc0bb4ae83d5b15681b53f73d0f9?source=copy_link',
+  ])
+  h.systemLanguage.value = 'ko-KR'
+  h.preference.value = 'en-US'
+  await introduction[2].props!.onClick()
+  await h.buttons('pages.preference.about.labels.developer')[0].props!.onClick()
+  assert.deepEqual(h.opened.slice(-2), [
+    'https://apps.microsoft.com/detail/9plkw6nbmkq7?hl=en-US',
+    'https://linktr.ee/dmeloper.dev',
+  ])
+  h.preference.value = 'system'
+  await introduction[2].props!.onClick()
+  assert.equal(h.opened.at(-1), 'https://apps.microsoft.com/detail/9PLKW6NBMKQ7?hl=ko-kr&gl=KR&ocid=pdpshare')
 })

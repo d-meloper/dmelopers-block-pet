@@ -8,7 +8,7 @@ Use [GitHub private vulnerability reporting](https://github.com/d-meloper/dmelop
 
 Remove personal information from any attached evidence. Keep credentials and exploit details out of public issues.
 
-Microsoft Store distribution is being prepared. Include the application version or source commit in reports.
+Include the application version or source commit in reports.
 
 Security fixes target the latest published stable version on x64 Windows 10 22H2 with the September 2023 cumulative update (build 19045.3448) or later, and Windows 11 22H2 with the September 2023 cumulative update (build 22621.2283) or later. Windows 11 24H2 or newer is recommended. GitHub and Store are configured to use the same product version, `X.Y.Z`; the Store package version is `X.Y.Z.0`.
 

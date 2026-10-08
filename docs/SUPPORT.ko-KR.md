@@ -4,7 +4,7 @@
 
 ## 설치 도움말
 
-[릴리즈 페이지](https://github.com/d-meloper/dmelopers-block-pet/releases)에서 `.exe` 설치파일을 받으세요. 함께 제공하는 `.sig` 파일은 검증용이므로 일반 설치 시 별도로 받지 않아도 됩니다. GitHub판은 현재 Windows 계정에 설치됩니다. Microsoft Store 배포는 준비 중입니다.
+[Microsoft Store](https://apps.microsoft.com/detail/9PLKW6NBMKQ7?hl=ko-KR)에서 설치하거나 [GitHub 릴리즈 페이지](https://github.com/d-meloper/dmelopers-block-pet/releases)에서 `.exe` 설치파일을 받으세요. 함께 제공하는 `.sig` 파일은 검증용이므로 일반 설치 시 별도로 받지 않아도 됩니다. GitHub판은 현재 Windows 계정에 설치됩니다.
 
 DMeloper's Block Pet의 최소 환경은 x64 Windows 10 22H2 + 2023년 9월 누적 업데이트(빌드 19045.3448) 이상입니다. Windows 11은 22H2 + 2023년 9월 누적 업데이트(빌드 22621.2283) 이상이 필요합니다. Windows 11 24H2(빌드 26100) 이상을 권장하며, 앱은 한국어와 영어를 지원합니다.
 
@@ -34,7 +34,7 @@ Microsoft Store판은 Windows가 설치와 업데이트를 관리하도록 구�
 
 문의, 버그 제보, 기능 제안은 [GitHub Issues](https://github.com/d-meloper/dmelopers-block-pet/issues)를 이용하세요. 다음 정보를 함께 적어 주시면 도움이 됩니다.
 
-- 앱 버전 또는 소스 커밋과 사용 중인 GitHub판·시험판·직접 빌드한 앱 구분
+- 앱 버전 또는 소스 커밋과 사용 중인 GitHub판·Store판·시험판·직접 빌드한 앱 구분
 - 새 설치·업데이트·재설치 여부와 해당하는 경우 이전 버전
 - 해당하는 경우 설치파일명, Windows 버전과 화면 배율
 - 문제가 발생하는 과정, 예상한 동작과 실제 동작

@@ -27,7 +27,7 @@ export const DEFAULT_PET_PRESET = {
   keyboardLegendLanguage: defaults.preset.keyboardLegendLanguage as Pet3dPreset['keyboardLegendLanguage'],
 } as const satisfies Pet3dPreset
 
-// Theme resolution still follows the OS. autoUpdateCheck is an inert stored key;
+// Theme and language defaults follow the OS. autoUpdateCheck is an inert stored key;
 // the preference window owns checks when opened; startup never checks versions.
 export const DEFAULT_GENERAL_SETTINGS = {
   ...defaults.general,

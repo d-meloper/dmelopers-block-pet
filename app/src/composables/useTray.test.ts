@@ -10,8 +10,11 @@ import ts from 'typescript'
 import * as vue from 'vue'
 import { compileScript, parse } from 'vue/compiler-sfc'
 
+import type { Language, LanguagePreference } from '@/locales/languageBranch'
+
 import { APP_DISPLAY_NAME, WINDOW_LABEL } from '@/constants'
 import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
+import { resolveLanguage } from '@/locales/languageBranch'
 import { createLatestAsyncTaskQueue } from '@/utils/latestAsyncTask'
 
 import type { useTray } from './useTray'
@@ -40,12 +43,13 @@ function deferred() {
 async function flush() {
   for (let i = 0; i < 60; i += 1) await Promise.resolve()
 }
-function trayHarness(existingTray = false, legacyTrayVisible?: boolean) {
+function trayHarness(existingTray = false, legacyTrayVisible?: boolean, systemLanguage: Language = 'ko-KR') {
   const block = vue.reactive({
     window: { visible: true, opacity: 100, keepInScreen: true, alwaysOnTop: false },
     activePet3dPreset: { cameraZoomPercent: 100, sceneRotationOffsetDegrees: 0 },
   })
-  const general = vue.reactive({ app: { broadcastRestorePromptDismissed: false } as { trayVisible?: boolean, broadcastRestorePromptDismissed: boolean }, appearance: { language: 'ko-KR' }, broadcast: { enabled: false, showOnDesktop: false } })
+  const general = vue.reactive({ app: { broadcastRestorePromptDismissed: false } as { trayVisible?: boolean, broadcastRestorePromptDismissed: boolean }, appearance: { language: 'ko-KR' as LanguagePreference }, broadcast: { enabled: false, showOnDesktop: false } })
+  const language = vue.computed(() => resolveLanguage(general.appearance.language, systemLanguage))
   if (legacyTrayVisible !== undefined) general.app.trayVisible = legacyTrayVisible
   const locked = vue.ref(false)
   const editable = vue.ref(true)
@@ -113,6 +117,7 @@ function trayHarness(existingTray = false, legacyTrayVisible?: boolean) {
     '@/stores/general': { useGeneralStore: () => general },
     '@/features/stateSafety': { editorsLocked: locked },
     '@/utils/latestAsyncTask': { createLatestAsyncTaskQueue },
+    './useAppLanguage': { useAppLanguage: () => ({ language }) },
     './useAppMenu': { useAppMenu: () => ({
       getAppMenu: async () => {
         const menu: MockMenu = {
@@ -123,7 +128,7 @@ function trayHarness(existingTray = false, legacyTrayVisible?: boolean) {
             opacity: block.window.opacity,
             keepInScreen: block.window.keepInScreen,
             alwaysOnTop: block.window.alwaysOnTop,
-            language: general.appearance.language,
+            language: language.value,
           },
           closed: false,
           close: async () => {
@@ -653,4 +658,27 @@ describe('live shared tray menu', () => {
     assert.equal(h.created.at(-1)!.closed, true)
     assert.equal(h.attached.at(-1)!.snapshot.opacity, 75)
   })
+})
+
+it('uses the resolved system language for tray menus and refreshes on manual overrides', async () => {
+  const h = trayHarness(false, undefined, 'en-US')
+  try {
+    h.general.appearance.language = 'system'
+    await flush()
+    assert.equal(h.attached.at(-1)!.snapshot.language, 'en-US')
+    h.general.appearance.language = 'ko-KR'
+    await flush()
+    assert.equal(h.attached.at(-1)!.snapshot.language, 'ko-KR')
+    h.general.appearance.language = 'system'
+    await flush()
+    assert.equal(h.attached.at(-1)!.snapshot.language, 'en-US')
+    const menuCount = h.attached.length
+    h.general.appearance.language = 'en-US'
+    await flush()
+    assert.equal(h.attached.length, menuCount, 'Changing the preference without changing its resolved language retains the native menu')
+    assert.ok(h.created.every(menu => menu.snapshot.language !== 'system'))
+    assert.deepEqual(h.errors, [])
+  } finally {
+    h.stop()
+  }
 })

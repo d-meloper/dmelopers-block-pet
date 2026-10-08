@@ -301,3 +301,50 @@ it('hides hover delay while OFF, rejects stale edits and retains its value', () 
   staleDelay!.props!['onUpdate:value'](3.5)
   assert.equal(block.window.hideOnHoverDelay, 3.5, 'visible delay remains editable while ON')
 })
+
+it('offers System settings, Korean and English in order and persists the selected preference', () => {
+  const general = Vue.reactive({ app: {}, appearance: { language: 'system' } })
+  const { descriptor } = parse(readFileSync(new URL('./index.vue', import.meta.url), 'utf8'))
+  const script = compileScript(descriptor, { id: 'language-selector', inlineTemplate: true })
+  const module = { exports: {} as { default: { setup: (props: object, context: object) => (context: object, cache: unknown[]) => Vue.VNode } } }
+  const mocks: Record<string, unknown> = {
+    'vue': { ...Vue, withDirectives: (node: Vue.VNode) => node, onMounted: () => {}, onBeforeUnmount: () => {} },
+    'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
+    'ant-design-vue': { Select: { Option: 'select-option' }, Modal: {}, message: {}, Button: 'button', Flex: 'flex', Divider: 'divider', InputNumber: 'input-number', Switch: 'switch' },
+    '@/components/option-transition/index.vue': { default: 'transition' },
+    '@/components/preference-sections/index.vue': { default: 'sections' },
+    '@/components/pro-list-item/index.vue': { default: 'list-item' },
+    '@/components/pro-list/index.vue': { default: 'list' },
+    './components/broadcast-settings/index.vue': { default: 'broadcast-settings' },
+    './components/theme-mode/index.vue': { default: 'theme-mode' },
+    '@/stores/general': { useGeneralStore: () => general },
+    '@/stores/block': { useBlockStore: () => ({ window: {} }) },
+  }
+  runInNewContext(ts.transpileModule(script.content, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, { module, exports: module.exports, require: (id: string) => mocks[id] ?? {} })
+  const render = module.exports.default.setup({}, { expose: () => {} })
+  function flatten(node: Vue.VNode): Vue.VNode[] {
+    const children = Array.isArray(node.children)
+      ? node.children
+      : node.children && typeof node.children === 'object'
+        ? Object.values(node.children).flatMap(slot => typeof slot === 'function' ? slot() : [])
+        : []
+    return [node, ...children.flatMap(child => Vue.isVNode(child) ? flatten(child) : [])]
+  }
+  for (const [locale, systemLabel] of [['ko-KR', '시스템 설정'], ['en-US', 'System settings']]) {
+    const messages = JSON.parse(readFileSync(new URL(`../../../../locales/${locale}.json`, import.meta.url), 'utf8'))
+    const t = (key: string) => key.split('.').reduce((value, part) => value?.[part], messages) ?? key
+    const nodes = flatten(render({ $t: t }, []))
+    const select = nodes.find(node => node.type === (mocks['ant-design-vue'] as { Select: object }).Select)!
+    assert.ok(select)
+    const options = nodes.filter(node => node.type === 'select-option')
+    assert.deepEqual(options.map(option => option.props?.value), ['system', 'ko-KR', 'en-US'])
+    assert.equal(flatten(options[0]).filter(node => node.type === Vue.Text).map(node => node.children).join(''), systemLabel)
+    assert.equal(select.props?.value, 'system')
+    select.props!['onUpdate:value']('en-US')
+    assert.equal(general.appearance.language, 'en-US')
+    select.props!['onUpdate:value']('system')
+    assert.equal(general.appearance.language, 'system')
+  }
+})

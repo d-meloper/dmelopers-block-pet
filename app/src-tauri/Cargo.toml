@@ -1,6 +1,6 @@
 [package]
 name = "dmelopers-block-pet"
-version = "1.0.0"
+version = "1.0.1"
 description = "DMeloper's Block Pet desktop companion"
 license = "MIT"
 authors = [ "DMeloper" ]

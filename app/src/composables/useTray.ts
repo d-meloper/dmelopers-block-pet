@@ -15,6 +15,7 @@ import { useBlockStore } from '@/stores/block'
 import { useGeneralStore } from '@/stores/general'
 import { createLatestAsyncTaskQueue } from '@/utils/latestAsyncTask'
 
+import { useAppLanguage } from './useAppLanguage'
 import { useAppMenu } from './useAppMenu'
 
 const TRAY_ID = 'DMELOPERS_BLOCK_PET_TRAY'
@@ -23,6 +24,7 @@ export function useTray(canEdit: () => boolean = () => true) {
   const blockStore = useBlockStore()
   const generalStore = useGeneralStore()
   const { getAppMenu } = useAppMenu()
+  const { language } = useAppLanguage()
   let generation = 0
   let disposed = false
   let ownsTray = false
@@ -124,7 +126,7 @@ export function useTray(canEdit: () => boolean = () => true) {
     () => blockStore.activePet3dPreset.sceneRotationOffsetDegrees,
     () => blockStore.window.opacity,
     () => blockStore.window.keepInScreen,
-    () => generalStore.appearance.language,
+    language,
     () => editorsLocked.value,
   ], () => updates.enqueue(++generation), { immediate: true })
 

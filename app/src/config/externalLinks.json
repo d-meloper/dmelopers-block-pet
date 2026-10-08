@@ -1,0 +1,18 @@
+{
+  "korean": {
+    "webviewGuide": "https://app.notion.com/p/aismash/WebView2-Runtime-3f02dc0bb4ae80cf87f8e8a02efe0adb?source=copy_link",
+    "introduction": "https://app.notion.com/p/aismash/0da2dc0bb4ae82ab8db301718dde497b?source=copy_link",
+    "releaseNotes": "https://app.notion.com/p/aismash/DMeloper-s-Block-Pet-b872dc0bb4ae83d5b15681b53f73d0f9?source=copy_link",
+    "support": "https://aismash.notion.site/9cff9655595342d78a22c17b61a2084c",
+    "microsoftStore": "https://apps.microsoft.com/detail/9PLKW6NBMKQ7?hl=ko-kr&gl=KR&ocid=pdpshare",
+    "developer": "https://litt.ly/dmeloper"
+  },
+  "global": {
+    "webviewGuide": "https://app.notion.com/p/aismash/Microsoft-Edge-WebView2-Manual-Installation-Guide-3f32dc0bb4ae8067b55aed03f603d811?source=copy_link",
+    "introduction": "https://app.notion.com/p/aismash/DMeloper-s-Block-Pet-Global-3f32dc0bb4ae807987f5df0a0f1b112e?source=copy_link",
+    "releaseNotes": "https://app.notion.com/p/aismash/DMeloper-s-Block-Pet-Downloads-3f32dc0bb4ae800e9dc7e7fd7eeb55d7?source=copy_link",
+    "support": "https://aismash.notion.site/5402dc0bb4ae83fdb83681271f4b937e?pvs=105",
+    "microsoftStore": "https://apps.microsoft.com/detail/9plkw6nbmkq7?hl=en-US",
+    "developer": "https://linktr.ee/dmeloper.dev"
+  }
+}

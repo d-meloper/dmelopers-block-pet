@@ -10,6 +10,7 @@ import { openStore } from '@/services/distribution'
 import { useAppStore } from '@/stores/app'
 
 import AppIdentity from './AppIdentity.vue'
+import MicrosoftStoreIcon from './MicrosoftStoreIcon.vue'
 
 const { t } = useI18n()
 const app = useAppStore()
@@ -94,7 +95,12 @@ async function runUpdateAction() {
         :type="installAvailable ? 'primary' : 'default'"
         @click="runUpdateAction"
       >
+        <MicrosoftStoreIcon
+          v-if="channel === 'store' && !actionSpinning"
+          class="update-action-icon"
+        />
         <span
+          v-else
           aria-hidden="true"
           class="update-action-icon"
           :class="{
@@ -140,7 +146,7 @@ async function runUpdateAction() {
   padding: 0;
 }
 
-.update-action-icon {
+.update-action .update-action-icon {
   width: 12.8px;
   height: 12.8px;
 }

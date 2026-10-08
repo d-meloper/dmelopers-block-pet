@@ -8,6 +8,7 @@ import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useAntialiasSetting } from '@/composables/useAntialiasSetting'
+import { useAppLanguage } from '@/composables/useAppLanguage'
 import { BROADCAST_CONTROLLER, useBroadcast } from '@/composables/useBroadcast'
 import { cancelShortcutRecording, useKeyPress } from '@/composables/useKeyPress'
 import { usePetRuntimeRecovery } from '@/composables/usePetRuntimeRecovery'
@@ -69,6 +70,7 @@ watch([scrollTab, scrollContainer], ([tab, container]) => {
   if (tab !== undefined && container) container.scrollTop = tabScrollPositions.get(tab) ?? 0
 }, { flush: 'post' })
 const { t } = useI18n()
+const { language } = useAppLanguage()
 const updates = providePreferenceUpdates()
 usePetRuntimeRecovery(t)
 useTauriListen<{ action: 'quit' | 'restart' }>(APP_PROCESS_FAILED, ({ payload }) => {
@@ -412,7 +414,7 @@ onBeforeUnmount(() => {
 
 watch([current, innerView], () => void reconcilePerformanceMonitoring(), { flush: 'sync' })
 
-watch(() => generalStore.appearance.language, () => {
+watch(language, () => {
   appWindow.setTitle(`${APP_DISPLAY_NAME} — ${t('pages.preference.title')}`)
 }, { immediate: true })
 
@@ -488,7 +490,7 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
 <template>
   <ConfigProvider
     :dropdown-match-select-width="false"
-    :locale="getAntdLocale(generalStore.appearance.language)"
+    :locale="getAntdLocale(language)"
     :theme="{
       algorithm: generalStore.appearance.isDark ? appDarkAlgorithm : appLightAlgorithm,
     }"

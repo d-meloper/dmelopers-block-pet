@@ -1,13 +1,15 @@
 import type { Theme } from '@tauri-apps/api/window'
 
 import { defineStore } from 'pinia'
-import { getLocale } from 'tauri-plugin-locale-api'
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
+
+import type { LanguagePreference } from '@/locales/languageBranch'
 
 import { DEFAULT_GENERAL_SETTINGS } from '@/config/defaultSettings'
-import { LANGUAGE } from '@/constants'
+import { isLanguagePreference, resolveLanguage } from '@/locales/languageBranch'
+import { getSystemLanguage } from '@/services/systemLanguage'
 
-export type Language = typeof LANGUAGE[keyof typeof LANGUAGE]
+export type { Language, LanguagePreference } from '@/locales/languageBranch'
 
 export interface GeneralStore {
   broadcast: {
@@ -25,7 +27,7 @@ export interface GeneralStore {
   appearance: {
     theme: 'auto' | Theme
     isDark: boolean
-    language?: Language
+    language?: LanguagePreference
   }
 }
 
@@ -53,15 +55,7 @@ export const useGeneralStore = defineStore('general', () => {
 
   const appearance = reactive<GeneralStore['appearance']>({ ...DEFAULT_GENERAL_SETTINGS.appearance })
 
-  const getLanguage = async () => {
-    const locale = await getLocale<Language>()
-
-    if (Object.values(LANGUAGE).includes(locale)) {
-      return locale
-    }
-
-    return LANGUAGE.EN_US
-  }
+  const resolvedLanguage = computed(() => resolveLanguage(appearance.language, getSystemLanguage()))
 
   const init = async () => {
     if (!Number.isFinite(app.updateReminderHiddenUntil) || app.updateReminderHiddenUntil < 0) {
@@ -72,8 +66,8 @@ export const useGeneralStore = defineStore('general', () => {
     }
     broadcast.enabled = broadcast.enabled === true
     broadcast.showOnDesktop = typeof broadcast.showOnDesktop === 'boolean' ? broadcast.showOnDesktop : DEFAULT_GENERAL_SETTINGS.broadcast.showOnDesktop
-    if (!appearance.language || !Object.values(LANGUAGE).includes(appearance.language)) {
-      appearance.language = await getLanguage()
+    if (!isLanguagePreference(appearance.language)) {
+      appearance.language = DEFAULT_GENERAL_SETTINGS.appearance.language
     }
 
     if (migrated.value) return
@@ -105,6 +99,7 @@ export const useGeneralStore = defineStore('general', () => {
     migrated,
     app,
     appearance,
+    resolvedLanguage,
     init,
     reset,
   }

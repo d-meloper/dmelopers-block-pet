@@ -3,6 +3,7 @@ mod autostart;
 mod bootstrap;
 mod data_paths;
 mod distribution;
+mod external_links;
 mod native_operation;
 mod windows_process;
 #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
@@ -15,6 +16,7 @@ mod in_app_update;
 mod minecraft_skin;
 mod performance;
 mod settings_defaults;
+mod system_language;
 #[cfg(test)]
 mod settings_float_roundtrip_tests;
 mod lighting_settings;
@@ -167,7 +169,8 @@ pub fn run() {
             state_safety::acknowledge_state_quiescence,
             state_safety::verify_state_quiescence,
             state_safety::release_state_quiescence,
-            await_native_startup
+            await_native_startup,
+            system_language::get_system_ui_language
         ])
         .plugin(tauri_plugin_custom_window::init())
         .plugin(tauri_plugin_os::init())

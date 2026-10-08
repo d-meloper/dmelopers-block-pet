@@ -3,25 +3,25 @@
   "repository": "d-meloper/dmelopers-block-pet",
   "repositoryId": 1390031914,
   "visibility": "public",
-  "release": "v1.0.1",
+  "release": "v1.1.0",
   "downloads": 12,
   "stars": 0,
   "license": "MIT",
-  "verifiedAt": "2026-10-08T06:15:57Z",
+  "verifiedAt": "2026-10-08T08:06:18Z",
   "latest": {
-    "version": "1.0.1",
-    "tag": "v1.0.1",
+    "version": "1.1.0",
+    "tag": "v1.1.0",
     "platform": "windows-x86_64",
     "installer": {
-      "name": "dmelopers-block-pet_1.0.1_x64-setup.exe",
-      "size": 7647798,
-      "sha256": "887a5c571919da3913338a13cf56db68f8883b7300e4e5f413ff49ea43ef32a2"
+      "name": "dmelopers-block-pet_1.1.0_x64-setup.exe",
+      "size": 7645798,
+      "sha256": "23696b178d20c834026fe467882e153ac18f83b23768eb0326caa0def4438451"
     },
     "signature": {
-      "name": "dmelopers-block-pet_1.0.1_x64-setup.exe.sig",
+      "name": "dmelopers-block-pet_1.1.0_x64-setup.exe.sig",
       "size": 432,
-      "sha256": "92cb2cffe7b057f59a456a7ab9f0e12e1988fdec03946add33679c6cf58d418f"
+      "sha256": "78f2ba911a43c1abf93c68d2db403fdd4e64f52916d6b112fd1022ec7cfb0290"
     },
-    "publishedAt": "2026-10-08T04:30:12Z"
+    "publishedAt": "2026-10-08T08:03:35Z"
   }
 }

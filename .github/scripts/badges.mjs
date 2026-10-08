@@ -120,7 +120,7 @@ export function files(data) {
     'release.svg': svg('RELEASE', data.release, '2F334D', '9FE870'),
     'downloads.svg': svg('DOWNLOADS', count(data.downloads), '4A4F63', 'FFB07C'),
     'stars.svg': svg('STARS', count(data.stars), '2F334D', 'C6C4FF'),
-    'license.svg': svg('LICENSE', 'MIT', '2F334D', 'C6C4FF'),
+    'license.svg': svg('LICENSE', 'MIT', '4A4F63', 'AED8FF'),
   }
 }
 

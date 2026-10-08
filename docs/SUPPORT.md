@@ -24,11 +24,7 @@ See [Security](SECURITY.md) for download warnings, checksums and signatures.
 
 ## Settings and Skins
 
-Official GitHub and Store channels share settings, presets and skins in `Saved Games\DMeloper's Block Pet`. Development and test editions use separate data. Normal GitHub removal preserves personal data. Selecting and confirming “Remove all personal settings and files” in the official WiX uninstaller removes shared Saved Games data and that GitHub installation's local and roaming AppData. This also removes the settings, presets and skins shared with an installed Store edition; the uninstaller warns about this before deletion. The WiX test edition's deletion option removes only its isolated AppData. Windows manages Store removal and removes its package-scoped data; the external Saved Games data remains.
-
-Logs, caches and WebView data are stored separately for each installation in AppData. Start-at-login is also configured separately. If both official installations start, the first one keeps running.
-
-See [Data and Permissions](PRIVACY.md) for details and removal options.
+For storage locations and reset or uninstall options, see the [Data Management Guide](https://aismash.notion.site/3f32dc0bb4ae80808222e5e0cf123464). The [Privacy Policy](https://aismash.notion.site/3f32dc0bb4ae803ea9aed8d3b366c391) explains information processing and contact form data. Both guides are maintained on Notion.
 
 ## Questions and Bug Reports
 

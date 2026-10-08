@@ -24,11 +24,7 @@ Microsoft Store판은 Windows가 설치와 업데이트를 관리하도록 구�
 
 ## 설정과 스킨
 
-공식 GitHub판과 Store판은 `Saved Games\DMeloper's Block Pet`의 설정·프리셋·스킨을 공유합니다. 개발판과 시험판은 별도 데이터를 사용하며 일반 GitHub판 제거에서는 개인 데이터를 유지합니다. 공식 WiX 제거기에서 `모든 개인 설정 및 파일 제거`를 선택하고 확인하면 Saved Games 공유 데이터와 해당 GitHub 설치의 로컬·로밍 AppData를 삭제합니다. 설치된 Store판에서 공유하는 설정·프리셋·스킨도 함께 사라지므로 삭제 전에 안내합니다. WiX 시험판의 삭제 옵션은 해당 시험판의 별도 AppData만 삭제합니다. Store판 제거는 Windows가 관리해 패키지 전용 데이터를 제거하며, 외부 Saved Games 공유 데이터는 유지됩니다.
-
-로그·캐시·WebView 데이터는 설치별 AppData에 저장됩니다. 자동 시작도 설치별로 설정하며, 두 공식 설치가 시작되면 먼저 실행된 앱이 유지됩니다.
-
-데이터 사용과 삭제 방법은 [데이터·권한 안내](PRIVACY.ko-KR.md)를 확인하세요.
+데이터 저장 위치와 초기화·제거 시 삭제 범위는 [데이터 관리 안내](https://aismash.notion.site/0342dc0bb4ae831581878180c15c0059), 정보 처리와 문의 양식 데이터는 [개인정보 처리방침](https://aismash.notion.site/3f12dc0bb4ae809fb5becfc2376d4a5c)을 확인하세요. 두 안내는 노션에서 관리합니다.
 
 ## 문의와 버그 제보
 

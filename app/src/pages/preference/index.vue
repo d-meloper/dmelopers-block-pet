@@ -24,9 +24,10 @@ import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
 import { APP_DISPLAY_NAME } from '@/constants/branding'
 import { isMouseSettingResponse } from '@/features/input/types'
 import { confirmPresetUserEdit, onPresetSelectionChange } from '@/features/presets/editIntent'
-import { beginPresetNativeEdit, presetOperationInProgress, presetResetInProgress } from '@/features/presets/operations'
+import { beginPresetNativeEdit, beginPresetNativeQuery, presetOperationInProgress, presetResetInProgress } from '@/features/presets/operations'
 import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import { SCENE_VIEWPORT_REQUEST } from '@/features/scene/types'
+import { editorsLocked } from '@/features/stateSafety/bridge'
 import { getAntdLocale } from '@/locales/antd'
 import { APP_PROCESS_FAILED } from '@/plugins/process'
 import { toggleWindowVisible } from '@/plugins/window'
@@ -134,10 +135,11 @@ useKeyPress(keepInScreen, () => {
 useKeyPress(hideOnHover, () => {
   blockStore.window.hideOnHover = !blockStore.window.hideOnHover
 })
-const { busy: presetBusy, ready: presetReady } = presetManager
+const { editorsBusy: presetEditorsBusy, ready: presetReady } = presetManager
 const mousePending = ref(false)
 const mouseReady = ref(false)
 const mouseError = ref<'unsupported' | 'unavailable' | 'timeout'>()
+const mouseRequestsBlocked = computed(() => editorsLocked.value || presetOperationInProgress.value || presetResetInProgress.value)
 let mouseRequestSequence = 0
 const mouseRequestSession = crypto.randomUUID()
 let mouseResponseUnlisten: (() => void) | undefined
@@ -193,14 +195,28 @@ function sendMouseRequest(querying: boolean) {
 }
 
 function requestMouseEnabled(enabled?: boolean, allowHidden = false): Promise<boolean> {
-  if (mousePending.value || preferenceDisposed || (closing.value && !allowHidden)
-    || presetOperationInProgress.value || presetResetInProgress.value) {
+  if (preferenceDisposed || mouseRequestsBlocked.value || (closing.value && !allowHidden)) {
     return Promise.resolve(false)
   }
-  mousePending.value = true
+  if (mouseRequest) {
+    if (enabled === undefined || mouseRequest.desired !== undefined) return Promise.resolve(false)
+    // A focus readback must not consume the first explicit mouse toggle.
+    // Queued delivery and late replies remain guarded by the request id.
+    finishMouseRequest(false)
+  }
+  // Initial readiness still gates mouse controls; background readback does not.
+  mousePending.value = enabled !== undefined
   mouseError.value = undefined
   return new Promise((resolve) => {
-    mouseRequest = { id: '', desired: enabled, querying: enabled === undefined, resolve, releaseNative: beginPresetNativeEdit() }
+    mouseRequest = {
+      id: '',
+      desired: enabled,
+      querying: enabled === undefined,
+      resolve,
+      releaseNative: enabled === undefined
+        ? beginPresetNativeQuery(() => finishMouseRequest(false))
+        : beginPresetNativeEdit(),
+    }
     sendMouseRequest(enabled === undefined)
   })
 }
@@ -209,9 +225,8 @@ function refreshMouseSetting() {
   void requestMouseEnabled()
 }
 
-watch([presetOperationInProgress, presetResetInProgress], ([operating, resetting], [wasOperating, wasResetting]) => {
-  if (!operating && !resetting && (wasOperating || wasResetting)
-    && !preferenceDisposed && !closing.value) {
+watch(mouseRequestsBlocked, (blocked, wasBlocked) => {
+  if (wasBlocked && !blocked && !preferenceDisposed && !closing.value) {
     refreshMouseSetting()
   }
 })
@@ -267,15 +282,6 @@ function markPresetUserEdit(event: Event) {
 useEventListener(window, ['pointerdown', 'pointermove', 'pointerup', 'mousedown', 'mouseup'], trackInteraction, { capture: true })
 useEventListener(window, 'pointerdown', captureViewportPointer, { capture: true })
 useEventListener(window, ['blur', 'pointercancel'], cancelInteraction, { capture: true })
-// Tauri's bubble listener maximizes on the second mousedown, before dblclick.
-// Keep the existing ACL denial and intercept only direct bare drag-region clicks.
-useEventListener(document, 'mousedown', (event) => {
-  if (event.button !== 0 || event.detail !== 2 || !(event.target instanceof HTMLElement)) return
-  const region = event.target.getAttribute('data-tauri-drag-region')
-  if (region !== '' && region !== 'true') return
-  event.preventDefault()
-  event.stopPropagation()
-}, { capture: true })
 useEventListener(document, 'visibilitychange', () => {
   if (document.hidden) cancelInteraction()
   void reconcilePerformanceMonitoring()
@@ -328,7 +334,8 @@ async function reconcilePerformanceMonitoring() {
 }
 
 function emitPet3dPresetSelection() {
-  if (presetManager.busy.value) return
+  // Readback holds preset/save operations, but live edits must still reach main.
+  if (presetEditorsBusy.value) return
   emitMainEvent(LISTEN_KEY.PET_PRESET_CHANGED, () => {
     const preset = blockStore.activePet3dPreset
     return {
@@ -420,7 +427,7 @@ watch(language, () => {
 
 watch(
   [
-    () => presetManager.busy.value,
+    () => presetEditorsBusy.value,
     () => blockStore.customization3d.selectedModelId,
     () => blockStore.customization3d.dmeloperSkinDataUrl,
     () => blockStore.customization3d.dmeloperSkinModel,
@@ -556,7 +563,6 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
     >
       <div
         class="preference-sidebar"
-        data-tauri-drag-region
       >
         <div
           aria-orientation="vertical"
@@ -588,10 +594,9 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
       <div
         ref="scrollContainer"
         class="min-w-0 flex-1 overflow-auto bg-color-1 p-4"
-        data-tauri-drag-region
       >
         <div
-          :inert="current >= 1 && current <= 3 && (presetBusy || !presetReady)"
+          :inert="current >= 1 && current <= 3 && (presetEditorsBusy || !presetReady)"
           @change.capture="markPresetUserEdit"
           @click.capture="markPresetUserEdit"
           @input.capture="markPresetUserEdit"

@@ -1,0 +1,552 @@
+{
+  "version": 1,
+  "fields": [
+    {
+      "path": [
+        "preset",
+        "lighting",
+        "key",
+        "color"
+      ],
+      "type": "color",
+      "label": "lighting.key.color"
+    },
+    {
+      "path": [
+        "preset",
+        "lighting",
+        "key",
+        "azimuthDegrees"
+      ],
+      "type": "number",
+      "label": "lighting.key.azimuthDegrees",
+      "min": -180,
+      "max": 180
+    },
+    {
+      "path": [
+        "preset",
+        "lighting",
+        "key",
+        "elevationDegrees"
+      ],
+      "type": "number",
+      "label": "lighting.key.elevationDegrees",
+      "min": -90,
+      "max": 90
+    },
+    {
+      "path": [
+        "preset",
+        "lighting",
+        "key",
+        "strengthPercent"
+      ],
+      "type": "number",
+      "label": "lighting.key.strengthPercent",
+      "min": 25,
+      "max": 200
+    },
+    {
+      "path": [
+        "preset",
+        "deskTransparent"
+      ],
+      "type": "boolean",
+      "label": "deskTransparent"
+    },
+    {
+      "path": [
+        "preset",
+        "deskHeightOffset"
+      ],
+      "type": "number",
+      "label": "deskHeightOffset",
+      "min": -1,
+      "max": 1
+    },
+    {
+      "path": [
+        "preset",
+        "deskWidthOffset"
+      ],
+      "type": "number",
+      "label": "deskWidthOffset",
+      "min": -1,
+      "max": 1
+    },
+    {
+      "path": [
+        "preset",
+        "deskDepthOffset"
+      ],
+      "type": "number",
+      "label": "deskDepthOffset",
+      "min": -1,
+      "max": 1
+    },
+    {
+      "path": [
+        "preset",
+        "deskColor"
+      ],
+      "type": "color",
+      "label": "deskColor"
+    },
+    {
+      "path": [
+        "preset",
+        "showDisplayArea"
+      ],
+      "type": "boolean",
+      "label": "showDisplayArea"
+    },
+    {
+      "path": [
+        "preset",
+        "autoViewportEnabled"
+      ],
+      "type": "boolean",
+      "label": "autoViewportEnabled"
+    },
+    {
+      "path": [
+        "preset",
+        "autoViewportPaddingPixels"
+      ],
+      "type": "number",
+      "label": "autoViewportPaddingPixels",
+      "min": 0,
+      "max": 30,
+      "integer": true
+    },
+    {
+      "path": [
+        "preset",
+        "manualViewportRect",
+        "x"
+      ],
+      "type": "number",
+      "label": "manualViewportRect.x",
+      "min": -9007199254740991,
+      "max": 9007199254740991
+    },
+    {
+      "path": [
+        "preset",
+        "manualViewportRect",
+        "y"
+      ],
+      "type": "number",
+      "label": "manualViewportRect.y",
+      "min": -9007199254740991,
+      "max": 9007199254740991
+    },
+    {
+      "path": [
+        "preset",
+        "manualViewportRect",
+        "width"
+      ],
+      "type": "number",
+      "label": "manualViewportRect.width",
+      "min": 100,
+      "max": 9007199254740991,
+      "integer": true
+    },
+    {
+      "path": [
+        "preset",
+        "manualViewportRect",
+        "height"
+      ],
+      "type": "number",
+      "label": "manualViewportRect.height",
+      "min": 100,
+      "max": 9007199254740991,
+      "integer": true
+    },
+    {
+      "path": [
+        "preset",
+        "sceneRotationOffsetDegrees"
+      ],
+      "type": "number",
+      "label": "sceneRotationOffsetDegrees",
+      "min": -360,
+      "max": 360
+    },
+    {
+      "path": [
+        "preset",
+        "cameraHorizontalOffset"
+      ],
+      "type": "number",
+      "label": "cameraHorizontalOffset",
+      "min": -1.5,
+      "max": 1.5
+    },
+    {
+      "path": [
+        "preset",
+        "cameraVerticalOffset"
+      ],
+      "type": "number",
+      "label": "cameraVerticalOffset",
+      "min": -1.5,
+      "max": 1.5
+    },
+    {
+      "path": [
+        "preset",
+        "cameraZoomPercent"
+      ],
+      "type": "number",
+      "label": "cameraZoomPercent",
+      "min": 25,
+      "max": 200
+    },
+    {
+      "path": [
+        "preset",
+        "petRightArmBendPercent"
+      ],
+      "type": "number",
+      "label": "petRightArmBendPercent",
+      "min": 0,
+      "max": 400
+    },
+    {
+      "path": [
+        "preset",
+        "petRightArmSpreadDegrees"
+      ],
+      "type": "number",
+      "label": "petRightArmSpreadDegrees",
+      "min": -45,
+      "max": 45
+    },
+    {
+      "path": [
+        "preset",
+        "petLeftArmBendPercent"
+      ],
+      "type": "number",
+      "label": "petLeftArmBendPercent",
+      "min": 0,
+      "max": 400
+    },
+    {
+      "path": [
+        "preset",
+        "petLeftArmSpreadDegrees"
+      ],
+      "type": "number",
+      "label": "petLeftArmSpreadDegrees",
+      "min": -45,
+      "max": 45
+    },
+    {
+      "path": [
+        "preset",
+        "petHeadScalePercent"
+      ],
+      "type": "number",
+      "label": "petHeadScalePercent",
+      "min": 25,
+      "max": 200
+    },
+    {
+      "path": [
+        "preset",
+        "petRotationDegrees"
+      ],
+      "type": "number",
+      "label": "petRotationDegrees",
+      "rangeRef": [
+        "preset",
+        "petRotationDegrees"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "petDeskOffset"
+      ],
+      "type": "number",
+      "label": "petDeskOffset",
+      "rangeRef": [
+        "preset",
+        "petDeskOffset"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "mouseEnabled"
+      ],
+      "type": "boolean",
+      "label": "mouseEnabled"
+    },
+    {
+      "path": [
+        "preset",
+        "mouseBaseXOffset"
+      ],
+      "type": "number",
+      "label": "mouseBaseXOffset",
+      "rangeRef": [
+        "preset",
+        "mouseBaseXOffset"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "mouseBaseZOffset"
+      ],
+      "type": "number",
+      "label": "mouseBaseZOffset",
+      "rangeRef": [
+        "preset",
+        "mouseBaseZOffset"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "mouseScalePercent"
+      ],
+      "type": "number",
+      "label": "mouseScalePercent",
+      "min": 50,
+      "max": 200
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardBaseXOffset"
+      ],
+      "type": "number",
+      "label": "keyboardBaseXOffset",
+      "rangeRef": [
+        "preset",
+        "keyboardBaseXOffset"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardBaseZOffset"
+      ],
+      "type": "number",
+      "label": "keyboardBaseZOffset",
+      "rangeRef": [
+        "preset",
+        "keyboardBaseZOffset"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardScalePercent"
+      ],
+      "type": "number",
+      "label": "keyboardScalePercent",
+      "min": 50,
+      "max": 200
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardLegendLanguage"
+      ],
+      "type": "enum",
+      "label": "keyboardLegendLanguage",
+      "values": [
+        "ko",
+        "en"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardColor"
+      ],
+      "type": "color",
+      "label": "keyboardColor"
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardKeycapColor"
+      ],
+      "type": "color",
+      "label": "keyboardKeycapColor"
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardLegendColor"
+      ],
+      "type": "color",
+      "label": "keyboardLegendColor"
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardPressedColor"
+      ],
+      "type": "color",
+      "label": "keyboardPressedColor"
+    },
+    {
+      "path": [
+        "preset",
+        "mouseColor"
+      ],
+      "type": "color",
+      "label": "mouseColor"
+    },
+    {
+      "path": [
+        "preset",
+        "mousePressedColor"
+      ],
+      "type": "color",
+      "label": "mousePressedColor"
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "enabled"
+      ],
+      "type": "boolean",
+      "label": "dmeloperEyebrows.enabled"
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "color"
+      ],
+      "type": "color",
+      "label": "dmeloperEyebrows.color"
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "centerOffsetPixels"
+      ],
+      "type": "number",
+      "label": "dmeloperEyebrows.centerOffsetPixels",
+      "min": -1.5,
+      "max": 1.5
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "heightOffsetPixels"
+      ],
+      "type": "number",
+      "label": "dmeloperEyebrows.heightOffsetPixels",
+      "min": -3,
+      "max": 3
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "spacingPixels"
+      ],
+      "type": "number",
+      "label": "dmeloperEyebrows.spacingPixels",
+      "rangeRef": [
+        "eyebrows",
+        "spacingPixels"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "widthPixels"
+      ],
+      "type": "number",
+      "label": "dmeloperEyebrows.widthPixels",
+      "rangeRef": [
+        "eyebrows",
+        "widthPixels"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "thicknessPixels"
+      ],
+      "type": "number",
+      "label": "dmeloperEyebrows.thicknessPixels",
+      "rangeRef": [
+        "eyebrows",
+        "thicknessPixels"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "depthPercent"
+      ],
+      "type": "number",
+      "label": "dmeloperEyebrows.depthPercent",
+      "min": 0,
+      "max": 200
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperPalmColor"
+      ],
+      "type": "color",
+      "label": "dmeloperPalmColor"
+    },
+    {
+      "path": [
+        "mirror"
+      ],
+      "type": "boolean",
+      "label": "mirror"
+    },
+    {
+      "path": [
+        "opacity"
+      ],
+      "type": "number",
+      "label": "opacity",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "path": [
+        "eyebrowAnimationEnabled"
+      ],
+      "type": "boolean",
+      "label": "eyebrowAnimationEnabled"
+    }
+  ],
+  "atomicGroups": [
+    [
+      "preset",
+      "manualViewportRect"
+    ]
+  ],
+  "migrations": [
+    "legacy-desk-v1",
+    "eyebrow-depth-v1",
+    "lighting-v1"
+  ]
+}

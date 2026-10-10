@@ -26,6 +26,10 @@ Microsoft Store판은 Windows가 설치와 업데이트를 관리하도록 구�
 
 데이터 저장 위치와 초기화·제거 시 삭제 범위는 [데이터 관리 안내](https://aismash.notion.site/0342dc0bb4ae831581878180c15c0059), 정보 처리와 문의 양식 데이터는 [개인정보 처리방침](https://aismash.notion.site/3f12dc0bb4ae809fb5becfc2376d4a5c)을 확인하세요. 두 안내는 노션에서 관리합니다.
 
+## 전체화면 게임
+
+전체화면 게임에서는 ‘항상 위에 표시’를 켜도 펫이 보이지 않을 수 있습니다. 게임의 표시 모드를 창모드 또는 테두리 없는 창모드로 설정해주세요.
+
 ## 문의와 버그 제보
 
 문의, 버그 제보, 기능 제안은 [GitHub Issues](https://github.com/d-meloper/dmelopers-block-pet/issues)를 이용하세요. 다음 정보를 함께 적어 주시면 도움이 됩니다.

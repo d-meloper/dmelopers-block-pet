@@ -5,7 +5,7 @@ import { it } from 'node:test'
 import { runInNewContext } from 'node:vm'
 import { createPinia, setActivePinia } from 'pinia'
 import ts from 'typescript'
-import { computed } from 'vue'
+import * as Vue from 'vue'
 import { compileScript, parse } from 'vue/compiler-sfc'
 
 import * as lightingConfig from '@/config/lighting'
@@ -25,7 +25,9 @@ it('keeps bounded lighting sliders within the lighting category', () => {
       fields: string[]
     },
     require: (name: string) => {
-      if (name === 'vue') return { computed }
+      if (name === 'vue') return Vue
+      if (name === '@/features/stateSafety/bridge') return { editorsLocked: Vue.ref(false) }
+      if (name === '@/features/presets/operations') return { presetOperationInProgress: Vue.ref(false), presetResetInProgress: Vue.ref(false) }
       if (name === '@/stores/block') return { useBlockStore: () => store }
       if (name === '@/config/lighting') return lightingConfig
       if (name === '@/features/presets/editIntent') return { markPresetUserEdit: () => {} }

@@ -84,23 +84,23 @@ describe('3D scene dimension controls', () => {
   it('accepts bounded padding only in confirmed automatic mode', () => {
     const control = controls()
     const preset = control.store.activePet3dPreset
-    for (const [value, expected] of [[0, 0], ['8.6', 9], [-10, 0], [10, 10], [11, 10], [16, 10], [64, 10], [999, 10]] as const) {
+    for (const [value, expected] of [[0, 0], ['8.6', 9], [-10, 0], [10, 10], [11, 11], [16, 16], [20, 20], ['30', 30], [31, 30], [64, 30], [999, 30]] as const) {
       control.updateAutomaticPadding(value)
       assert.equal(preset.autoViewportPaddingPixels, expected)
     }
     for (const value of [null, '', 'invalid', Number.NaN, Number.POSITIVE_INFINITY]) control.updateAutomaticPadding(value)
-    assert.equal(preset.autoViewportPaddingPixels, 10)
+    assert.equal(preset.autoViewportPaddingPixels, 30)
     preset.autoViewportEnabled = false
     control.updateAutomaticPadding(8)
-    assert.equal(preset.autoViewportPaddingPixels, 10)
+    assert.equal(preset.autoViewportPaddingPixels, 30)
     preset.autoViewportEnabled = true
     control.props.viewportPending = true
     control.updateAutomaticPadding(8)
-    assert.equal(preset.autoViewportPaddingPixels, 10)
+    assert.equal(preset.autoViewportPaddingPixels, 30)
     control.props.viewportPending = false
     control.props.viewportState = undefined
     control.updateAutomaticPadding(8)
-    assert.equal(preset.autoViewportPaddingPixels, 10)
+    assert.equal(preset.autoViewportPaddingPixels, 30)
   })
 
   it('shows the actual automatic area even when it exceeds the monitor and blocks manual changes', () => {

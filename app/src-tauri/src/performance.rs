@@ -126,6 +126,12 @@ impl PerformanceMonitorState {
             monitor: Mutex::new(PerformanceMonitor::new()),
         }
     }
+
+    #[cfg(test)]
+    pub(super) fn while_monitor_locked<T>(&self, check: impl FnOnce() -> T) -> T {
+        let _monitor = self.monitor.lock().expect("test monitor lock");
+        check()
+    }
 }
 
 struct PerformanceMonitor {
@@ -541,7 +547,8 @@ fn normalize_cpu_percent(total_cpu_percent: f32, logical_cpu_count: usize) -> f3
     (total_cpu_percent / logical_cpu_count.max(1) as f32).clamp(0.0, 100.0)
 }
 
-#[tauri::command]
+// Native process/PDH collection and mutex waits must not run in the IPC callback.
+#[tauri::command(async)]
 pub fn sample_app_performance(state: State<'_, PerformanceMonitorState>) -> PerformanceSample {
     let Ok(mut monitor) = state.monitor.lock() else {
         crate::diagnostics::error("performance.sample", "MONITOR_LOCK_UNAVAILABLE");
@@ -551,7 +558,7 @@ pub fn sample_app_performance(state: State<'_, PerformanceMonitorState>) -> Perf
     monitor.sample()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn prime_app_performance_sampler(state: State<'_, PerformanceMonitorState>) {
     if let Ok(mut monitor) = state.monitor.lock() {
         monitor.prime();

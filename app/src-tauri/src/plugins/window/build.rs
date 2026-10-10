@@ -4,6 +4,8 @@ const COMMANDS: &[&str] = &[
     "drag_main_window",
     "set_memory_active",
     "set_always_on_top",
+    "set_pet_cursor_events",
+    "popup_pet_menu",
     "set_color_picker_open",
     "set_taskbar_visibility",
     "set_preference_caption_color",

@@ -3,7 +3,7 @@ import type { ViewportRect, ViewportSize } from '@/utils/viewportGeometry'
 import { DEFAULT_PET_PRESET } from '@/config/defaultSettings'
 
 export const DEFAULT_MANUAL_VIEWPORT: Readonly<ViewportRect> = { x: 0, y: 0, width: 500, height: 422 }
-export const AUTO_VIEWPORT_PADDING_LIMITS = { min: 0, max: 16 } as const
+export const AUTO_VIEWPORT_PADDING_LIMITS = { min: 0, max: 30 } as const
 
 export function equalViewportRect(first: ViewportRect, second: ViewportRect): boolean {
   return first.x === second.x && first.y === second.y && first.width === second.width && first.height === second.height

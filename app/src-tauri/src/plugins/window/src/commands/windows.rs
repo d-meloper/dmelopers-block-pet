@@ -1,8 +1,10 @@
+use super::activation::without_activation;
 use super::topmost::{TopmostChange, TopmostRequest, maintain_topmost, reconcile_window_order};
 use super::{MAIN_WINDOW_LABEL, PREFERENCE_WINDOW_LABEL};
-use std::sync::{OnceLock, mpsc};
+use std::sync::{Arc, OnceLock, mpsc, atomic::{AtomicBool, Ordering}};
 use std::thread;
 use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewWindow, WindowEvent, command};
+use tauri::menu::{ContextMenu, Menu};
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
     ICoreWebView2_19,
@@ -10,14 +12,173 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
 use windows::Win32::Foundation::{GetLastError, HWND, SetLastError, WIN32_ERROR};
 use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_COLOR_DEFAULT};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GetForegroundWindow, GetWindowLongW, HWND_NOTOPMOST, HWND_TOPMOST, IsIconic,
-    IsWindowVisible, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos, WS_EX_NOACTIVATE, WS_EX_TOPMOST,
+    GWL_EXSTYLE, GetForegroundWindow, GetWindowLongW, GetWindowThreadProcessId,
+    HWND_NOTOPMOST, HWND_TOPMOST, IsIconic, IsWindow,
+    IsWindowVisible, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowLongW, SetWindowPos, WS_EX_NOACTIVATE, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
 };
 use windows::core::Interface;
 
 static TOPMOST_REQUESTS: OnceLock<mpsc::Sender<TopmostRequest>> = OnceLock::new();
+static PET_MENU_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+struct PetMenuOwner;
+impl PetMenuOwner {
+    fn acquire() -> Result<Self, String> {
+        PET_MENU_ACTIVE.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .map_err(|_| "PET_MENU_ALREADY_ACTIVE".to_owned())?;
+        Ok(Self)
+    }
+}
+impl Drop for PetMenuOwner {
+    fn drop(&mut self) {
+        PET_MENU_ACTIVE.store(false, Ordering::SeqCst);
+    }
+}
+
+fn read_extended_style(hwnd: HWND) -> Result<u32, String> {
+    unsafe {
+        SetLastError(WIN32_ERROR(0));
+        let style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        if style == 0 && GetLastError() != WIN32_ERROR(0) {
+            return Err("WINDOW_STYLE_READ_FAILED".into());
+        }
+        Ok(style as u32)
+    }
+}
+
+fn write_extended_style(hwnd: HWND, style: u32) -> Result<(), String> {
+    unsafe {
+        SetLastError(WIN32_ERROR(0));
+        if SetWindowLongW(hwnd, GWL_EXSTYLE, style as i32) == 0
+            && GetLastError() != WIN32_ERROR(0)
+        {
+            return Err("WINDOW_STYLE_WRITE_FAILED".into());
+        }
+    }
+    if read_extended_style(hwnd)? != style {
+        return Err("WINDOW_STYLE_MISMATCH".into());
+    }
+    Ok(())
+}
+
+#[command]
+pub async fn set_pet_cursor_events<R: Runtime>(
+    window: WebviewWindow<R>,
+    ignore: bool,
+) -> Result<(), String> {
+    if window.label() != MAIN_WINDOW_LABEL {
+        return Err("Only the pet window can change its cursor events.".into());
+    }
+    let target = window.clone();
+    let (sender, mut receiver) = tauri::async_runtime::channel(1);
+    window.run_on_main_thread(move || {
+        let result = (|| {
+            let hwnd = target.hwnd().map_err(|_| "WINDOW_HANDLE_UNAVAILABLE".to_owned())?;
+            // Wry dispatch and Tao's executor run inline on this UI thread. Keep
+            // Tao's cursor flag in sync, but suppress its incidental SW_SHOW.
+            without_activation(WS_EX_NOACTIVATE.0,
+                || read_extended_style(hwnd),
+                |style| write_extended_style(hwnd, style),
+                || target.set_ignore_cursor_events(ignore).map_err(|error| error.to_string()))?;
+            if (read_extended_style(hwnd)? & WS_EX_TRANSPARENT.0 != 0) != ignore {
+                return Err("WINDOW_CURSOR_STATE_UNCONFIRMED".into());
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            super::warn("window.cursor_events", "NATIVE_OPERATION_FAILED");
+        }
+        let _ = sender.try_send(result);
+    }).map_err(|error| error.to_string())?;
+    receiver.recv().await.ok_or("The cursor event change was interrupted.")?
+}
+
+async fn change_context_menu_priority<R: Runtime>(
+    window: &WebviewWindow<R>,
+    open: bool,
+) -> Result<(), String> {
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?.0 as isize;
+    let (completion, completed) = mpsc::channel();
+    topmost_requests().send(TopmostRequest {
+        hwnd,
+        change: TopmostChange::ContextMenu(open),
+        completion: Some(completion),
+    }).map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        completed.recv().map_err(|error| error.to_string())?
+    }).await.map_err(|error| error.to_string())?
+}
+
+async fn run_pet_menu<R: Runtime>(window: &WebviewWindow<R>, menu: Arc<Menu<R>>) -> Result<(), String> {
+    let target = window.clone();
+    let (completion, mut completed) = tauri::async_runtime::channel(1);
+    window.run_on_main_thread(move || match target.hwnd() {
+        Ok(hwnd) => super::menu::queue_menu(hwnd,
+            move || menu.popup(target.as_ref().window()).map_err(|error| error.to_string()),
+            completion),
+        Err(error) => { let _ = completion.try_send(Err(error.to_string())); }
+    }).map_err(|error| error.to_string())?;
+    completed.recv().await.ok_or("The pet menu was interrupted.")?
+}
+
+#[command]
+pub async fn popup_pet_menu<R: Runtime>(
+    window: WebviewWindow<R>,
+    rid: u32,
+) -> Result<(), String> {
+    if window.label() != MAIN_WINDOW_LABEL {
+        return Err("Only the pet window can open its context menu.".into());
+    }
+    // Resolve only this caller's menu resource; no arbitrary HWND/menu payload.
+    let menu = window.resources_table().get::<Menu<R>>(rid).map_err(|error| error.to_string())?;
+    let owner = PetMenuOwner::acquire()?;
+    // The native task owns cleanup even if navigation drops the IPC response.
+    tauri::async_runtime::spawn(async move {
+        let _owner = owner;
+        let popup = match change_context_menu_priority(&window, true).await {
+            Ok(()) => run_pet_menu(&window, menu).await,
+            Err(error) => Err(error),
+        };
+        let restored = change_context_menu_priority(&window, false).await;
+        if restored.is_err() {
+            super::warn("window.context_menu_restore", "NATIVE_OPERATION_FAILED");
+        }
+        popup.and(restored)
+    }).await.map_err(|error| error.to_string())?
+}
+
+fn window_process_id(hwnd: isize) -> Option<u32> {
+    let hwnd = HWND(hwnd as *mut _);
+    unsafe {
+        if !IsWindow(Some(hwnd)).as_bool() {
+            return None;
+        }
+        let mut process_id = 0;
+        if GetWindowThreadProcessId(hwnd, Some(&mut process_id)) == 0 || process_id == 0 {
+            None
+        } else {
+            Some(process_id)
+        }
+    }
+}
+
+fn owned_window(hwnd: isize) -> bool {
+    window_process_id(hwnd) == Some(std::process::id())
+}
+
+fn window_retired(hwnd: isize) -> bool {
+    match window_process_id(hwnd) {
+        Some(process_id) => process_id != std::process::id(),
+        // An unreadable live HWND still owes restoration. Only known retirement
+        // or reuse by a foreign process can release that obligation without a write.
+        None => unsafe { !IsWindow(Some(HWND(hwnd as *mut _))).as_bool() },
+    }
+}
 
 fn read_topmost(hwnd: isize) -> Option<bool> {
+    if !owned_window(hwnd) {
+        return None;
+    }
     unsafe {
         // Zero is a valid style value; clear last-error to distinguish read failure.
         SetLastError(WIN32_ERROR(0));
@@ -39,6 +200,9 @@ fn preference_available(hwnd: isize) -> bool {
 }
 
 fn write_topmost(hwnd: isize, topmost: bool) -> Result<(), String> {
+    if !owned_window(hwnd) {
+        return Err("WINDOW_OWNER_UNCONFIRMED".into());
+    }
     unsafe {
         SetWindowPos(
             HWND(hwnd as *mut _),
@@ -72,7 +236,12 @@ fn topmost_requests() -> &'static mpsc::Sender<TopmostRequest> {
         let (sender, receiver) = mpsc::channel();
         thread::spawn(move || {
             maintain_topmost(receiver, |state| {
-                reconcile_window_order(state, preference_available, read_topmost, write_topmost)
+                reconcile_window_order(state, preference_available, window_retired,
+                    read_topmost, write_topmost)?;
+                if read_topmost(state.main_hwnd) != Some(state.main_topmost()) {
+                    return Err("WINDOW_TOPMOST_STATE_UNCONFIRMED".into());
+                }
+                Ok(())
             })
         });
         sender
@@ -358,6 +527,82 @@ pub async fn set_taskbar_visibility<R: Runtime>(window: WebviewWindow<R>, visibl
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_hwnd_cannot_be_read_reasserted_or_written() {
+        assert!(!owned_window(0));
+        assert!(window_retired(0));
+        assert_eq!(read_topmost(0), None);
+        assert_eq!(write_topmost(0, true), Err("WINDOW_OWNER_UNCONFIRMED".into()));
+        assert_eq!(write_topmost(0, false), Err("WINDOW_OWNER_UNCONFIRMED".into()));
+    }
+
+    #[test]
+    fn real_hidden_owned_window_stays_hidden_unfocused_and_at_the_same_bounds() {
+        use windows::Win32::Foundation::RECT;
+        use windows::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, GetWindowRect, WS_POPUP};
+        use windows::core::w;
+        struct Fixture(HWND);
+        impl Drop for Fixture {
+            fn drop(&mut self) { unsafe { let _ = DestroyWindow(self.0); } }
+        }
+        unsafe {
+            let foreground = GetForegroundWindow();
+            let fixture = Fixture(CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOPMOST, w!("STATIC"), w!(""), WS_POPUP,
+                10, 10, 8, 8, None, None, None, None).unwrap());
+            let hwnd = fixture.0.0 as isize;
+            assert!(owned_window(hwnd));
+            assert!(!window_retired(hwnd));
+            let mut before = RECT::default();
+            GetWindowRect(fixture.0, &mut before).unwrap();
+            assert_eq!(read_topmost(hwnd), Some(true));
+            let mut state = super::super::topmost::WindowOrder::default();
+            state.main_hwnd = hwnd;
+            state.always_on_top = true;
+            for _ in 0..100 {
+                reconcile_window_order(&mut state, preference_available, window_retired,
+                    read_topmost,
+                    |_, _| panic!("a hidden already-topmost main must never repeat a write")).unwrap();
+            }
+            let mut after = RECT::default();
+            GetWindowRect(fixture.0, &mut after).unwrap();
+            assert_eq!(before, after);
+            assert!(!IsWindowVisible(fixture.0).as_bool());
+            assert_eq!(GetForegroundWindow(), foreground);
+        }
+    }
+
+    #[test]
+    fn real_foreign_desktop_hwnd_is_excluded_before_any_write() {
+        use windows::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
+        let desktop = unsafe { GetDesktopWindow() };
+        assert!(unsafe { IsWindow(Some(desktop)).as_bool() });
+        let hwnd = desktop.0 as isize;
+        assert_ne!(window_process_id(hwnd), Some(std::process::id()));
+        assert!(!owned_window(hwnd));
+        assert!(window_retired(hwnd));
+        assert_eq!(read_topmost(hwnd), None);
+        assert_eq!(write_topmost(hwnd, true), Err("WINDOW_OWNER_UNCONFIRMED".into()));
+    }
+
+    #[test]
+    fn menu_task_keeps_ownership_after_its_response_is_dropped() {
+        let owner = PetMenuOwner::acquire().unwrap();
+        let (sender, mut receiver) = tauri::async_runtime::channel(1);
+        let (finished, completed) = mpsc::channel();
+        let task = tauri::async_runtime::spawn(async move {
+            let owner = owner;
+            receiver.recv().await.unwrap();
+            drop(owner);
+            finished.send(()).unwrap();
+        });
+        drop(task); // Navigation can discard the response without ending the popup.
+        assert!(PetMenuOwner::acquire().is_err());
+        sender.try_send(()).unwrap();
+        completed.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        let next = PetMenuOwner::acquire().unwrap();
+        drop(next);
+    }
 
     #[test]
     fn caption_color_is_preference_only_and_light_restores_the_native_default() {

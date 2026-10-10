@@ -7,7 +7,6 @@ import { Window } from '@tauri-apps/api/window'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
-import { runInNewContext } from 'node:vm'
 import { createPinia, setActivePinia } from 'pinia'
 import ts from 'typescript'
 import * as Vue from 'vue'
@@ -19,7 +18,10 @@ import * as performanceConfig from '@/config/performance'
 import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
 import { isMouseSettingResponse } from '@/features/input/types'
 import { createAntialiasSettingOwner } from '@/features/performance/antialiasSetting'
+import * as presetOperations from '@/features/presets/operations'
 import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
+import * as sceneTypes from '@/features/scene/types'
+import * as viewportSettings from '@/features/scene/viewportSettings'
 import { createPreferenceUpdates } from '@/features/updates/preferenceUpdates'
 import { getAntdLocale } from '@/locales/antd'
 import en from '@/locales/en-US.json'
@@ -41,116 +43,11 @@ function element(): TestElement {
   return { children: [], parent: null, props: {}, scrollTop: 0 }
 }
 
-// Windows branch of tauri 2.11.1 src/window/scripts/drag.js, with upstream license.
-const TAURI_WINDOWS_DRAG_SCRIPT = [
-  '// Copyright 2019-2024 Tauri Programme within The Commons Conservancy',
-  '// SPDX-License-Identifier: Apache-2.0',
-  '// SPDX-License-Identifier: MIT',
-  '',
-  ';(function () {',
-  '  const TAURI_DRAG_REGION_ATTR = \'data-tauri-drag-region\'',
-  '  const CLICKABLE_TAGS = new Set([',
-  '    \'A\',',
-  '    \'BUTTON\',',
-  '    \'INPUT\',',
-  '    \'SELECT\',',
-  '    \'TEXTAREA\',',
-  '    \'LABEL\',',
-  '    \'SUMMARY\'',
-  '  ])',
-  '  const INTERACTIVE_ROLES = new Set([',
-  '    \'button\',',
-  '    \'link\',',
-  '    \'menuitem\',',
-  '    \'tab\',',
-  '    \'checkbox\',',
-  '    \'radio\',',
-  '    \'switch\',',
-  '    \'option\'',
-  '  ])',
-  '',
-  '  function isClickableElement(el) {',
-  '    return (',
-  '      CLICKABLE_TAGS.has(el.tagName)',
-  '      || (el.hasAttribute(\'contenteditable\')',
-  '        && el.getAttribute(\'contenteditable\') !== \'false\')',
-  '      || (el.hasAttribute(\'tabindex\') && el.getAttribute(\'tabindex\') !== \'-1\')',
-  '      || INTERACTIVE_ROLES.has(el.getAttribute(\'role\'))',
-  '    )',
-  '  }',
-  '',
-  '  // Walk the composed path from target upward.',
-  '  //',
-  '  // Supported values for data-tauri-drag-region:',
-  '  //   (bare / no value / "true") -> self: only direct clicks on this element trigger drag',
-  '  //   "deep"                   -> deep: clicks anywhere in the subtree trigger drag',
-  '  //   "false"                  -> disabled: drag is blocked here (and for ancestors)',
-  '  //',
-  '  // Clickable elements (buttons, links, etc.) normally block dragging,',
-  '  // but if they themselves carry data-tauri-drag-region they act as drag regions.',
-  '  function isDragRegion(composedPath) {',
-  '    for (const el of composedPath) {',
-  '      if (!(el instanceof HTMLElement)) continue',
-  '',
-  '      const attr = el.getAttribute(TAURI_DRAG_REGION_ATTR)',
-  '',
-  '      // clickable without explicit drag region → blocks drag',
-  '      if (isClickableElement(el) && attr === null) return false',
-  '      // no attr → keep walking up',
-  '      if (attr === null) continue',
-  '      // explicitly disabled',
-  '      if (attr === \'false\') return false',
-  '      // subtree drag — any descendant triggers',
-  '      if (attr === \'deep\') return true',
-  '      // bare or "true" attr — only direct clicks on this element',
-  '      if (attr === \'\' || attr === \'true\') return el === composedPath[0]',
-  '    }',
-  '',
-  '    return false',
-  '  }',
-  '',
-  '  document.addEventListener(\'mousedown\', (e) => {',
-  '    if (',
-  '      // was left mouse button',
-  '      e.button === 0',
-  '      // and was normal click to drag or double click to maximize',
-  '      && (e.detail === 1 || e.detail === 2)',
-  '      // and is drag region',
-  '      && isDragRegion(e.composedPath())',
-  '    ) {',
-  '      // prevents text cursor',
-  '      e.preventDefault()',
-  '',
-  '      // fix #2549: double click on drag region edge causes content to maximize without window sizing change',
-  '      // https://github.com/tauri-apps/tauri/issues/2549#issuecomment-1250036908',
-  '      e.stopImmediatePropagation()',
-  '',
-  '      // start dragging if the element has a `tauri-drag-region` data attribute and maximize on double-clicking it',
-  '      const cmd = e.detail === 2 ? \'internal_toggle_maximize\' : \'start_dragging\'',
-  '      window.__TAURI_INTERNALS__.invoke(\'plugin:window|\' + cmd)',
-  '    }',
-  '  })',
-  '',
-  '})()',
-  '',
-].join('\n')
-
-class DragElement {
-  constructor(readonly tagName = 'DIV', readonly dragRegion: string | null = null) {}
-  getAttribute(name: string) {
-    return name === 'data-tauri-drag-region' ? this.dragRegion : null
-  }
-
-  hasAttribute(name: string) {
-    return this.getAttribute(name) !== null
-  }
-}
-
 async function flush() {
   for (let index = 0; index < 60; index++) await Vue.nextTick()
 }
 
-function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAntialiasSubscription = false, existingTray = false, languageIntegration = false) {
+function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAntialiasSubscription = false, existingTray = false, languageIntegration = false, viewportIntegration = false) {
   setActivePinia(createPinia())
   const i18n = createI18n({ legacy: false, locale: 'en-US', messages: { 'ko-KR': ko, 'en-US': en } })
   const titles: string[] = []
@@ -182,15 +79,14 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
   const current = Vue.ref(0)
   const innerView = Vue.ref<string>()
   const presetBusy = Vue.ref(false)
+  const presetEditorsBusy = Vue.ref(false)
+  const nativeFocusListeners = new Set<(event: { payload: boolean }) => void>()
   const emitted: Array<{ label: string, event: string, payload: unknown }> = []
   let visible = true
   let queryWindowState: (() => Promise<boolean>) | undefined
   const diagnostics: Array<{ level: string, operation: string }> = []
   const warnings: string[] = []
   let skinLibraryOpens = 0
-  const dragCommands: string[] = []
-  const nativeMouseListeners: Array<(event: MouseEvent) => void> = []
-  const capturedMouseListeners: Array<(event: MouseEvent) => void> = []
   const errors: string[] = []
   const performanceCalls = { start: 0, stop: 0, reset: 0 }
   let toggledPreference = 0
@@ -205,9 +101,6 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
   const testWindow = {}
   const domListeners = new Map<string, Array<(event?: { target: object }) => void>>()
   const document = {
-    addEventListener: (name: string, handler: (event: MouseEvent) => void) => {
-      if (name === 'mousedown') nativeMouseListeners.push(handler)
-    },
     hidden: false,
     documentElement: { classList: {
       add: (name: string) => classes.add(name),
@@ -217,32 +110,25 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
   }
   const wrapper = Vue.defineComponent({ setup: (_, { slots }) => () => Vue.h('div', slots.default?.()) })
   const blank = Vue.defineComponent({ render: () => null })
+  let proListComponent: Vue.Component
   const blockPage = Vue.defineComponent({
     emits: ['openSkinLibrary'],
-    setup: (_, { emit }) => () => Vue.h('button', {
+    setup: (_, { emit }) => () => Vue.h(proListComponent, { title: 'Pet settings' }, () => Vue.h('button', {
       'data-open-library': true,
       'onClick': () => emit('openSkinLibrary'),
-    }),
+    })),
   })
   // About has a section plus two modal roots, so it cannot inherit listeners.
   const aboutPage = Vue.defineComponent({ render: () => [Vue.h('section'), Vue.h('dialog')] })
-  // Retained Windows dispatch path from the Cargo.lock Tauri dependency.
-  runInNewContext(TAURI_WINDOWS_DRAG_SCRIPT, {
-    document,
-    HTMLElement: DragElement,
-    window: { __TAURI_INTERNALS__: { invoke: async (command: string) => {
-      dragCommands.push(command)
-    } } },
-  })
   const page = (name: string) => Vue.defineComponent({
     inheritAttrs: false,
-    setup: (_, { attrs }) => () => Vue.h('section', { ...attrs, 'data-preference-page': name }),
+    setup: (_, { attrs }) => () => Vue.h(proListComponent, { title: name }, () => Vue.h('section', { ...attrs, 'data-preference-page': name })),
   })
   const scenePage = page('scene')
   const environmentPage = page('environment')
   const nativeListeners = new Map<string, (event: { payload: unknown }) => void>()
   const selectionListeners = new Set<() => void>()
-  const nativeEdits = Vue.ref(0)
+  const nativeEdits = presetOperations.presetNativeEditPending
   let automaticAntialiasReply = true
   let finishAntialiasSubscription: (() => void) | undefined
   let presetEdits = 0
@@ -276,13 +162,12 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     }).outputText
     // Actual SFCs and shortcut composable run with native registration stubbed.
     // eslint-disable-next-line no-new-func
-    new Function('require', 'module', 'exports', 'window', 'document', 'HTMLElement', transformed)(
+    new Function('require', 'module', 'exports', 'window', 'document', transformed)(
       (id: string) => id === 'vue' && mountedHooks ? Vue : resolve(id),
       module,
       module.exports,
       testWindow,
       document,
-      DragElement,
     )
     return module.exports
   }
@@ -339,7 +224,10 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
           titles.push(title)
         },
         onResized: async () => () => {},
-        onFocusChanged: async () => () => {},
+        onFocusChanged: async (handler: (event: { payload: boolean }) => void) => {
+          nativeFocusListeners.add(handler)
+          return () => nativeFocusListeners.delete(handler)
+        },
         onCloseRequested: (handler: Parameters<Window['onCloseRequested']>[0]) => Window.prototype.onCloseRequested.call({
           listen: async (_event: string, callback: typeof closeRequested) => {
             closeRequested = callback
@@ -368,11 +256,8 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
       }) }
     }
     if (id === '@vueuse/core') {
-      return { useEventListener: (target: unknown, events: string | string[], handler: (event?: { target: object }) => void, options?: { capture?: boolean }) => {
+      return { useEventListener: (_target: unknown, events: string | string[], handler: (event?: { target: object }) => void) => {
         for (const event of typeof events === 'string' ? [events] : events) {
-          if (target === document && event === 'mousedown' && options?.capture) {
-            capturedMouseListeners.push(handler as (event: MouseEvent) => void)
-          }
           const handlers = domListeners.get(event) ?? []
           handlers.push(handler)
           domListeners.set(event, handlers)
@@ -425,7 +310,8 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     if (id === '@/composables/usePresetManager') {
       return { usePresetManager: () => ({
         ready: Vue.ref(true),
-        busy: presetBusy,
+        busy: Vue.computed(() => presetBusy.value || presetOperations.presetNativeEditPending.value > 0),
+        editorsBusy: Vue.computed(() => presetEditorsBusy.value || presetOperations.presetNativeMutationPending.value > 0),
         setListVisible: () => {},
         markUserEdit: () => {
           presetEdits++
@@ -433,6 +319,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
       }) }
     }
     if (id === '@/composables/useSceneViewport') {
+      if (viewportIntegration) return load(readFileSync(new URL('../../composables/useSceneViewport.ts', import.meta.url), 'utf8'), true)
       return { useSceneViewport: () => ({
         viewportState: Vue.ref(),
         viewportPending: Vue.ref(false),
@@ -472,25 +359,17 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
           return () => selectionListeners.delete(handler)
         },
         confirmPresetUserEdit: () => {},
-      }
-    }
-    if (id === '@/features/presets/operations') {
-      return {
-        presetOperationInProgress: Vue.ref(false),
-        presetResetInProgress: Vue.ref(false),
-        beginPresetNativeEdit: () => {
-          nativeEdits.value++
-          let released = false
-          return () => {
-            if (released) return
-            released = true
-            nativeEdits.value--
-          }
+        markPresetUserEdit: () => {
+          presetEdits++
         },
       }
     }
+    if (id === '@/features/presets/operations') {
+      return presetOperations
+    }
     if (id === '@/features/presets/types') return { PRESET_EDIT_REQUEST }
-    if (id === '@/features/scene/types') return {}
+    if (id === '@/features/scene/types') return sceneTypes
+    if (id === '@/features/scene/viewportSettings') return viewportSettings
     if (id === './navigation') {
       return { usePreferenceNavigation: () => ({ current, innerView, closeInnerView: () => {}, openSkinLibrary: () => {
         skinLibraryOpens++
@@ -512,6 +391,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
   keyPressModule = load(readFileSync(new URL('../../composables/useKeyPress.ts', import.meta.url), 'utf8'))
   shortcutComponent = component('./components/shortcut/index.vue')
   themeComponent = component('./components/general/components/theme-mode/index.vue', true)
+  proListComponent = component('../../components/pro-list/index.vue')
   const preferenceComponent = component('./index.vue', true)
   const renderer = Vue.createRenderer<TestElement, TestElement>({
     createElement: element,
@@ -577,28 +457,6 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     app,
     warnings,
     skinLibraryOpens: () => skinLibraryOpens,
-    dragClick: (detail: number, target: DragElement, ancestors: DragElement[] = [], button = 0) => {
-      let stopped = false
-      let prevented = false
-      const event = {
-        detail,
-        button,
-        target,
-        composedPath: () => [target, ...ancestors],
-        preventDefault: () => {
-          prevented = true
-        },
-        stopPropagation: () => {
-          stopped = true
-        },
-        stopImmediatePropagation: () => {
-          stopped = true
-        },
-      } as unknown as MouseEvent
-      capturedMouseListeners.forEach(handler => handler(event))
-      if (!stopped) nativeMouseListeners.forEach(handler => handler(event))
-      return { prevented, commands: dragCommands.splice(0) }
-    },
     updates: () => preferenceUpdates,
     preferenceShows: () => preferenceShows,
     clickTray: () => trayAction?.({
@@ -613,6 +471,8 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     errors,
     performanceCalls,
     nativeEdits,
+    editorsLocked: dataBridge.editorsLocked as Vue.Ref<boolean>,
+    nativeFocus: (focused: boolean) => nativeFocusListeners.forEach(handler => handler({ payload: focused })),
     invalidatePresetSelection: () => selectionListeners.forEach(handler => handler()),
     emitNative: (event: string, payload: unknown) => nativeListeners.get(event)?.({ payload }),
     hasNativeListener: (event: string) => nativeListeners.has(event),
@@ -629,6 +489,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     current,
     innerView,
     presetBusy,
+    presetEditorsBusy,
     nodes: () => flatten(root),
     scrollContainer,
     shortcutStore,
@@ -737,6 +598,14 @@ describe('preference tab identities', () => {
       assert.equal(h.scrollContainer().scrollTop, 360)
       h.presetBusy.value = true
       await flush()
+      assert.equal(h.nodes().some(node => node.props['data-tauri-drag-region'] !== undefined), false, 'bare settings/sidebar content cannot initiate native window movement')
+      for (const id of [1, 2, 3]) {
+        h.current.value = id
+        await flush()
+        const gate = h.nodes().find(node => typeof node.props.onInputCapture === 'function')!
+        assert.equal(gate.props.inert, false, 'background query must not make the first focused editor inert')
+      }
+      h.presetEditorsBusy.value = true
       for (const id of [1, 2, 3, 4, 6]) {
         h.current.value = id
         await flush()
@@ -762,25 +631,6 @@ describe('preference window query diagnostics', () => {
       const button = h.nodes().find(node => node.props['data-open-library'])!
       ;(button.props.onClick as () => void)()
       assert.equal(h.skinLibraryOpens(), 1)
-    } finally {
-      h.app.unmount()
-      await flush()
-    }
-  })
-
-  it('keeps native dragging but never sends denied maximization from preference drag regions', async () => {
-    const h = mountPreferences()
-    try {
-      await flush()
-      for (const value of ['', 'true']) {
-        const region = new DragElement('DIV', value)
-        assert.deepEqual(h.dragClick(1, region), { prevented: true, commands: ['plugin:window|start_dragging'] })
-        assert.deepEqual(h.dragClick(2, region), { prevented: true, commands: [] })
-        assert.deepEqual(h.dragClick(2, new DragElement('BUTTON'), [region]), { prevented: false, commands: [] })
-        assert.deepEqual(h.dragClick(2, new DragElement(), [region]), { prevented: false, commands: [] })
-        assert.deepEqual(h.dragClick(2, region, [], 2), { prevented: false, commands: [] })
-      }
-      assert.deepEqual(h.dragClick(2, new DragElement('DIV', 'false')), { prevented: false, commands: [] })
     } finally {
       h.app.unmount()
       await flush()
@@ -997,6 +847,391 @@ describe('preference shortcut lifetime', () => {
       h.shortcutStore.reset()
       await flush()
       assert.equal(h.active.size, 0)
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
+  })
+
+  it('keeps first focused pet, screen and mouse editors live throughout native mouse readback', async () => {
+    const h = mountPreferences()
+    try {
+      await flush()
+      h.respondMouse(true, true)
+      for (const tab of [1, 2, 3]) {
+        h.current.value = tab
+        await flush()
+        h.nativeFocus(false)
+        h.nativeFocus(true)
+        await flush()
+        assert.equal(h.mouseRequests().at(-1)?.enabled, undefined)
+        assert.equal(h.nativeEdits.value, 1, 'readback still owns the preset/save barrier')
+        assert.equal(presetOperations.presetNativeMutationPending.value, 0, 'focus cannot acquire a mutation lease')
+        const page = h.nodes().find(node => node.props.onPointerdownCapture)
+        assert.ok(page)
+        assert.equal(page.props.inert, false, 'first focused gesture must reach the live editor')
+        const environment = h.nodes().find(node => node.props['data-preference-page'] === 'environment')
+        if (environment) {
+          assert.equal(environment.props.mousePending, false, 'readback cannot disable mouse appearance sliders')
+          assert.equal(environment.props.mouseReady, true)
+        }
+        const count = h.mouseRequests().length
+        h.nativeFocus(true)
+        await flush()
+        assert.equal(h.mouseRequests().length, count, 'duplicate focus coalesces the existing query')
+        h.respondMouse(true, true)
+        assert.equal(h.nativeEdits.value, 0)
+      }
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
+  })
+
+  it('delivers the first pet, screen and mouse slider edit while focus readback is still pending', async () => {
+    const h = mountPreferences()
+    const selections = () => h.emitted.filter(event => event.event === LISTEN_KEY.PET_PRESET_CHANGED)
+    try {
+      await flush()
+      h.respondMouse(true, true)
+      await flush()
+      for (const [tab, key, value] of [
+        [1, 'petRightArmSpreadDegrees', -27],
+        [2, 'cameraZoomPercent', 135],
+        [3, 'mouseScalePercent', 145],
+      ] as const) {
+        h.current.value = tab
+        h.nativeFocus(false)
+        h.nativeFocus(true)
+        await flush()
+        const count = selections().length
+        h.blockStore.activePet3dPreset[key] = value
+        await flush()
+        assert.equal(h.nativeEdits.value, 1, 'readback remains owned until its acknowledgement')
+        assert.equal(selections().length, count + 1, 'the first edit must reach main before readback completes')
+        const payload = selections().at(-1)!.payload as { preset: Record<string, unknown> }
+        assert.equal(payload.preset[key], value)
+        h.respondMouse(true, true)
+        await flush()
+        assert.equal(h.blockStore.activePet3dPreset[key], value)
+      }
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
+  })
+
+  it('delivers manual viewport edits with both focus queries outstanding and preserves them after replies', async () => {
+    const h = mountPreferences('light', false, false, false, true)
+    const queries = () => h.emitted.filter(event => event.event === sceneTypes.SCENE_VIEWPORT_REQUEST)
+    const selections = () => h.emitted.filter(event => event.event === LISTEN_KEY.PET_PRESET_CHANGED)
+    const state: sceneTypes.SceneViewportState = {
+      automatic: false,
+      revision: 1,
+      rect: { x: 0, y: 0, width: 500, height: 422 },
+      monitorSize: { width: 1920, height: 1080 },
+    }
+    const respond = () => h.emitNative(sceneTypes.SCENE_VIEWPORT_RESPONSE, {
+      requestId: (queries().at(-1)!.payload as sceneTypes.SceneViewportRequest).requestId,
+      success: true,
+      state,
+    })
+    try {
+      await flush()
+      respond()
+      h.respondMouse(true, true)
+      await flush()
+      h.current.value = 2
+      h.nativeFocus(false)
+      h.nativeFocus(true)
+      await flush()
+      const count = selections().length
+      const rect = { x: -50, y: -75, width: 1100, height: 800 }
+      Object.assign(h.blockStore.activePet3dPreset, {
+        cameraHorizontalOffset: 0.65,
+        cameraVerticalOffset: -0.35,
+        manualViewportRect: rect,
+      })
+      await flush()
+      assert.equal(h.nativeEdits.value, 2, 'both actual focus owners remain pending')
+      assert.equal(selections().length, count + 1, 'readback must not hold live viewport updates')
+      const preset = (selections().at(-1)!.payload as { preset: Record<string, unknown> }).preset
+      assert.equal(preset.cameraHorizontalOffset, 0.65)
+      assert.equal(preset.cameraVerticalOffset, -0.35)
+      assert.deepEqual(preset.manualViewportRect, rect)
+      respond()
+      h.respondMouse(true, true)
+      await flush()
+      assert.equal(h.nativeEdits.value, 0)
+      assert.deepEqual({ ...h.blockStore.activePet3dPreset.manualViewportRect }, rect)
+      assert.equal(h.blockStore.activePet3dPreset.cameraHorizontalOffset, 0.65)
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
+  })
+
+  it('defers snapshots during a real mutation and sends the latest edit when it settles before readback', async () => {
+    const h = mountPreferences()
+    const selections = () => h.emitted.filter(event => event.event === LISTEN_KEY.PET_PRESET_CHANGED)
+    let release: (() => void) | undefined
+    try {
+      await flush()
+      h.respondMouse(true, true)
+      await flush()
+      h.nativeFocus(true)
+      await flush()
+      const count = selections().length
+      release = presetOperations.beginPresetNativeEdit()
+      h.blockStore.activePet3dPreset.cameraZoomPercent = 120
+      await flush()
+      h.blockStore.activePet3dPreset.cameraZoomPercent = 140
+      await flush()
+      assert.equal(selections().length, count, 'an actual mutation must retain the snapshot barrier')
+      release()
+      release = undefined
+      await flush()
+      assert.equal(h.nativeEdits.value, 1, 'the read-only query is still outstanding')
+      assert.equal(selections().length, count + 1, 'mutation completion must release the newest snapshot')
+      assert.equal((selections().at(-1)!.payload as { preset: { cameraZoomPercent: number } }).preset.cameraZoomPercent, 140)
+      h.respondMouse(true, true)
+      await flush()
+      assert.equal(selections().length, count + 1, 'an unchanged readback must not repeat a snapshot')
+    } finally {
+      release?.()
+      h.app.unmount()
+      await flush()
+    }
+  })
+
+  it('accepts an explicit mouse toggle during focus readback and rejects the superseded reply', async () => {
+    const h = mountPreferences()
+    try {
+      await flush()
+      h.respondMouse(true, true)
+      h.current.value = 3
+      h.nativeFocus(true)
+      await flush()
+      const queryId = h.mouseRequests().at(-1)!.requestId
+      const page = h.nodes().find(node => node.props['data-preference-page'] === 'environment')!
+      const request = (page.props.requestMouseEnabled as (enabled: boolean) => Promise<boolean>)(false)
+      await flush()
+      assert.equal(h.mouseRequests().at(-1)?.enabled, false)
+      assert.equal(presetOperations.presetNativeMutationPending.value, 1)
+      assert.equal(page.props.mousePending, true)
+      h.respondMouse(true, false, queryId)
+      assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, true, 'retired readback cannot change current settings')
+      assert.equal(h.nativeEdits.value, 1, 'retired readback cannot release the actual mutation')
+      h.respondMouse(true, false)
+      assert.equal(await request, true)
+      assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, false)
+      assert.equal(h.presetEdits(), 1)
+      assert.equal(h.nativeEdits.value, 0)
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
+  })
+
+  for (const boundary of ['quit', 'selection', 'unmount'] as const) {
+    it(`retires mouse readback on ${boundary} without applying its late reply`, async () => {
+      const h = mountPreferences()
+      try {
+        await flush()
+        h.respondMouse(true, true)
+        h.nativeFocus(true)
+        await flush()
+        const id = h.mouseRequests().at(-1)!.requestId
+        assert.equal(h.nativeEdits.value, 1)
+        if (boundary === 'quit') presetOperations.cancelPresetNativeQueries()
+        else if (boundary === 'selection') h.invalidatePresetSelection()
+        else h.app.unmount()
+        assert.equal(h.nativeEdits.value, 0)
+        h.respondMouse(true, false, id)
+        assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, true)
+        assert.equal(h.presetEdits(), 0)
+      } finally {
+        if (boundary !== 'unmount') h.app.unmount()
+        await flush()
+      }
+    })
+  }
+
+  it('cannot recreate cancelled queries during editor quiescence and refreshes once after unlock', async () => {
+    const h = mountPreferences()
+    try {
+      await flush()
+      h.respondMouse(true, true)
+      h.current.value = 3
+      h.nativeFocus(true)
+      await flush()
+      const cancelledId = h.mouseRequests().at(-1)!.requestId
+      const count = h.mouseRequests().length
+      h.editorsLocked.value = true
+      presetOperations.cancelPresetNativeQueries()
+      assert.equal(h.nativeEdits.value, 0)
+      h.nativeFocus(false)
+      h.nativeFocus(true)
+      h.nativeFocus(true)
+      h.fire('Control+KeyH')
+      await flush()
+      const page = h.nodes().find(node => node.props['data-preference-page'] === 'environment')!
+      assert.equal(await (page.props.requestMouseEnabled as (enabled: boolean) => Promise<boolean>)(false), false)
+      assert.equal(h.mouseRequests().length, count)
+      assert.equal(h.nativeEdits.value, 0, 'native focus cannot re-block the quiescent preset owner')
+      h.editorsLocked.value = false
+      await flush()
+      assert.equal(h.mouseRequests().length, count + 1)
+      assert.equal(h.mouseRequests().at(-1)?.enabled, undefined)
+      assert.equal(presetOperations.presetNativeMutationPending.value, 0)
+      h.respondMouse(true, false, cancelledId)
+      assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, true)
+      assert.equal(h.nativeEdits.value, 1)
+      h.respondMouse(true, true)
+      assert.equal(h.nativeEdits.value, 0)
+    } finally {
+      h.app.unmount()
+      h.editorsLocked.value = false
+      await flush()
+    }
+  })
+
+  it('waits for all overlapping request blockers before refreshing once', async () => {
+    const h = mountPreferences()
+    try {
+      await flush()
+      h.respondMouse(true, true)
+      h.current.value = 3
+      await flush()
+      const page = h.nodes().find(node => node.props['data-preference-page'] === 'environment')!
+      const count = h.mouseRequests().length
+      for (const [operation, reset, locked] of [[true, false, false], [true, true, false], [false, true, false], [false, true, true], [false, false, true]]) {
+        presetOperations.presetOperationInProgress.value = operation
+        presetOperations.presetResetInProgress.value = reset
+        h.editorsLocked.value = locked
+        await flush()
+        h.nativeFocus(true)
+        assert.equal(await (page.props.requestMouseEnabled as (enabled: boolean) => Promise<boolean>)(false), false)
+        await flush()
+        assert.equal(h.mouseRequests().length, count)
+        assert.equal(h.nativeEdits.value, 0)
+      }
+      h.editorsLocked.value = false
+      await flush()
+      assert.equal(h.mouseRequests().length, count + 1)
+      assert.equal(h.mouseRequests().at(-1)?.enabled, undefined)
+      h.respondMouse(true, true)
+      await flush()
+      assert.equal(h.nativeEdits.value, 0)
+      assert.equal(h.mouseRequests().length, count + 1)
+    } finally {
+      h.app.unmount()
+      presetOperations.presetOperationInProgress.value = false
+      presetOperations.presetResetInProgress.value = false
+      h.editorsLocked.value = false
+      await flush()
+    }
+  })
+
+  it('does not start unlock readback in a closing preference window', async () => {
+    const h = mountPreferences()
+    try {
+      await flush()
+      h.respondMouse(true, true)
+      h.editorsLocked.value = true
+      await h.close()
+      h.editorsLocked.value = false
+      await flush()
+      assert.equal(h.mouseRequests().length, 1)
+      assert.equal(h.nativeEdits.value, 0)
+    } finally {
+      h.app.unmount()
+      h.editorsLocked.value = false
+      await flush()
+    }
+  })
+
+  it('drops queued focus readback before an explicit toggle can replace it', async () => {
+    const h = mountPreferences()
+    try {
+      await flush()
+      h.respondMouse(true, true)
+      h.current.value = 3
+      await flush()
+      const page = h.nodes().find(node => node.props['data-preference-page'] === 'environment')!
+      const count = h.mouseRequests().length
+      h.nativeFocus(true)
+      const request = (page.props.requestMouseEnabled as (enabled: boolean) => Promise<boolean>)(false)
+      await flush()
+      assert.equal(h.mouseRequests().length, count + 1, 'retired queued readback must not be delivered')
+      assert.equal(h.mouseRequests().at(-1)?.enabled, false)
+      assert.equal(h.nativeEdits.value, 1)
+      h.respondMouse(true, false)
+      assert.equal(await request, true)
+      assert.equal(h.nativeEdits.value, 0)
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
+  })
+
+  it('releases timed-out readback while retaining the unconfirmed mouse readiness gate', async (context) => {
+    context.mock.timers.enable({ apis: ['setTimeout'] })
+    const h = mountPreferences()
+    try {
+      await flush()
+      h.respondMouse(true, true)
+      h.current.value = 3
+      h.nativeFocus(true)
+      await flush()
+      const id = h.mouseRequests().at(-1)!.requestId
+      context.mock.timers.tick(5000)
+      await flush()
+      const page = h.nodes().find(node => node.props['data-preference-page'] === 'environment')!
+      assert.equal(h.nativeEdits.value, 0)
+      assert.equal(page.props.mousePending, false)
+      assert.equal(page.props.mouseReady, false)
+      assert.equal(page.props.mouseError, 'timeout')
+      assert.equal(h.nodes().find(node => node.props.onPointerdownCapture)?.props.inert, false)
+      h.respondMouse(true, false, id)
+      assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, true)
+      h.nativeFocus(true)
+      await flush()
+      h.respondMouse(true, true)
+      await flush()
+      assert.equal(page.props.mouseReady, true)
+      assert.equal(page.props.mouseError, undefined)
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
+  })
+
+  it('retains the mutation lease while a timed-out toggle queries its actual result', async (context) => {
+    context.mock.timers.enable({ apis: ['setTimeout'] })
+    const h = mountPreferences()
+    try {
+      await flush()
+      h.respondMouse(true, true)
+      h.current.value = 3
+      await flush()
+      const page = h.nodes().find(node => node.props['data-preference-page'] === 'environment')!
+      const request = (page.props.requestMouseEnabled as (enabled: boolean) => Promise<boolean>)(false)
+      await flush()
+      const editId = h.mouseRequests().at(-1)!.requestId
+      context.mock.timers.tick(5000)
+      await flush()
+      assert.equal(h.mouseRequests().at(-1)?.enabled, undefined)
+      assert.equal(presetOperations.presetNativeMutationPending.value, 1, 'fallback readback still belongs to an issued mutation')
+      assert.equal(page.props.mousePending, true)
+      presetOperations.cancelPresetNativeQueries()
+      assert.equal(h.nativeEdits.value, 1, 'Quit cannot retire an issued mutation as a read-only query')
+      h.respondMouse(true, false, editId)
+      assert.equal(h.nativeEdits.value, 1)
+      h.respondMouse(true, false)
+      assert.equal(await request, true)
+      assert.equal(h.blockStore.activePet3dPreset.mouseEnabled, false)
+      assert.equal(h.nativeEdits.value, 0)
     } finally {
       h.app.unmount()
       await flush()
@@ -1348,6 +1583,7 @@ describe('tray broadcast prompt in the mounted preference window', () => {
     const h = mountPreferences('light', false, true)
     try {
       await flush()
+      h.respondMouse(true, true)
       h.current.value = 2
       h.hide()
       h.generalStore.broadcast.enabled = true

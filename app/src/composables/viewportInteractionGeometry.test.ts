@@ -25,6 +25,7 @@ import { PRESET_APPLY_CANCEL, PRESET_APPLY_REQUEST, PRESET_APPLY_RESPONSE } from
 import { SCENE_VIEWPORT_REQUEST, SCENE_VIEWPORT_RESPONSE } from '@/features/scene/types'
 import { createWindowVisibilityQueue } from '@/plugins/windowVisibility'
 import { createDefaultPet3dPreset, useBlockStore } from '@/stores/block'
+import { RenderCadence } from '@/utils/three3d/renderCadence'
 
 import type { ApplyMainViewportGeometryInput, WindowState } from './useWindowState'
 
@@ -507,11 +508,14 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
   const mainRequire = createRequire(new URL('../pages/main/index.vue', import.meta.url))
   const events: Record<string, (event: { payload: unknown }) => void> = {}
   const unmounted: Array<() => void> = []
-  const domEvents: Record<string, Array<(event: { buttons: number }) => void>> = {}
+  const domEvents: Record<string, Array<(event: Pick<MouseEvent, 'type' | 'button' | 'buttons'>) => void>> = {}
   const general = { broadcast: { enabled: false, showOnDesktop: true } }
   let previewError = false
   let viewportWatch: (() => void) | undefined
   let now = 0
+  const cadence = new RenderCadence()
+  cadence.reset(now)
+  cadence.setEnabled(true, now)
   let nextTimer = 0
   const timers = new Map<number, { due: number, callback: () => void, frame?: boolean }>()
   const calls = {
@@ -525,6 +529,7 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
     center: 0,
     drag: 0,
     dragContainment: [] as boolean[],
+    interactionHeld: [] as boolean[],
     padding: [] as number[],
     inputResumeStarted: 0,
     inputResumes: [] as boolean[],
@@ -632,6 +637,10 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
       petPresentationVisible = visible
     },
     getCompositionSize: () => ({ width: 400, height: 400 }),
+    setInteractionHeld: (held: boolean) => {
+      calls.interactionHeld.push(held)
+      cadence.setInteractionHeld(held, now)
+    },
     getLoadedPetAssetState: () => loadedAssetState,
     setDmeloperSkin: async (url: string, model: 'auto' | 'wide' | 'slim') => {
       skinApplications++
@@ -686,7 +695,7 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
       return visible
     } }) },
     '@vueuse/core': {
-      useEventListener: (_target: unknown, names: string | string[], callback: (event: { buttons: number }) => void) => {
+      useEventListener: (_target: unknown, names: string | string[], callback: (event: Pick<MouseEvent, 'type' | 'button' | 'buttons'>) => void) => {
         if (typeof _target === 'string') return
         for (const name of typeof names === 'string' ? [names] : names) {
           (domEvents[name] ??= []).push(callback)
@@ -785,6 +794,7 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
       },
     },
     '@/plugins/window': {
+      setPetCursorEvents: async () => {},
       hideWindow: () => orderVisibility(async () => {
         await hideWait
         if (visibilityFailure === 'hide') {
@@ -1015,6 +1025,7 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
       }
     },
     hologram: () => context.hologramForTest!(),
+    frameLimit: () => cadence.getFrameLimit(now, 60),
     hologramClass() {
       const root = Reflect.apply(renderMainPage, undefined, [{
         blockStore: store,
@@ -1038,7 +1049,7 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
     waitForMouse: (wait: Promise<void>) => {
       mouseSettingWait = wait
     },
-    dom: (name: string, buttons = 0) => domEvents[name]?.forEach(callback => callback({ buttons })),
+    dom: (name: string, buttons = 0) => domEvents[name]?.forEach(callback => callback({ type: name, buttons, button: 0 })),
     failPreview: () => {
       previewError = true
     },
@@ -1677,7 +1688,7 @@ describe('main page interaction wiring', () => {
     assert.deepEqual(h.calls.native, [])
   })
 
-  it('keeps the pet drag hologram through native focus/capture handoff until completion', async () => {
+  it('keeps the pet drag hologram through capture handoff but hides on physical release before native completion', async () => {
     const h = createMainPageHarness()
     const nativeDrag = deferred()
     h.waitForDrag(nativeDrag.promise)
@@ -1695,12 +1706,88 @@ describe('main page interaction wiring', () => {
     h.dom('pointercancel')
     h.dom('pointermove', 0)
     h.nativeButton(false)
-    assert.equal(h.hologram(), true)
+    assert.equal(h.hologram(), false)
+    assert.equal(h.calls.drag, 1)
+    await h.drag()
+    assert.equal(h.calls.drag, 1)
     nativeDrag.resolve()
     await drag
     assert.equal(h.hologram(), false)
     assert.deepEqual(h.calls.native, [])
   })
+
+  for (const release of ['pointerup', 'mouseup', 'native'] as const) {
+    it(`cancels a pet press released by ${release} before its overlay paint completes`, async () => {
+      const h = createMainPageHarness({ mouseEnabled: release === 'native' })
+      if (release === 'native') h.nativeButton(true)
+      h.dom('mousedown', 1)
+      const drag = h.drag()
+      await flushMicrotasks()
+      await h.advance(16)
+      if (release === 'native') h.nativeButton(false)
+      else h.dom(release)
+      assert.equal(h.hologram(), false)
+      await h.advance(16)
+      await drag
+      assert.equal(h.calls.drag, 0)
+      assert.deepEqual(h.calls.native, [])
+    })
+  }
+
+  it('accepts a new press after a quick release without the retired paint wait clearing its overlay', async () => {
+    const h = createMainPageHarness({ mouseEnabled: false })
+    const nativeDrag = deferred()
+    h.waitForDrag(nativeDrag.promise)
+    h.dom('mousedown', 1)
+    const retiredDrag = h.drag()
+    await flushMicrotasks()
+    await h.advance(16)
+    h.dom('pointerup')
+    h.dom('mousedown', 1)
+    const currentDrag = h.drag()
+    await flushMicrotasks()
+    await h.advance(16)
+    await retiredDrag
+    assert.equal(h.hologram(), true)
+    assert.equal(h.calls.drag, 0)
+    await h.advance(16)
+    assert.equal(h.calls.drag, 1)
+    assert.equal(h.hologram(), true)
+    nativeDrag.resolve()
+    await currentDrag
+    assert.equal(h.hologram(), false)
+  })
+
+  for (const release of ['pointerup', 'mouseup'] as const) {
+    it(`hides the pet drag overlay on explicit ${release} before delayed native completion`, async () => {
+      const h = createMainPageHarness({ mouseEnabled: false })
+      const nativeDrag = deferred()
+      h.waitForDrag(nativeDrag.promise)
+      h.dom('mousedown', 1)
+      const drag = h.drag()
+      await flushMicrotasks()
+      await h.advance(16)
+      await h.advance(16)
+      assert.equal(h.hologram(), true)
+      h.dom(release)
+      assert.equal(h.hologram(), false)
+      assert.equal(h.calls.interactionHeld.at(-1), false)
+      await h.drag()
+      assert.equal(h.calls.drag, 1)
+      h.selection(110)
+      await h.advance(1000)
+      assert.equal(h.calls.measure, 0)
+      assert.deepEqual(h.calls.native, [])
+      await h.advance(4000)
+      assert.equal(h.frameLimit(), 15, 'released input must permit idle cadence before the delayed native reply')
+      nativeDrag.resolve()
+      await drag
+      await h.advance(100)
+      assert.equal(h.hologram(), false)
+      assert.equal(h.calls.measure, 1)
+      assert.deepEqual(h.calls.native, [100])
+    })
+  }
 
   for (const keepInScreen of [true, false]) {
     it(`passes keep-in-screen ${keepInScreen} to the native drag`, async () => {
@@ -1715,6 +1802,31 @@ describe('main page interaction wiring', () => {
       assert.deepEqual(h.calls.dragContainment, [keepInScreen])
     })
   }
+
+  it('restores the native drag bounds guard after a managed preset while the release reply is pending', async () => {
+    const h = createMainPageHarness({ mouseEnabled: false })
+    const nativeDrag = deferred()
+    h.waitForDrag(nativeDrag.promise)
+    h.dom('mousedown', 1)
+    const drag = h.drag()
+    await flushMicrotasks()
+    await h.advance(16)
+    await h.advance(16)
+    h.dom('pointerup')
+    h.applyPreset(h.capturePreset())
+    assert.equal((await settlePresetResponse(h)).success, true)
+    const beforeMeasure = h.calls.measure
+    const beforeNative = h.calls.native.length
+    h.selection(110)
+    await h.advance(1000)
+    assert.equal(h.calls.measure, beforeMeasure)
+    assert.equal(h.calls.native.length, beforeNative)
+    nativeDrag.resolve()
+    await drag
+    await h.advance(100)
+    assert.equal(h.calls.measure, beforeMeasure + 1)
+    assert.equal(h.calls.native.length, beforeNative + 1)
+  })
 
   it('finishes a pet drag with mouse input off and no DOM mouseup', async () => {
     const h = createMainPageHarness({ mouseEnabled: false })

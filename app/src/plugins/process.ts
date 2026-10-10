@@ -3,6 +3,7 @@ import { emitTo, listen } from '@tauri-apps/api/event'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { exit } from '@tauri-apps/plugin-process'
 
+import { cancelPresetNativeQueries } from '@/features/presets/operations'
 import { editorsLocked, quiesceEditors, releaseEditors } from '@/features/stateSafety'
 import { reportDiagnostic } from '@/services/diagnostics'
 
@@ -114,7 +115,14 @@ export function registerAppProcessOwner(ready: () => boolean): () => void {
     const work = async () => {
       check()
       if (editorsLocked.value) throw new Error('APP_PROCESS_BUSY')
-      while (!ready()) await wait()
+      // A background viewport refresh owns no requested setting change. Retire
+      // its reply rather than waiting out its ten-second acknowledgement timer.
+      // Actual native edits remain counted and must finish before saving.
+      cancelPresetNativeQueries()
+      while (!ready()) {
+        await wait()
+        cancelPresetNativeQueries()
+      }
       check()
       await quiesceEditors(payload.requestId)
       check()

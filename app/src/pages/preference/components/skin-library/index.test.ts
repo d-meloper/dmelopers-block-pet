@@ -76,6 +76,29 @@ async function flush() {
   for (let index = 0; index < 12; index += 1) await Vue.nextTick()
 }
 
+function warningClock() {
+  let now = 0
+  let sequence = 0
+  const pending = new Map<number, { due: number, callback: () => void }>()
+  return {
+    pending,
+    setTimeout: (callback: () => void, delay: number) => {
+      pending.set(++sequence, { due: now + delay, callback })
+      return sequence
+    },
+    clearTimeout: (id: number) => pending.delete(id),
+    advance: (milliseconds: number) => {
+      now += milliseconds
+      for (const [id, timer] of pending) {
+        if (timer.due <= now) {
+          pending.delete(id)
+          timer.callback()
+        }
+      }
+    },
+  }
+}
+
 function entry(character: string): SkinLibraryEntry {
   return {
     id: character.repeat(64),
@@ -92,9 +115,11 @@ function entry(character: string): SkinLibraryEntry {
 }
 
 function mountLibrary(options: {
+  timers?: ReturnType<typeof warningClock>
   entries?: SkinLibraryEntry[]
   list?: () => Promise<SkinLibraryEntry[]>
   read?: (id: string) => Promise<SkinLibraryEntryContent>
+  readLocal?: typeof skinLibrary.readLocalSkinFile
   fetch?: () => Promise<minecraftSkin.MinecraftSkinResponse>
   storeSkin?: (request: skinLibrary.SkinLibraryStoreRequest) => Promise<SkinLibraryEntry>
   rename?: (id: string, name: string) => Promise<SkinLibraryEntry>
@@ -110,11 +135,12 @@ function mountLibrary(options: {
   const store = useBlockStore()
   options.configureStore?.(store)
   const locale = Vue.ref('ko-KR')
-  const translate = (key: string) => {
+  const translate = (key: string, parameters: unknown = {}) => {
     const value = key.split('.').reduce<unknown>((current, part) =>
       (current as Record<string, unknown>)?.[part], locales[locale.value])
     assert.equal(typeof value, 'string', `Missing translation: ${key}`)
-    return value as string
+    const named = parameters && typeof parameters === 'object' && !Array.isArray(parameters) ? parameters as Record<string, unknown> : {}
+    return (value as string).replace(/\{(\w+)\}/g, (placeholder, name: string) => name in named ? String(named[name]) : placeholder)
   }
   let catalog = options.entries ?? []
   const deletes: string[][] = []
@@ -124,11 +150,13 @@ function mountLibrary(options: {
   const diagnostics: Array<{ level: string, operation: string }> = []
   let remoteReads = 0
   const skinChanges: Array<{ phase: string, skin?: unknown }> = []
+  let drop: ((event: { payload: { type: 'drop', paths: string[] } }) => void) | undefined
   const module = { exports: {} as { default: Vue.Component } }
   // Compile and mount the actual SFC. Only native I/O and visual framework
   // wrappers are stubbed, so card actions and store changes run production code.
   // eslint-disable-next-line no-new-func
-  new Function('require', 'module', 'exports', transformed.outputText)((id: string) => {
+  new Function('require', 'module', 'exports', 'setTimeout', 'clearTimeout', transformed.outputText)((id: string) => {
+    if (id === '@/components/file-drop-surface/index.vue') return { default: stub('div') }
     if (id === '@/services/petSkinChange') {
       return { beginPetSkinChange: () => {
         skinChanges.push({ phase: 'prepare' })
@@ -144,7 +172,12 @@ function mountLibrary(options: {
     if (id === 'vue') return { ...Vue, vModelText: {} }
     if (id === 'vue-i18n') return { useI18n: () => ({ t: translate }) }
     if (id === '@tauri-apps/api/window') {
-      return { getCurrentWindow: () => ({ onDragDropEvent: async () => () => {} }) }
+      return { getCurrentWindow: () => ({ onDragDropEvent: async (callback: typeof drop) => {
+        drop = callback
+        return () => {
+          drop = undefined
+        }
+      } }) }
     }
     if (id === 'ant-design-vue') {
       return {
@@ -154,6 +187,7 @@ function mountLibrary(options: {
         message: {
           error: (value: string) => messages.push(value),
           success: (value: string) => messages.push(value),
+          warning: (value: string) => messages.push(value),
         },
         Modal: { confirm: (value: { title: string, onOk: () => unknown }) => {
           confirmations.push(value)
@@ -184,6 +218,7 @@ function mountLibrary(options: {
         readSkinLibraryEntry: options.read ?? (async () => {
           throw new Error('Unexpected stored PNG read.')
         }),
+        readLocalSkinFile: options.readLocal ?? skinLibrary.readLocalSkinFile,
         renameSkinLibraryEntry: options.rename ?? skinLibrary.renameSkinLibraryEntry,
         deleteSkinLibraryEntries: async (ids: string[]) => {
           deletes.push([...ids])
@@ -215,7 +250,7 @@ function mountLibrary(options: {
     if (id === '@/utils/skinThumbnail') return skinThumbnail
     if (id === '@/utils/three3d/voxelSkin') return voxelSkin
     throw new Error(`Unexpected library import: ${id}`)
-  }, module, module.exports)
+  }, module, module.exports, options.timers?.setTimeout ?? setTimeout, options.timers?.clearTimeout ?? clearTimeout)
 
   const renderer = Vue.createRenderer<TestElement, TestElement>({
     createElement: element,
@@ -253,7 +288,7 @@ function mountLibrary(options: {
   app.config.globalProperties.$t = translate
   app.mount(root)
   const cards = () => walk(root).filter(node => node.props.role === 'option')
-  const button = (key: string) => walk(root).find(node => node.type === 'button' && content(node) === translate(key))!
+  const button = (key: string) => walk(root).find(node => node.type === 'button' && content(node).trim() === translate(key))!
   const click = async (node: TestElement) => {
     assert.ok(node, 'The requested control must be rendered.')
     assert.notEqual(node.props.disabled, true, 'The requested control must be enabled.')
@@ -261,8 +296,206 @@ function mountLibrary(options: {
     await result
     await flush()
   }
-  return { app, root, cards, button, click, store, locale, deletes, confirmations, skinChanges, cleanupCalls: () => cleanupCalls, messages, diagnostics, remoteReads: () => remoteReads }
+  const waitImport = async () => {
+    for (let attempts = 0; attempts < 30; attempts++) {
+      await new Promise(resolve => setTimeout(resolve, 0))
+      await flush()
+      if (!button('pages.preference.skinLibrary.buttons.importFile').props.disabled) return
+    }
+    assert.fail('The skin import did not settle.')
+  }
+  const importFiles = async (files: File[]) => {
+    const input = walk(root).find(node => node.type === 'input' && node.props.type === 'file')!
+    const target = { files, value: 'selected' }
+    ;(input.props.onChange as (event: unknown) => void)({ currentTarget: target })
+    assert.equal(target.value, '', 'the same failed file can be selected again')
+    await waitImport()
+  }
+  return { app, root, cards, button, click, store, locale, deletes, confirmations, skinChanges, importFiles, waitImport, drop: (paths: string[]) => drop?.({ payload: { type: 'drop', paths } }), cleanupCalls: () => cleanupCalls, messages, diagnostics, remoteReads: () => remoteReads }
 }
+
+it('keeps the library title and blank header area outside native window dragging', async () => {
+  const h = mountLibrary()
+  try {
+    await flush()
+    assert.equal(walk(h.root).some(node => node.props['data-tauri-drag-region'] !== undefined), false)
+    assert.equal(h.button('pages.preference.skinLibrary.buttons.back').props.disabled, false)
+    assert.ok(walk(h.root).some(node => node.type === 'h1'), 'the actual library header must be mounted')
+  } finally {
+    h.app.unmount()
+  }
+})
+
+describe('local PNG import failure reasons', () => {
+  const file = (browser: ReturnType<typeof installPresetSkinBrowser>, width = 64, height = 64, name = 'skin.png') => {
+    const bytes = Uint8Array.from(atob(browser.dataUrl.split(',')[1]), character => character.charCodeAt(0))
+    const header = new DataView(bytes.buffer)
+    header.setUint32(16, width)
+    header.setUint32(20, height)
+    return new File([bytes], name, { type: 'image/png' })
+  }
+  const alerts = (control: ReturnType<typeof mountLibrary>) => walk(control.root).filter(node => node.props.role === 'alert').map(content)
+  const stored = async (request: skinLibrary.SkinLibraryStoreRequest) => {
+    assert.equal('importIndex' in request, false, 'batch positions must never enter native storage')
+    return { ...entry('a'), displayName: request.displayName, originalFilename: request.originalFilename }
+  }
+
+  it('expires repeated picker/drop warnings at 3000 ms and cancels timers on success and disposal', async () => {
+    const browser = installPresetSkinBrowser()
+    const timers = warningClock()
+    const control = mountLibrary({ timers, storeSkin: stored })
+    try {
+      await flush()
+      control.drop(['C:/invalid.jpg'])
+      await control.waitImport()
+      const stale = [...timers.pending.values()][0].callback
+      assert.equal(alerts(control).length, 1)
+      assert.equal(control.button('pages.preference.skinLibrary.buttons.retry'), undefined)
+      timers.advance(2000)
+      await control.importFiles([file(browser, 64, 64, 'invalid.jpg')])
+      stale()
+      await flush()
+      assert.equal(alerts(control).length, 1)
+      assert.equal(timers.pending.size, 1)
+      timers.advance(2999)
+      await flush()
+      assert.equal(alerts(control).length, 1)
+      timers.advance(1)
+      await flush()
+      assert.deepEqual(alerts(control), [])
+      assert.equal(timers.pending.size, 0)
+
+      await control.importFiles([file(browser, 64, 64, 'invalid.jpg')])
+      await control.importFiles([file(browser, 64, 64, 'valid.png')])
+      assert.deepEqual(alerts(control), [])
+      assert.equal(timers.pending.size, 0)
+      await control.importFiles([file(browser, 64, 64, 'invalid.jpg')])
+      const disposed = [...timers.pending.values()][0].callback
+      control.app.unmount()
+      disposed()
+      assert.equal(timers.pending.size, 0)
+    } finally {
+      control.app.unmount()
+      browser.restore()
+    }
+  })
+
+  it('shows proven picker size/format causes and keeps its last reason reactive across language changes', async () => {
+    const browser = installPresetSkinBrowser()
+    const control = mountLibrary()
+    try {
+      await flush()
+      const cases: Array<[File, string]> = [
+        [file(browser, 128, 128), '64×64 또는 64×32'],
+        [file(browser, 64, 64, 'photo.jpg'), 'PNG 파일만'],
+        [new File(['not PNG data'], 'photo.png'), '올바른 PNG'],
+        [new File([new Uint8Array(skinLibrary.MAX_SKIN_LIBRARY_PNG_BYTES + 1)], 'large.png'), '용량'],
+      ]
+      for (const [input, expected] of cases) {
+        await control.importFiles([input])
+        assert.equal(alerts(control).length, 1)
+        assert.ok(alerts(control)[0].includes(expected))
+        assert.equal(presetOperations.presetNativeEditPending.value, 0)
+      }
+      await control.importFiles([file(browser, 64, 128)])
+      assert.deepEqual(alerts(control), ['64×64 또는 64×32 픽셀의 PNG만 불러올 수 있습니다.'])
+      control.locale.value = 'en-US'
+      await flush()
+      assert.deepEqual(alerts(control), ['Only 64×64 or 64×32 pixel PNGs can be loaded.'])
+    } finally {
+      control.app.unmount()
+      browser.restore()
+    }
+  })
+
+  for (const [error, expected] of [
+    [new skinLibrary.SkinLibraryError('INVALID_DIMENSIONS'), '64×64 또는 64×32'],
+    [new skinLibrary.SkinLibraryError('INVALID_PNG'), '올바른 PNG'],
+    [new skinLibrary.SkinLibraryError('TOO_LARGE'), '용량'],
+    [new skinLibrary.SkinLibraryError('STORAGE_UNAVAILABLE'), '보관함'],
+    [new skinLibrary.SkinLibraryError('IO_ERROR'), '알 수 없는 이유'],
+    [new Error('Private file path or arbitrary decoder message'), '알 수 없는 이유'],
+  ] as const) {
+    it(`uses only confirmed native codes for dropped images: ${String(error)}`, async () => {
+      const control = mountLibrary({ readLocal: async () => {
+        throw error
+      } })
+      try {
+        await flush()
+        control.drop(['C:/skin.png'])
+        await control.waitImport()
+        assert.equal(alerts(control).length, 1)
+        assert.ok(alerts(control)[0].includes(expected))
+        assert.equal(alerts(control)[0].includes('Private file path'), false)
+      } finally {
+        control.app.unmount()
+      }
+    })
+  }
+
+  it('identifies a non-PNG drop without sending its path to the native reader', async () => {
+    const control = mountLibrary({ readLocal: async () => assert.fail('non-PNG drop reached native I/O') })
+    try {
+      await flush()
+      control.drop(['C:/photo.jpg'])
+      await control.waitImport()
+      assert.ok(alerts(control)[0].includes('PNG 파일만'))
+    } finally {
+      control.app.unmount()
+    }
+  })
+
+  it('keeps only the last failed input in batch order across read/decode stages and partial success', async () => {
+    const browser = installPresetSkinBrowser()
+    const control = mountLibrary({ storeSkin: stored })
+    try {
+      await flush()
+      const invalidDimensions = file(browser, 128, 128)
+      const invalidFormat = file(browser, 64, 64, 'photo.jpg')
+      const good = file(browser, 64, 64, 'good.png')
+      for (const [inputs, expected] of [
+        [[invalidDimensions, invalidFormat, good], 'PNG 파일만'],
+        [[invalidFormat, invalidDimensions, good], '64×64 또는 64×32'],
+      ] as const) {
+        await control.importFiles([...inputs])
+        assert.equal(alerts(control).length, 1)
+        assert.ok(alerts(control)[0].includes(expected))
+        assert.ok(control.messages.at(-1)!.includes('스킨 1개를 가져오고 2개'))
+        assert.equal(control.store.customization3d.activeSkinLibraryEntryId, entry('a').id)
+      }
+      for (const height of [64, 32]) {
+        await control.importFiles([file(browser, 64, height, 'valid.png')])
+        assert.deepEqual(alerts(control), [], 'a successful new attempt clears the previous reason')
+      }
+    } finally {
+      control.app.unmount()
+      browser.restore()
+    }
+  })
+
+  it('does not publish a delayed failed import after its preset owner is superseded', async () => {
+    const oldRead = deferred<skinLibrary.LocalSkinFileResponse>()
+    const control = mountLibrary({ readLocal: path => path.endsWith('old.png') ? oldRead.promise : Promise.reject(new skinLibrary.SkinLibraryError('INVALID_PNG')) })
+    try {
+      await flush()
+      control.drop(['C:/old.png'])
+      await flush()
+      presetEditIntent.invalidatePresetSelection()
+      control.drop(['C:/new.png'])
+      await control.waitImport()
+      const current = alerts(control)
+      oldRead.reject(new skinLibrary.SkinLibraryError('INVALID_DIMENSIONS'))
+      await flush()
+      assert.deepEqual(alerts(control), current)
+      assert.ok(current[0].includes('올바른 PNG'))
+      assert.equal(presetOperations.presetNativeEditPending.value, 0)
+    } finally {
+      oldRead.reject(new Error('cleanup'))
+      await flush()
+      control.app.unmount()
+    }
+  })
+})
 
 describe('built-in skin library card', () => {
   for (const outcome of ['failure', 'disposed', 'superseded'] as const) {

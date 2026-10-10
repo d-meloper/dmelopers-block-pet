@@ -28,11 +28,17 @@ pub static PREFERENCE_WINDOW_LABEL: &str = "preference";
 
 mod windows;
 
+mod activation;
+
 mod topmost;
 
 mod drag;
 
 mod drag_bounds;
+
+mod menu;
+
+mod menu_input;
 
 pub use windows::*;
 

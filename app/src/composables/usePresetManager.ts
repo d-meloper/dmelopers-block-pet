@@ -13,6 +13,7 @@ import type { PresetImportPrevious } from '@/services/presetTransfer'
 import { isCycleViewportSettingRequest, isMenuViewportSettingRequest, nextViewportOption } from '@/composables/menuViewportSetting'
 import { WINDOW_LABEL } from '@/constants'
 import { builtinPresets } from '@/features/presets/builtin'
+import { compatiblePresetFields, inspectPresetCompatibility, presetSettings, presetSource, presetSourceKey, projectPresetSettings } from '@/features/presets/compatibility'
 import { invalidatePresetSelection, markPresetUserEdit } from '@/features/presets/editIntent'
 import { registerPresetEditOwner } from '@/features/presets/editRequests'
 import {
@@ -27,7 +28,7 @@ import {
   validatePresetCollection,
   validatePresetName,
 } from '@/features/presets/model'
-import { beginPresetOperation, presetNativeEditPending, presetOperationInProgress, presetResetInProgress } from '@/features/presets/operations'
+import { beginPresetOperation, presetNativeEditPending, presetNativeMutationPending, presetOperationInProgress, presetResetInProgress } from '@/features/presets/operations'
 import { createPresetRequestClient } from '@/features/presets/request'
 import { preparePresetSkin, restorePresetSkin } from '@/features/presets/skin'
 import { createPresetThumbnailBatch } from '@/features/presets/thumbnail'
@@ -55,6 +56,8 @@ interface PresetImportRequest {
   presetId: string
 }
 
+class PresetCompatibilityError extends Error {}
+
 export function usePresetManager(
   emit: (event: string, payload: unknown) => Promise<unknown> = (event, payload) => emitTo(WINDOW_LABEL.MAIN, event, payload),
 ) {
@@ -64,6 +67,7 @@ export function usePresetManager(
   const ready = ref(false)
   const localBusy = ref(true)
   const busy = computed(() => localBusy.value || presetResetInProgress.value || presetNativeEditPending.value > 0)
+  const editorsBusy = computed(() => localBusy.value || presetResetInProgress.value || presetNativeMutationPending.value > 0)
   const status = ref<'saving' | 'saved' | 'error'>('saving')
   const error = ref<string>()
   const createError = ref<string>()
@@ -94,6 +98,8 @@ export function usePresetManager(
       ...builtinPresets(t),
     ]
   })
+  const entriesById = computed(() => new Map(entries.value.map(entry => [entry.id, entry])))
+  const compatibility = computed(() => Object.fromEntries(entries.value.map(entry => [entry.id, inspectPresetCompatibility(presetSource(entry))])))
   const client = createPresetRequestClient(emit)
   const stops: Array<() => void> = []
   const thumbnailKeys = shallowReactive(new Map<string, string>())
@@ -104,11 +110,11 @@ export function usePresetManager(
     const savedById = new Map(persistedCollection.value?.entries.map(entry => [entry.id, entry]))
     for (const entry of entries.value) {
       const saved = savedById.get(entry.id)
-      if (entry.origin === 'user' && !isEqual({ id: entry.id, name: entry.name, favorite: entry.favorite, snapshot: entry.snapshot }, saved)) {
+      if (entry.origin === 'user' && !isEqual({ id: entry.id, name: entry.name, favorite: entry.favorite, snapshot: entry.snapshot, ...(entry.sourceSettings ? { sourceSettings: entry.sourceSettings } : {}) }, saved)) {
         if (status.value !== 'error') pending[entry.id] = 'saving'
         continue
       }
-      const key = JSON.stringify(entry.snapshot)
+      const key = presetSourceKey(entry, JSON.stringify)
       if (thumbnailKeys.get(entry.id) !== key && thumbnailErrorKeys.get(entry.id) !== key) pending[entry.id] = 'thumbnail'
     }
     return pending
@@ -136,7 +142,7 @@ export function usePresetManager(
   const fail = (value: unknown, fallback = 'save') => {
     errorRevision.value++
     if (!disposed) reportDiagnostic('error', `presets.${fallback}`, value)
-    error.value = value instanceof Error && value.message.startsWith('pages.preference.presets.errors.')
+    error.value = value instanceof Error && (value.message.startsWith('pages.preference.presets.errors.') || value instanceof PresetCompatibilityError)
       ? value.message
       : `pages.preference.presets.errors.${fallback}`
     status.value = 'error'
@@ -223,21 +229,21 @@ export function usePresetManager(
     try {
       for (const entry of entries.value) {
         if (disposed || !listVisible || busy.value) break
-        const key = JSON.stringify(entry.snapshot)
+        const key = presetSourceKey(entry, JSON.stringify)
         if (thumbnailKeys.get(entry.id) === key || thumbnailErrorKeys.get(entry.id) === key) continue
         try {
-          const prepared = await preparePresetSkin(clonePreset(entry.snapshot))
+          const prepared = await preparePresetSkin({ appearance: clonePreset(entry.snapshot.appearance), ...projectPresetSettings(presetSource(entry)) })
           if (disposed || !listVisible || busy.value) break
           const thumbnail = await batch.render(prepared)
-          const current = entries.value.find(item => item.id === entry.id)
-          if (disposed || !current || JSON.stringify(current.snapshot) !== key) continue
+          const current = entriesById.value.get(entry.id)
+          if (disposed || !current || presetSourceKey(current, JSON.stringify) !== key) continue
           thumbnails.value = { ...thumbnails.value, [entry.id]: thumbnail }
           thumbnailKeys.set(entry.id, key)
           thumbnailErrorKeys.delete(entry.id)
           delete thumbnailErrors.value[entry.id]
         } catch (cause) {
-          const current = entries.value.find(item => item.id === entry.id)
-          if (disposed || !current || JSON.stringify(current.snapshot) !== key) continue
+          const current = entriesById.value.get(entry.id)
+          if (disposed || !current || presetSourceKey(current, JSON.stringify) !== key) continue
           reportDiagnostic('warn', 'presets.thumbnail', cause)
           thumbnailErrorKeys.set(entry.id, key)
           thumbnailErrors.value = { ...thumbnailErrors.value, [entry.id]: true }
@@ -248,7 +254,7 @@ export function usePresetManager(
       activeThumbnailBatch = undefined
       renderingThumbnail = false
       if (!disposed && listVisible && entries.value.some((entry) => {
-        const key = JSON.stringify(entry.snapshot)
+        const key = presetSourceKey(entry, JSON.stringify)
         return thumbnailKeys.get(entry.id) !== key && thumbnailErrorKeys.get(entry.id) !== key
       })) {
         scheduleThumbnails()
@@ -289,6 +295,15 @@ export function usePresetManager(
       if (!await flush(false)) throw new Error('pages.preference.presets.errors.save')
       return true
     } catch (cause) {
+      if (cause instanceof PresetCompatibilityError) {
+        // Confirmation can expire during asynchronous skin restoration. Nothing
+        // was executed; preserve and persist intervening catalog/live edits.
+        if (!isEqual(previous, collection()) || !isEqual(previousSnapshot, capturePresetSnapshot(store))) {
+          changeVersion++
+          if (!await flush(false)) return false
+        }
+        return fail(cause, 'manage')
+      }
       store.presetCollection = previous
       if (cause instanceof Error && cause.name === 'PresetApplyUncertainError') {
         recovery = { snapshot: previousSnapshot, visible: previousVisible }
@@ -311,19 +326,34 @@ export function usePresetManager(
     }
   }
 
-  const activate = (id: string, { applySkin = true }: { applySkin?: boolean } = {}) => mutate(async () => {
+  const activate = (id: string, { applySkin = true, compatibleOnly = false, expectedSourceKey }: { applySkin?: boolean, compatibleOnly?: boolean, expectedSourceKey?: string } = {}) => mutate(async () => {
     const entry = entries.value.find(entry => entry.id === id)
     if (!entry) throw new Error('pages.preference.presets.errors.apply')
-    let snapshot = clonePreset(entry.snapshot)
+    const confirmedKey = presetSourceKey(entry, JSON.stringify)
+    if ((expectedSourceKey !== undefined && expectedSourceKey !== confirmedKey)
+      || (!compatibleOnly && inspectPresetCompatibility(presetSource(entry)).length > 0)) {
+      throw new PresetCompatibilityError('pages.preference.presets.compatibility.changed')
+    }
+    if (!applySkin && !compatiblePresetFields(presetSource(entry)).some(field => !['preset.dmeloperPalmColor', 'preset.dmeloperEyebrows.color'].includes(field.path.join('.')))) {
+      throw new PresetCompatibilityError('pages.preference.presets.compatibility.none')
+    }
+    const current = capturePresetSnapshot(store)
+    let snapshot = { appearance: clonePreset(entry.snapshot.appearance), ...projectPresetSettings(presetSource(entry), presetSettings(current)) }
     if (applySkin) {
       snapshot = await restorePresetSkin(snapshot, entry.name)
-    } else {
+    }
+    const latest = entriesById.value.get(id)
+    if (!latest || presetSourceKey(latest, JSON.stringify) !== confirmedKey) {
+      throw new PresetCompatibilityError('pages.preference.presets.compatibility.changed')
+    }
+    const live = capturePresetSnapshot(store)
+    snapshot = { ...snapshot, ...projectPresetSettings(presetSource(latest), presetSettings(live)) }
+    if (!applySkin) {
       // Capture after the transaction's save barrier, never when its dialog opens.
       // Keep the live skin identity without preparing or restoring the target PNG.
-      const current = capturePresetSnapshot(store)
-      snapshot.appearance = current.appearance
-      snapshot.preset.dmeloperEyebrows.color = current.preset.dmeloperEyebrows.color
-      snapshot.preset.dmeloperPalmColor = current.preset.dmeloperPalmColor
+      snapshot.appearance = live.appearance
+      snapshot.preset.dmeloperEyebrows.color = live.preset.dmeloperEyebrows.color
+      snapshot.preset.dmeloperPalmColor = live.preset.dmeloperPalmColor
     }
     await apply(snapshot, undefined, true)
   })
@@ -409,7 +439,7 @@ export function usePresetManager(
       if (!await flush()) throw new PresetTransferError('save')
       const entry = collection().entries.find(entry => entry.id === id)
       if (!entry) throw new PresetTransferError('export')
-      const document = await exportPortablePreset(entry.name, clonePreset(entry.snapshot), mode)
+      const document = await exportPortablePreset(entry.name, clonePreset(entry.snapshot), mode, presetSource(entry))
       return await writePortablePreset(document) ? 'saved' : 'cancelled'
     } catch (cause) {
       if (!disposed) reportDiagnostic('error', 'presets.export', cause)
@@ -459,7 +489,7 @@ export function usePresetManager(
       })
       resolved.snapshot.appearance.activeSkinLibraryEntryId = entryId
       if (disposed || presetResetInProgress.value || editorsLocked.value) throw new PresetTransferError('import')
-      collection().entries.push({ id: presetId, name, favorite: false, snapshot: resolved.snapshot })
+      collection().entries.push({ id: presetId, name, favorite: false, snapshot: resolved.snapshot, sourceSettings: document.sourceSettings })
       changeVersion++
       transferPhase.value = 'saving'
       if (!await flush(false)) throw new PresetTransferError('save')
@@ -725,6 +755,7 @@ export function usePresetManager(
     entries,
     status,
     busy,
+    editorsBusy,
     ready,
     error,
     hasIndependentError,
@@ -745,6 +776,7 @@ export function usePresetManager(
     retryImport,
     thumbnails,
     thumbnailErrors,
+    compatibility,
     cardPending,
     activate,
     create: add,
@@ -752,9 +784,11 @@ export function usePresetManager(
     duplicate: (id: string) => mutate(async () => {
       const source = entries.value.find(entry => entry.id === id)
       if (!source) throw new Error('pages.preference.presets.errors.manage')
-      const snapshot = source.origin === 'builtin' ? await preparePresetSkin(source.snapshot) : clonePreset(source.snapshot)
+      const sourceSettings = source.sourceSettings ?? (inspectPresetCompatibility(presetSource(source)).length ? presetSource(source) : undefined)
+      const safe = { appearance: clonePreset(source.snapshot.appearance), ...projectPresetSettings(presetSource(source)) }
+      const snapshot = source.origin === 'builtin' ? await preparePresetSkin(safe) : clonePreset(safe)
       const name = uniquePresetName(namingCollection(), source.name, true)
-      collection().entries.push({ id: crypto.randomUUID(), name, favorite: false, snapshot })
+      collection().entries.push({ id: crypto.randomUUID(), name, favorite: false, snapshot, ...(sourceSettings ? { sourceSettings: clonePreset(sourceSettings) } : {}) })
     }),
     rename: (id: string, name: string) => !ready.value || !isUserEntry(id)
       ? Promise.resolve(false)

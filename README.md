@@ -106,6 +106,8 @@ For installation, skins, presets and OBS setup, see the [App Notion page](https:
 
 Current settings are saved automatically. Use `Presets > +New Preset` to keep a configuration.
 
+The pet may not be visible in full-screen games even with Always on Top enabled. Please set the game's display mode to windowed or borderless windowed mode. See the [support guide](https://github.com/d-meloper/dmelopers-block-pet/blob/main/docs/SUPPORT.md#full-screen-games).
+
 ## Contact / Bug Reports / Contributions
 
 Before submitting a question or bug report, check these pages.

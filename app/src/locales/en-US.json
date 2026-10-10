@@ -66,7 +66,7 @@
         },
         "hints": {
           "empty": "No presets yet. Try creating a new preset to save your current skin and settings.",
-          "scope": "Save or load your settings (skin, Pet, Objects, and Scene) as presets. Performance, Shortcuts, and Preferences are not saved in presets.\n\n(Drag a .petpreset file here to import it.)",
+          "scope": "Save or load your settings (skin, Pet, Objects, and Scene) as presets. Performance, Shortcuts, and Preferences are not saved in presets.",
           "reorder": "Drag a handle, or focus it and press Alt + ← / → (↑ / ↓) to reorder within the same group.",
           "moveToEnd": "Move to the end of this group"
         },
@@ -90,6 +90,7 @@
           "deleteHint": "This deletes the preset and cannot be undone. Your current skin and settings are kept."
         },
         "transfer": {
+          "dropActiveTitle": "Release to import presets",
           "buttons": {
             "import": "Import",
             "export": "Export"
@@ -161,6 +162,105 @@
           "sunset": "Default (Sunset)",
           "front": "Front",
           "bigHeadKeyboard": "Big Head Keyboard"
+        },
+        "compatibility": {
+          "applyCompatible": "Apply compatible settings only",
+          "hint": "Some settings in this preset cannot be used in this version. The items below will keep their current values; compatible settings will be changed. Save your current setup as a new preset first if you want to keep it.",
+          "badgeHint": "This preset has incompatible settings. See details when applying it. The preview uses defaults for those settings.",
+          "listTitle": "Incompatible settings",
+          "savedValue": "Saved value: {value}",
+          "supported": "Currently supported: {value}",
+          "missingValue": "Missing",
+          "range": "{min}–{max} {integer}",
+          "integerOnly": "(integers)",
+          "changed": "The preset has changed. Review the updated list before applying it.",
+          "reasons": {
+            "missing": "The setting value is missing.",
+            "type": "This value type is not supported.",
+            "range": "The value is outside the supported range.",
+            "integer": "Only integer values are supported.",
+            "choice": "This choice is not supported.",
+            "color": "This is not a valid color.",
+            "unknown": "This setting is unavailable in this version.",
+            "structure": "This setting structure is not supported in this version."
+          },
+          "types": {
+            "boolean": "On / Off",
+            "color": "#RRGGBB color",
+            "enum": "Supported choices",
+            "structure": "Current setting structure"
+          },
+          "settings": {
+            "petRightArmBendPercent": "Right arm bend",
+            "petLeftArmBendPercent": "Left arm bend",
+            "petRightArmSpreadDegrees": "Right arm spread",
+            "petLeftArmSpreadDegrees": "Left arm spread",
+            "petHeadScalePercent": "Head size",
+            "petRotationDegrees": "Pet rotation",
+            "petDeskOffset": "Pet position",
+            "deskHeightOffset": "Desk height",
+            "deskWidthOffset": "Desk width",
+            "deskDepthOffset": "Desk depth",
+            "deskTransparent": "Transparent desk",
+            "deskColor": "Desk color",
+            "showDisplayArea": "Show display area",
+            "autoViewportEnabled": "Automatic display area",
+            "autoViewportPaddingPixels": "Automatic display area padding",
+            "sceneRotationOffsetDegrees": "Scene rotation",
+            "cameraHorizontalOffset": "Horizontal camera position",
+            "cameraVerticalOffset": "Camera height",
+            "cameraZoomPercent": "Zoom",
+            "mouseEnabled": "Show mouse",
+            "mouseBaseXOffset": "Horizontal mouse position",
+            "mouseBaseZOffset": "Mouse depth position",
+            "mouseScalePercent": "Mouse size",
+            "keyboardBaseXOffset": "Horizontal keyboard position",
+            "keyboardBaseZOffset": "Keyboard depth position",
+            "keyboardScalePercent": "Keyboard size",
+            "keyboardLegendLanguage": "Keyboard legend language",
+            "keyboardColor": "Keyboard color",
+            "keyboardKeycapColor": "Keycap color",
+            "keyboardLegendColor": "Legend color",
+            "keyboardPressedColor": "Pressed key color",
+            "mouseColor": "Mouse color",
+            "mousePressedColor": "Pressed mouse color",
+            "dmeloperPalmColor": "Palm color",
+            "mirror": "Mirror",
+            "opacity": "Opacity",
+            "eyebrowAnimationEnabled": "Eyebrow animation",
+            "dmeloperEyebrows": {
+              "enabled": "Show eyebrows",
+              "color": "Eyebrow color",
+              "centerOffsetPixels": "Horizontal eyebrow position",
+              "heightOffsetPixels": "Eyebrow height",
+              "spacingPixels": "Eyebrow spacing",
+              "widthPixels": "Eyebrow width",
+              "thicknessPixels": "Eyebrow thickness",
+              "depthPercent": "Eyebrow depth"
+            },
+            "lighting": {
+              "key": {
+                "color": "Light color",
+                "azimuthDegrees": "Light azimuth",
+                "elevationDegrees": "Light elevation",
+                "strengthPercent": "Light strength"
+              }
+            },
+            "manualViewportRect": {
+              "x": "Manual display area horizontal position",
+              "y": "Manual display area vertical position",
+              "width": "Manual display area width",
+              "height": "Manual display area height"
+            }
+          },
+          "groups": {
+            "preset": "Pet, object and scene settings",
+            "preset.dmeloperEyebrows": "Eyebrow settings",
+            "preset.lighting": "Lighting settings",
+            "preset.lighting.key": "Light settings",
+            "preset.manualViewportRect": "Manual display area"
+          },
+          "none": "There are no compatible settings to apply."
         }
       },
       "block": {
@@ -246,7 +346,7 @@
           "mouseMirror": "When enabled, the mouse will mirror the hand movement.",
           "ignoreMouse": "When enabled, the model will not respond to mouse events. Useful for keyboard mode.",
           "passThrough": "When enabled, clicks pass through the window without affecting it.",
-          "alwaysOnTop": "When enabled, the window stays above all other windows.",
+          "alwaysOnTop": "Keep the pet window above other windows. The pet may not be visible in full-screen games even when this option is enabled. Please use the game's windowed or borderless windowed mode.",
           "keepInScreen": "When enabled, the window automatically stays within the screen boundaries.",
           "windowSize": "Scale the pet window from 10% to 100% while preserving its composition and aspect ratio.",
           "hideOnHover": "When enabled, the window hides automatically on mouse hover. You can set a delay; 0 means hide immediately.",
@@ -322,6 +422,7 @@
       "skinLibrary": {
         "title": "Skin Library",
         "drop": {
+          "activeTitle": "Release to import skins",
           "title": "Drop PNG skin files here",
           "hint": "You can import multiple files at once."
         },
@@ -374,6 +475,14 @@
           "apply": "The skin could not be applied. Your current skin is unchanged.",
           "delete": "The selected skins could not be deleted.",
           "importAll": "Could not import {count} skin(s).",
+          "importReasons": {
+            "pngOnly": "Only PNG files can be loaded.",
+            "invalidPng": "This is not a valid PNG image.",
+            "dimensions": "Only 64×64 or 64×32 pixel PNGs can be loaded.",
+            "tooLarge": "The file exceeds the allowed size limit.",
+            "storage": "The skin library is unavailable.",
+            "unknown": "The image could not be loaded for an unknown reason."
+          },
           "invalidName": "Use 1–255 characters after trimming and do not include control characters.",
           "rename": "The skin name could not be saved. Please try again.",
           "preview": "Could not load the default skin preview."
@@ -560,7 +669,7 @@
         "hints": {
           "visible": "Show or hide the pet.",
           "passThrough": "Allow clicks to pass through the pet window.",
-          "alwaysOnTop": "Keep the pet window above other windows.",
+          "alwaysOnTop": "Keep the pet window above other windows. The pet may not be visible in full-screen games even when this option is enabled. Please use the game's windowed or borderless windowed mode.",
           "hideOnHover": "Hide the pet window after the selected delay when the pointer moves over it.",
           "keepInScreen": "Keep the pet window within the visible screen area.",
           "showTaskbarIcon": "Show the pet as a taskbar icon.",

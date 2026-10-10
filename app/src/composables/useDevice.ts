@@ -1,7 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { PhysicalPosition } from '@tauri-apps/api/dpi'
 import { listen } from '@tauri-apps/api/event'
-import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { cursorPosition } from '@tauri-apps/api/window'
 import { isNil } from 'es-toolkit'
 import { onMounted, onUnmounted, watch } from 'vue'
@@ -9,6 +8,7 @@ import { onMounted, onUnmounted, watch } from 'vue'
 import type { DeviceInputState, SemanticInputEvent } from '@/features/input/types'
 
 import { isCurrentSemanticInput, isDeviceInputState, isSemanticInputEvent } from '@/features/input/types'
+import { setPetCursorEvents } from '@/plugins/window'
 import { useAppStore } from '@/stores/app'
 import { useBlockStore } from '@/stores/block'
 import { inBetween } from '@/utils/is'
@@ -188,17 +188,18 @@ export function createDeviceInputSession(deps: DeviceSessionDependencies) {
 export function useDevice(options: { onMouseReset?: () => void } = {}) {
   const nativeOwner = Symbol('main-input-session')
   let nativeClaimed = false
-  const appWindow = getCurrentWebviewWindow()
   const appStore = useAppStore()
   const blockStore = useBlockStore()
   let hideTimer: ReturnType<typeof setTimeout> | undefined
   let cursorFrameId: number | undefined
+  let cursorUpdateRunning = false
   let latestCursorPoint: (CursorPoint & { mouseGeneration?: number }) | undefined
   let pointerSequence = 0
   let disposed = false
   let wasInWindow = false
   let hoverActive = false
   let hoverPositionSequence = 0
+  let hoverPollPointerSequence = 0
   let hoverActivityGeneration = 0
   let hoverPollGeneration = 0
   let hoverPollTimer: ReturnType<typeof setTimeout> | undefined
@@ -220,7 +221,7 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
   const restoreHoverState = () => {
     clearHideTimer()
     document.body.style.setProperty('opacity', 'unset')
-    void appWindow.setIgnoreCursorEvents(blockStore.window.passThrough).catch(reportCursorEventsFailure)
+    void setPetCursorEvents(blockStore.window.passThrough).catch(reportCursorEventsFailure)
     wasInWindow = false
   }
 
@@ -245,11 +246,11 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
       hideTimer = setTimeout(() => {
         if (!shouldTrackHover()) return
         document.body.style.setProperty('opacity', '0')
-        void appWindow.setIgnoreCursorEvents(true).catch(reportCursorEventsFailure)
+        void setPetCursorEvents(true).catch(reportCursorEventsFailure)
       }, blockStore.window.hideOnHoverDelay * 1000)
     } else {
       document.body.style.setProperty('opacity', 'unset')
-      void appWindow.setIgnoreCursorEvents(blockStore.window.passThrough).catch(reportCursorEventsFailure)
+      void setPetCursorEvents(blockStore.window.passThrough).catch(reportCursorEventsFailure)
     }
 
     wasInWindow = isInWindow
@@ -257,6 +258,7 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
 
   const stopHoverPolling = () => {
     hoverPollGeneration++
+    hoverPollPointerSequence = hoverPositionSequence
     clearTimeout(hoverPollTimer)
     hoverPollTimer = undefined
   }
@@ -267,10 +269,19 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
     const generation = hoverPollGeneration
     const sequence = hoverPositionSequence
     try {
-      // Hover is a window behavior; it must not depend on the pet's mouse hooks.
-      const point = await cursorPosition()
-      if (generation === hoverPollGeneration && sequence === hoverPositionSequence && shouldTrackHover()) {
+      // Accepted motion already applied hover. Recheck its current point
+      // against window movement instead of duplicating that native cursor read.
+      const point = latestCursorPoint
+      const receivedPointer = sequence !== hoverPollPointerSequence
+      hoverPollPointerSequence = sequence
+      if (receivedPointer && point && session.accepts({ kind: 'pointer_activity', ...point })) {
         handleHoverPosition(point.x, point.y)
+        return
+      }
+      // Hover is a window behavior; it must not depend on the pet's mouse hooks.
+      const polledPoint = await cursorPosition()
+      if (generation === hoverPollGeneration && sequence === hoverPositionSequence && shouldTrackHover()) {
+        handleHoverPosition(polledPoint.x, polledPoint.y)
       }
     } catch {
       if (generation === hoverPollGeneration && shouldTrackHover()) console.warn('Failed to read the hover cursor position.')
@@ -369,25 +380,36 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
     const generation = session.generation()
     const sequence = pointerSequence
 
-    const monitor = await getCursorMonitor(new PhysicalPosition(cursorPoint.x, cursorPoint.y))
-    if (!monitor || generation !== session.generation() || sequence !== pointerSequence
-      || !session.accepts({ kind: 'pointer_activity', ...cursorPoint })) {
-      return
+    cursorUpdateRunning = true
+    try {
+      const monitor = await getCursorMonitor(new PhysicalPosition(cursorPoint.x, cursorPoint.y))
+      if (!monitor || generation !== session.generation() || sequence !== pointerSequence
+        || !session.accepts({ kind: 'pointer_activity', ...cursorPoint })) {
+        return
+      }
+
+      const xRatio = (cursorPoint.x - monitor.position.x) / monitor.size.width
+      const yRatio = (cursorPoint.y - monitor.position.y) / monitor.size.height
+
+      three3d.handleSemanticInput({
+        kind: 'pointer_activity',
+        x: Math.min(1, Math.max(0, xRatio)),
+        y: Math.min(1, Math.max(0, yRatio)),
+        mouseGeneration: cursorPoint.mouseGeneration,
+      })
+    } finally {
+      cursorUpdateRunning = false
+      // A slow native monitor query must not accumulate one IPC per RAF. Keep
+      // only the latest point, and resolve its monitor on the next frame.
+      if (!disposed && sequence !== pointerSequence && latestCursorPoint
+        && session.accepts({ kind: 'pointer_activity', ...latestCursorPoint })) {
+        scheduleMousePositionUpdate()
+      }
     }
-
-    const xRatio = (cursorPoint.x - monitor.position.x) / monitor.size.width
-    const yRatio = (cursorPoint.y - monitor.position.y) / monitor.size.height
-
-    three3d.handleSemanticInput({
-      kind: 'pointer_activity',
-      x: Math.min(1, Math.max(0, xRatio)),
-      y: Math.min(1, Math.max(0, yRatio)),
-      mouseGeneration: cursorPoint.mouseGeneration,
-    })
   }
 
   const scheduleMousePositionUpdate = () => {
-    if (cursorFrameId !== undefined) return
+    if (cursorFrameId !== undefined || cursorUpdateRunning) return
 
     cursorFrameId = requestAnimationFrame(() => {
       cursorFrameId = undefined

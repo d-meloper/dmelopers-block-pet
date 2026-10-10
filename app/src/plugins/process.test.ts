@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 import * as vue from 'vue'
 
+import * as presetOperations from '@/features/presets/operations'
 import { createQuiescenceOwner } from '@/features/stateSafety/quiescence'
 import { saveSynchronizedSettings } from '@/utils/settingsPersistence'
 
@@ -52,6 +53,7 @@ function quitHarness(ownerSubscriptionFailures = 0, actualRuntime = false) {
   function window(label: string) {
     const exports = {} as Api
     const mocks: Record<string, unknown> = {
+      '@/features/presets/operations': presetOperations,
       '@/services/diagnostics': { reportDiagnostic: () => {} },
       '@tauri-apps/api/core': { invoke: async (command: string, args?: { requestId: string }) => {
         calls.push(command)
@@ -168,7 +170,7 @@ function quitHarness(ownerSubscriptionFailures = 0, actualRuntime = false) {
       const runtime = {} as typeof import('@/features/stateSafety/runtime')
       const runtimeLocked = label === 'preference' ? locked : vue.ref(false)
       Object.assign(mocks, {
-        './bridge': { editorsLocked: runtimeLocked, stateOwners: { flushPresets: async () => true, presetsReady: () => ready }, shortcutWarnings: new Set() },
+        './bridge': { editorsLocked: runtimeLocked, stateOwners: { flushPresets: async () => true, presetsReady: () => ready && presetOperations.presetNativeEditPending.value === 0 }, shortcutWarnings: new Set() },
         './quiescence': { createQuiescenceOwner },
         '@/plugins/window': { setWindowMemoryActive: async () => {} },
         '@/services/skinLibrary': { listSkinLibraryEntries: async () => [] },
@@ -187,7 +189,7 @@ function quitHarness(ownerSubscriptionFailures = 0, actualRuntime = false) {
   }
   const main = window('main')
   const preference = window('preference')
-  const register = () => preference.registerAppProcessOwner(() => ready)
+  const register = () => preference.registerAppProcessOwner(() => ready && presetOperations.presetNativeEditPending.value === 0)
   const stop = register()
   return {
     main,
@@ -291,6 +293,62 @@ describe('preference-owned application restart', () => {
 })
 
 describe('preference-owned application Quit', () => {
+  it('retires a background query before readiness without waiting for its ten-second reply timeout', async () => {
+    for (const action of ['quit', 'restart'] as const) {
+      const h = quitHarness(0, true)
+      await Promise.all(h.runtimes.map(runtime => runtime.initializeStateSafety()))
+      let queryCancelled = false
+      const releaseQuery = presetOperations.beginPresetNativeQuery(() => {
+        queryCancelled = true
+        releaseQuery()
+      })
+      const request = action === 'quit' ? h.main.quitApp() : h.main.restartApp()
+      const settled = request.catch(() => {})
+      try {
+        await flush()
+        assert.equal(queryCancelled, true, 'a read-only query must not hold process readiness')
+        assert.equal(presetOperations.presetNativeEditPending.value, 0)
+        await request
+        const nativeAction = action === 'quit' ? 'exit' : 'restart_application'
+        assert.ok(h.calls.indexOf('verify_state_quiescence') < h.calls.indexOf(nativeAction))
+        assert.deepEqual(h.disk(), { opacity: 75, presetCollection: { activeId: 'edited', opacity: 75 } })
+      } finally {
+        releaseQuery()
+        await h.tick(30_000)
+        await settled
+        for (const runtime of h.runtimes) runtime.disposeStateSafety()
+        h.stop()
+      }
+    }
+  })
+
+  it('still waits for actual native edits after retiring queries, including new queries during that wait', async () => {
+    const h = quitHarness(0, true)
+    await Promise.all(h.runtimes.map(runtime => runtime.initializeStateSafety()))
+    const releaseEdit = presetOperations.beginPresetNativeEdit()
+    const quit = h.main.quitApp()
+    const settled = quit.catch(() => {})
+    let releaseQuery: (() => void) | undefined
+    try {
+      await flush()
+      assert.equal(h.calls.includes('quiesce'), false)
+      assert.equal(h.calls.includes('exit'), false)
+      releaseQuery = presetOperations.beginPresetNativeQuery(() => releaseQuery?.())
+      releaseEdit()
+      await h.tick(25)
+      await quit
+      assert.equal(presetOperations.presetNativeEditPending.value, 0)
+      assert.ok(h.calls.indexOf('verify_state_quiescence') < h.calls.indexOf('exit'))
+    } finally {
+      releaseQuery?.()
+      releaseEdit()
+      await h.tick(30_000)
+      await settled
+      for (const runtime of h.runtimes) runtime.disposeStateSafety()
+      h.stop()
+    }
+  })
+
   it('uses the actual two-window runtime readback and durable save before Exit for fast and delayed patches', async () => {
     for (const delayed of [false, true]) {
       const h = quitHarness(0, true)

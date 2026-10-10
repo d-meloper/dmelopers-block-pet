@@ -1,12 +1,13 @@
 import type { PresetApplyResponse, PresetSnapshot } from './types'
 
-import { isPresetSnapshot } from './model'
+import { isExecutablePresetSnapshot } from './model'
 import { PRESET_APPLY_CANCEL, PRESET_APPLY_REQUEST } from './types'
 
 export function createPresetRequestClient(emit: (event: string, payload: unknown) => Promise<unknown>, timeoutMs = 15000) {
   let pending: { id: string, resolve: (response: PresetApplyResponse) => void, reject: (error: Error) => void, timer: ReturnType<typeof setTimeout> } | undefined
   return {
     apply(snapshot: PresetSnapshot, restoreVisibility?: boolean): Promise<PresetApplyResponse> {
+      if (!isExecutablePresetSnapshot(snapshot)) return Promise.reject(new Error('pages.preference.presets.errors.apply'))
       if (pending) return Promise.reject(new Error('pages.preference.presets.errors.apply'))
       return new Promise((resolve, reject) => {
         const id = crypto.randomUUID()
@@ -37,7 +38,7 @@ export function createPresetRequestClient(emit: (event: string, payload: unknown
       const response = value as PresetApplyResponse | undefined
       if (!response || !pending || response.requestId !== pending.id) return false
       if (typeof response.success !== 'boolean' || !Number.isSafeInteger(response.revision)
-        || response.revision < 0 || (response.success && !isPresetSnapshot(response.snapshot))) {
+        || response.revision < 0 || (response.success && !isExecutablePresetSnapshot(response.snapshot))) {
         console.warn('The preset application acknowledgement was invalid.')
         return false
       }

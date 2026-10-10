@@ -28,6 +28,25 @@ fn scene() -> BroadcastScene {
 }
 
 #[test]
+fn automatic_padding_obs_round_trip_preserves_thirty_and_legacy_values() {
+    for padding in [0.0, 2.0, 10.0, 16.0, 16.5, 17.0, 20.0, 30.0] {
+        let mut value = serde_json::to_value(scene()).unwrap();
+        value["preset"]["autoViewportPaddingPixels"] = json!(padding);
+        let restored: BroadcastScene = serde_json::from_value(value).unwrap();
+        restored.validate(None).unwrap();
+        let round_trip: BroadcastScene = serde_json::from_slice(&serde_json::to_vec(&restored).unwrap()).unwrap();
+        round_trip.validate(None).unwrap();
+        assert_eq!(round_trip.preset["autoViewportPaddingPixels"], json!(padding));
+    }
+    for padding in [json!(-1), json!(31), json!("30"), Value::Null] {
+        let mut value = serde_json::to_value(scene()).unwrap();
+        value["preset"]["autoViewportPaddingPixels"] = padding;
+        let restored: BroadcastScene = serde_json::from_value(value).unwrap();
+        assert!(restored.validate(None).is_err());
+    }
+}
+
+#[test]
 fn high_shadow_quality_round_trips_and_unknown_quality_is_rejected() {
     for quality in ["high", "medium", "low", "ultra"] {
         let mut value = serde_json::to_value(scene()).unwrap();

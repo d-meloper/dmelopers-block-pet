@@ -20,6 +20,7 @@ import { WINDOW_LABEL } from '@/constants'
 import { editorsLocked } from '@/features/stateSafety/bridge'
 import { useAppStore } from '@/stores/app'
 import { useBlockStore } from '@/stores/block'
+import { createLatestAsyncTaskQueue } from '@/utils/latestAsyncTask'
 import {
   classifyNativePositionEvent,
   classifyNativeSizeEvent,
@@ -923,6 +924,8 @@ export function useWindowState() {
   const dispose = () => {
     if (disposed) return
     disposed = true
+    movedQueue.clear()
+    resizedQueue.clear()
     unlisteners.splice(0).forEach(unlisten => unlisten())
     if (disposeWindowState === dispose) disposeWindowState = undefined
     if (mainWindowContext !== context) return
@@ -1023,92 +1026,118 @@ export function useWindowState() {
     Object.assign(appStore.windowState[label], { width: size.width, height: size.height })
   }
 
+  // Native geometry reads can be delayed by the window's modal move loop.
+  // Keep one readback per event kind and only its latest pending value.
+  // Fast main-window move replies still need a cadence before reading/persisting.
+  const movedQueue = createLatestAsyncTaskQueue(async ({ payload, sequence }: { payload: PhysicalPosition, sequence: number }) => {
+    if (disposed) return
+    if (label !== WINDOW_LABEL.MAIN) {
+      if (await appWindow.isMinimized()) return
+      if (disposed || sequence !== regularMovedEventSequence) return
+      persistRegularWindowPosition(payload)
+      return
+    }
+
+    const matchedProgrammaticGeneration = consumeProgrammaticPoint(
+      pendingProgrammaticPositions,
+      payload,
+    )
+    const programmaticGeneration = selectCurrentProgrammaticGeneration(
+      matchedProgrammaticGeneration,
+      activeMainViewportApplyGeneration,
+    )
+    let actualPosition = payload
+    if (programmaticGeneration === undefined) {
+      try {
+        actualPosition = await appWindow.outerPosition()
+      } catch {
+        if (!disposed) console.warn('Failed to read the current native window position.')
+        return
+      }
+    }
+    if (disposed || sequence !== mainMovedEventSequence) return
+    const classification = classifyNativePositionEvent({
+      actualValue: actualPosition,
+      committedValue: mainViewportSnapshot?.nativeRect,
+      eventValue: payload,
+      programmaticGeneration,
+      tolerance: PROGRAMMATIC_EVENT_TOLERANCE,
+    })
+    if (classification !== 'external') return
+    updateMainSnapshotPosition(actualPosition)
+    latestExternalMainPosition = actualPosition
+    mainViewportGeneration += 1
+    scheduleNativeGeometryReconciliation('drag')
+  }, {
+    minIntervalMs: label === WINDOW_LABEL.MAIN ? 16 : 0,
+    onError: () => {
+      if (!disposed) console.warn('Failed to read the current native window position.')
+    },
+  })
+
+  const resizedQueue = createLatestAsyncTaskQueue(async ({ payload, sequence }: { payload: PhysicalSize, sequence: number }) => {
+    if (disposed) return
+    if (label !== WINDOW_LABEL.MAIN) {
+      if (await appWindow.isMinimized()) return
+      if (disposed || sequence !== regularResizedEventSequence) return
+      persistRegularWindowSize(payload)
+      return
+    }
+
+    const matchedProgrammaticGeneration = consumeProgrammaticSize(
+      pendingProgrammaticSizes,
+      payload,
+    )
+    const programmaticGeneration = selectCurrentProgrammaticGeneration(
+      matchedProgrammaticGeneration,
+      activeMainViewportApplyGeneration,
+    )
+    let actualSize = payload
+    if (programmaticGeneration === undefined) {
+      try {
+        actualSize = await appWindow.innerSize()
+      } catch {
+        if (!disposed) console.warn('Failed to read the current native window size.')
+        return
+      }
+    }
+    if (disposed || sequence !== mainResizedEventSequence) return
+    const classification = classifyNativeSizeEvent({
+      actualValue: actualSize,
+      committedValue: mainViewportSnapshot?.physicalSize,
+      eventValue: payload,
+      programmaticGeneration,
+      tolerance: PROGRAMMATIC_EVENT_TOLERANCE,
+    })
+    if (classification !== 'external') return
+    scheduleNativeGeometryReconciliation('system')
+  }, {
+    onError: () => {
+      if (!disposed) console.warn('Failed to read the current native window size.')
+    },
+  })
+
+  let movedReadback: Promise<void> | undefined
+  let resizedReadback: Promise<void> | undefined
   onMounted(() => {
     if (disposed) return
-    retainListener(appWindow.onMoved(async ({ payload }) => {
+    retainListener(appWindow.onMoved(({ payload }) => {
       if (disposed) return
-      if (label !== WINDOW_LABEL.MAIN) {
-        const sequence = ++regularMovedEventSequence
-        if (await appWindow.isMinimized()) return
-        if (disposed || sequence !== regularMovedEventSequence) return
-        persistRegularWindowPosition(payload)
-        return
-      }
-
-      const eventSequence = ++mainMovedEventSequence
-      const matchedProgrammaticGeneration = consumeProgrammaticPoint(
-        pendingProgrammaticPositions,
-        payload,
-      )
-      const programmaticGeneration = selectCurrentProgrammaticGeneration(
-        matchedProgrammaticGeneration,
-        activeMainViewportApplyGeneration,
-      )
-      let actualPosition = payload
-      if (programmaticGeneration === undefined) {
-        try {
-          actualPosition = await appWindow.outerPosition()
-        } catch {
-          if (!disposed) console.warn('Failed to read the current native window position.')
-          return
-        }
-      }
-      if (disposed || eventSequence !== mainMovedEventSequence) return
-      const classification = classifyNativePositionEvent({
-        actualValue: actualPosition,
-        committedValue: mainViewportSnapshot?.nativeRect,
-        eventValue: payload,
-        programmaticGeneration,
-        tolerance: PROGRAMMATIC_EVENT_TOLERANCE,
+      const sequence = label === WINDOW_LABEL.MAIN ? ++mainMovedEventSequence : ++regularMovedEventSequence
+      movedQueue.enqueue({ payload, sequence })
+      // Share completion as well as work: a burst must not create one native
+      // query or a separate drain waiter for every obsolete geometry event.
+      return movedReadback ??= movedQueue.whenIdle().finally(() => {
+        movedReadback = undefined
       })
-      if (classification !== 'external') {
-        return
-      }
-      updateMainSnapshotPosition(actualPosition)
-      latestExternalMainPosition = actualPosition
-      mainViewportGeneration += 1
-      scheduleNativeGeometryReconciliation('drag')
     }))
-    retainListener(appWindow.onResized(async ({ payload }) => {
+    retainListener(appWindow.onResized(({ payload }) => {
       if (disposed) return
-      if (label !== WINDOW_LABEL.MAIN) {
-        const sequence = ++regularResizedEventSequence
-        if (await appWindow.isMinimized()) return
-        if (disposed || sequence !== regularResizedEventSequence) return
-        persistRegularWindowSize(payload)
-        return
-      }
-
-      const eventSequence = ++mainResizedEventSequence
-      const matchedProgrammaticGeneration = consumeProgrammaticSize(
-        pendingProgrammaticSizes,
-        payload,
-      )
-      const programmaticGeneration = selectCurrentProgrammaticGeneration(
-        matchedProgrammaticGeneration,
-        activeMainViewportApplyGeneration,
-      )
-      let actualSize = payload
-      if (programmaticGeneration === undefined) {
-        try {
-          actualSize = await appWindow.innerSize()
-        } catch {
-          if (!disposed) console.warn('Failed to read the current native window size.')
-          return
-        }
-      }
-      if (disposed || eventSequence !== mainResizedEventSequence) return
-      const classification = classifyNativeSizeEvent({
-        actualValue: actualSize,
-        committedValue: mainViewportSnapshot?.physicalSize,
-        eventValue: payload,
-        programmaticGeneration,
-        tolerance: PROGRAMMATIC_EVENT_TOLERANCE,
+      const sequence = label === WINDOW_LABEL.MAIN ? ++mainResizedEventSequence : ++regularResizedEventSequence
+      resizedQueue.enqueue({ payload, sequence })
+      return resizedReadback ??= resizedQueue.whenIdle().finally(() => {
+        resizedReadback = undefined
       })
-      if (classification !== 'external') {
-        return
-      }
-      scheduleNativeGeometryReconciliation('system')
     }))
     if (label === WINDOW_LABEL.MAIN) {
       retainListener(appWindow.onScaleChanged(() => {

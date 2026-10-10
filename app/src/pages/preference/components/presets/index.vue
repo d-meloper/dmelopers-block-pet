@@ -2,15 +2,18 @@
 import type { DragDropEvent } from '@tauri-apps/api/window'
 
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { Button, Checkbox, Dropdown, Menu, message, Modal } from 'ant-design-vue'
+import { Button, Checkbox, Dropdown, Menu, message, Modal, Tooltip } from 'ant-design-vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { PresetManager } from '@/composables/usePresetManager'
+import type { PresetCompatibilityIssue } from '@/features/presets/compatibility'
 import type { PresetListEntry } from '@/features/presets/types'
 
+import FileDropSurface from '@/components/file-drop-surface/index.vue'
 import PreferenceInfo from '@/components/preference-info/index.vue'
 import PreferenceSections from '@/components/preference-sections/index.vue'
+import { compatiblePresetFields, fieldBounds, presetSource, presetSourceKey } from '@/features/presets/compatibility'
 import { reportDiagnostic } from '@/services/diagnostics'
 import { useGeneralStore } from '@/stores/general'
 
@@ -18,10 +21,10 @@ import ExportDialog from './export-dialog.vue'
 import NameDialog from './name-dialog.vue'
 
 const props = defineProps<{ manager: PresetManager }>()
-const { t, te } = useI18n()
+const { t, te, tm } = useI18n()
 const generalStore = useGeneralStore()
 const { entries, busy, ready, error, hasIndependentError, thumbnails, thumbnailErrors, cardPending } = props.manager
-const { transferError, transferPhase, canRetryImport } = props.manager
+const { transferError, transferPhase } = props.manager
 const { importResults, importProgress, importBatchStopped, isBatchImport } = props.manager
 const { createError, createName, createNeedsName, canRetryCreate } = props.manager
 const nameDialogOpen = ref(false)
@@ -29,6 +32,7 @@ const nameDialogMode = ref<'new' | 'rename'>('new')
 const retryingCreate = ref(false)
 const editingEntry = ref<PresetListEntry>()
 const applyingId = ref<string>()
+const applyingSourceKey = ref<string>()
 const applying = ref(false)
 const applyError = ref<string>()
 const deletingId = ref<string>()
@@ -46,6 +50,9 @@ const fileInputError = ref<string>()
 const showImportError = ref(false)
 const announcement = ref('')
 let mounted = true
+let importAttempt = 0
+let importWarningGeneration = 0
+let importWarningTimer: ReturnType<typeof setTimeout> | undefined
 let unlistenFileDrops: (() => void) | undefined
 let pointerDrag: {
   pointerId: number
@@ -61,13 +68,19 @@ let scrollFrame: number | undefined
 const disabled = computed(() => busy.value || !ready.value)
 const exportingEntry = computed(() => entries.value.find(entry => entry.id === exportingId.value))
 const applyingEntry = computed(() => entries.value.find(entry => entry.id === applyingId.value))
+const compatibilityIssues = computed(() => applyingId.value ? props.manager.compatibility?.value[applyingId.value] ?? [] : [])
 const dialogOpen = computed(() => nameDialogOpen.value || Boolean(deletingId.value) || Boolean(exportingEntry.value) || Boolean(applyingId.value))
 const importDisabled = computed(() => disabled.value || dialogOpen.value)
-const applyDisabled = computed(() => disabled.value || applying.value || Boolean(applyingEntry.value && cardPending.value[applyingEntry.value.id]))
-const importErrorText = computed(() => fileInputError.value
-  ?? (!isBatchImport.value && (showImportError.value || canRetryImport.value) && !exportingEntry.value
+const noCompatibleSettings = computed(() => Boolean(applyingEntry.value && !generalStore.app.applyPresetSkin
+  && compatiblePresetFields(presetSource(applyingEntry.value)).filter(field => !['preset.dmeloperPalmColor', 'preset.dmeloperEyebrows.color'].includes(field.path.join('.'))).length === 0))
+const applyOperationDisabled = computed(() => disabled.value || applying.value || Boolean(applyingEntry.value && cardPending.value[applyingEntry.value.id]))
+const applyDisabled = computed(() => noCompatibleSettings.value || applyOperationDisabled.value)
+const importErrorText = computed(() => showImportError.value
+  ? fileInputError.value ?? (!isBatchImport.value && !exportingEntry.value
     ? importResults.value.find(result => result.status === 'failed')?.error ?? transferError.value
-    : undefined))
+    : undefined)
+  : undefined)
+const visibleImportResults = computed(() => importResults.value.filter(result => result.status !== 'failed' || showImportError.value))
 const importSummary = computed(() => t('pages.preference.presets.transfer.batch.summary', {
   saved: importResults.value.filter(result => result.status === 'saved').length,
   failed: importResults.value.filter(result => result.status === 'failed').length,
@@ -85,6 +98,29 @@ const groups = computed(() => [
 const deletingEntry = computed(() => entries.value.find(entry => entry.id === deletingId.value))
 const draggedEntry = computed(() => entries.value.find(entry => entry.id === draggedId.value))
 
+function clearImportWarning() {
+  importWarningGeneration += 1
+  if (importWarningTimer !== undefined) clearTimeout(importWarningTimer)
+  importWarningTimer = undefined
+  showImportError.value = false
+}
+
+const stopImportWarning = watch([
+  fileInputError,
+  transferError,
+  () => JSON.stringify(importResults.value.filter(result => result.status === 'failed').map(result => [result.key, result.error])),
+], ([fileError, transferFailure, failures]) => {
+  clearImportWarning()
+  if (!mounted || exportingEntry.value || (!fileError && !transferFailure && failures === '[]')) return
+  showImportError.value = true
+  const generation = importWarningGeneration
+  importWarningTimer = setTimeout(() => {
+    if (!mounted || generation !== importWarningGeneration) return
+    importWarningTimer = undefined
+    showImportError.value = false
+  }, 3000)
+}, { immediate: true, flush: 'sync' })
+
 function isEntryDisabled(entry: PresetListEntry) {
   return disabled.value || dialogOpen.value || Boolean(cardPending.value[entry.id])
 }
@@ -100,6 +136,7 @@ function selectEntry(entry: PresetListEntry) {
 function openApplyDialog(id: string) {
   if (!mounted || disabled.value || dialogOpen.value || !entries.value.some(entry => entry.id === id)) return
   applyingId.value = id
+  applyingSourceKey.value = presetSourceKey(entries.value.find(entry => entry.id === id)!)
   applyError.value = undefined
 }
 
@@ -115,12 +152,24 @@ async function applyEntry() {
   applying.value = true
   applyError.value = undefined
   try {
-    const accepted = await props.manager.activate(id, { applySkin: generalStore.app.applyPresetSkin })
+    const sourceKey = presetSourceKey(applyingEntry.value!)
+    if (applyingSourceKey.value !== sourceKey) {
+      applyingSourceKey.value = sourceKey
+      applyError.value = t('pages.preference.presets.compatibility.changed')
+      return
+    }
+    const accepted = await props.manager.activate(id, {
+      applySkin: generalStore.app.applyPresetSkin,
+      ...(props.manager.compatibility ? { compatibleOnly: compatibilityIssues.value.length > 0, expectedSourceKey: sourceKey } : {}),
+    })
     if (!mounted || applyingId.value !== id) return
     if (accepted) {
       applyingId.value = undefined
     } else {
       const error = props.manager.error.value
+      if (error === 'pages.preference.presets.compatibility.changed' && applyingEntry.value) {
+        applyingSourceKey.value = presetSourceKey(applyingEntry.value)
+      }
       applyError.value = error && te(error) ? t(error) : error ?? t('pages.preference.presets.errors.apply')
     }
   } catch (error) {
@@ -131,6 +180,31 @@ async function applyEntry() {
   } finally {
     applying.value = false
   }
+}
+
+function compatibilityValue(issue: PresetCompatibilityIssue) {
+  if (issue.value === undefined) return t('pages.preference.presets.compatibility.missingValue')
+  const text = typeof issue.value === 'object' ? JSON.stringify(issue.value) : String(issue.value)
+  return text.length > 160 ? `${text.slice(0, 160)}…` : text
+}
+
+function compatibilityLabel(issue: PresetCompatibilityIssue) {
+  const path = issue.path.map((part, index) => /^[A-Z_$][\w$]*$/i.test(part) ? `${index ? '.' : ''}${part}` : `[${JSON.stringify(part)}]`).join('')
+  if (issue.reason === 'unknown') return path
+  const label = issue.field?.label ?? issue.path.join('.')
+  if (!issue.field && issue.reason !== 'unknown') {
+    const groups = tm('pages.preference.presets.compatibility.groups') as Record<string, string>
+    return groups[label] ?? issue.path.join('.')
+  }
+  const key = `pages.preference.presets.compatibility.settings.${label}`
+  return te(key) ? t(key) : path
+}
+
+function compatibilitySupport(issue: PresetCompatibilityIssue) {
+  const field = issue.field
+  if (field?.type === 'number') return t('pages.preference.presets.compatibility.range', { ...fieldBounds(field), integer: field.integer ? t('pages.preference.presets.compatibility.integerOnly') : '' })
+  if (field?.values) return field.values.join(' / ')
+  return t(`pages.preference.presets.compatibility.types.${field?.type ?? 'structure'}`)
 }
 
 function openNewDialog() {
@@ -176,8 +250,8 @@ function onEntryMenu(key: string | number, entry: PresetListEntry) {
 function openExportDialog(entry: PresetListEntry) {
   if (entry.origin === 'builtin' || isEntryDisabled(entry)) return
   exportingId.value = entry.id
-  showImportError.value = false
   fileInputError.value = undefined
+  clearImportWarning()
 }
 
 function openFilePicker() {
@@ -186,13 +260,19 @@ function openFilePicker() {
 
 async function importSources(sources: Array<File | string>) {
   if (!mounted || importDisabled.value || sources.length === 0) return
+  const attempt = ++importAttempt
   fileInputError.value = undefined
-  showImportError.value = true
+  clearImportWarning()
   try {
-    if (sources.length === 1) completeImport(await props.manager.importPreset(sources[0]))
-    else await props.manager.importPresets(sources)
+    if (sources.length === 1) {
+      const id = await props.manager.importPreset(sources[0])
+      if (mounted && attempt === importAttempt) completeImport(id)
+    } else {
+      await props.manager.importPresets(sources)
+    }
   } catch (error) {
-    if (mounted) reportDiagnostic('error', 'presets.import_ui', error)
+    if (!mounted || attempt !== importAttempt) return
+    reportDiagnostic('error', 'presets.import_ui', error)
     fileInputError.value = t('pages.preference.presets.transfer.errors.import')
   }
 }
@@ -204,23 +284,9 @@ async function onFileInputChange(event: Event) {
   await importSources(files)
 }
 
-async function retryImport() {
-  if (importDisabled.value || !canRetryImport.value) return
-  fileInputError.value = undefined
-  showImportError.value = true
-  try {
-    const id = await props.manager.retryImport()
-    if (!isBatchImport.value) completeImport(id)
-  } catch (error) {
-    if (mounted) reportDiagnostic('error', 'presets.retry_import_ui', error)
-    fileInputError.value = t('pages.preference.presets.transfer.errors.import')
-  }
-}
-
 function completeImport(id: string | undefined) {
   if (!mounted || !id) return
   message.success(t('pages.preference.presets.transfer.success.import'))
-  openApplyDialog(id)
 }
 
 function updateFileDropRegion() {
@@ -236,11 +302,13 @@ function updateFileDropRegion() {
   // Restore the list's origin before scrolling, then keep the overlay in viewport coordinates.
   const top = rect.top + (scroller?.scrollTop ?? 0)
   const bottom = Math.min(window.innerHeight, scroller?.getBoundingClientRect().bottom ?? window.innerHeight)
-  const rowGap = Number.parseFloat(getComputedStyle(grid).rowGap) || 0
-  // An empty list has no card to measure: use the same two-column 16:10 preview
+  const gridStyle = getComputedStyle(grid)
+  const rowGap = Number.parseFloat(gridStyle.rowGap) || 0
+  // An empty list uses the resolved grid track width for its 16:10 preview
   // and normal card chrome (22px horizontal inset, 86px toolbar/text/spacing).
+  const cardWidth = Number.parseFloat(gridStyle.gridTemplateColumns) || rect.width
   const cardHeight = card?.getBoundingClientRect().height
-    ?? Math.max(0, (rect.width - rowGap) / 2 - 22) * 10 / 16 + 86
+    ?? Math.max(0, cardWidth - 22) * 10 / 16 + 86
   const twoRows = cardHeight * 2 + rowGap
   fileDropRegion.value = {
     top: `${top}px`,
@@ -292,6 +360,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', updateFileDropRegion)
   mounted = false
+  importAttempt += 1
+  stopImportWarning()
+  clearImportWarning()
   applyingId.value = undefined
   applyError.value = undefined
   endDrag()
@@ -562,7 +633,7 @@ function cancelPointerDrag(event: PointerEvent) {
       </p>
       <ul class="mb-2 mt-2 max-h-40 overflow-y-auto pl-5">
         <li
-          v-for="result in importResults"
+          v-for="result in visibleImportResults"
           :key="result.key"
           class="break-words"
           :class="result.status === 'failed' ? 'text-danger' : 'text-color-3'"
@@ -577,29 +648,13 @@ function cancelPointerDrag(event: PointerEvent) {
       >
         {{ $t('pages.preference.presets.transfer.batch.stopped') }}
       </p>
-      <Button
-        v-if="canRetryImport"
-        :disabled="importDisabled"
-        size="small"
-        @click="retryImport"
-      >
-        {{ $t('pages.preference.presets.transfer.batch.retry') }}
-      </Button>
     </div>
     <div
       v-if="importErrorText"
-      class="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm"
+      class="mb-4 text-sm text-red-6"
       role="alert"
     >
-      <span class="min-w-0 flex-1 text-red-6">{{ importErrorText }}</span>
-      <Button
-        v-if="canRetryImport && !fileInputError"
-        :disabled="importDisabled"
-        size="small"
-        @click="retryImport"
-      >
-        {{ $t('pages.preference.presets.buttons.retry') }}
-      </Button>
+      {{ importErrorText }}
     </div>
     <div
       v-if="createErrorText"
@@ -695,6 +750,22 @@ function cancelPointerDrag(event: PointerEvent) {
               type="button"
             >
               <span class="preset-thumbnail">
+                <Tooltip
+                  v-if="manager.compatibility?.value[entry.id]?.length"
+                  :title="$t('pages.preference.presets.compatibility.badgeHint')"
+                  :trigger="['hover', 'focus']"
+                >
+                  <span
+                    :aria-label="$t('pages.preference.presets.compatibility.badgeHint')"
+                    class="preset-compatibility-warning"
+                    role="img"
+                    tabindex="0"
+                    @keydown.stop
+                  ><span
+                    aria-hidden="true"
+                    class="i-lucide:triangle-alert size-4"
+                  /></span>
+                </Tooltip>
                 <img
                   v-if="previewSource(entry)"
                   alt=""
@@ -832,11 +903,14 @@ function cancelPointerDrag(event: PointerEvent) {
       </section>
       <div
         v-if="fileDropActive && fileDropRegion"
-        class="preset-file-drop bg-color-1/95 pointer-events-none fixed z-10 flex items-center justify-center b-2 b-primary-6 rounded-xl b-dashed p-6 text-center text-primary-7"
+        aria-live="polite"
+        class="preset-file-drop pointer-events-none fixed z-10"
         role="status"
         :style="fileDropRegion"
       >
-        {{ $t('pages.preference.presets.transfer.hints.drop') }}
+        <FileDropSurface
+          :title="$t('pages.preference.presets.transfer.dropActiveTitle')"
+        />
       </div>
     </PreferenceSections>
     <span
@@ -860,26 +934,62 @@ function cancelPointerDrag(event: PointerEvent) {
       @close="exportingId = undefined"
     />
     <Modal
+      :body-style="compatibilityIssues.length ? { maxHeight: 'calc(100vh - 180px)', overflowY: 'auto' } : undefined"
       :cancel-button-props="{ disabled: applying }"
       :cancel-text="$t('pages.preference.presets.buttons.cancel')"
+      centered
       :closable="!applying"
       :confirm-loading="applying"
       :keyboard="!applying"
       :mask-closable="false"
       :ok-button-props="{ disabled: applyDisabled }"
-      :ok-text="$t('pages.preference.presets.buttons.apply')"
+      :ok-text="$t(compatibilityIssues.length ? 'pages.preference.presets.compatibility.applyCompatible' : 'pages.preference.presets.buttons.apply')"
       :open="Boolean(applyingEntry)"
       :title="$t('pages.preference.presets.dialog.applyTitle', { name: applyingEntry?.name ?? '' })"
       @cancel="closeApplyDialog"
       @ok="applyEntry"
     >
       <p class="text-primary-7">
-        {{ $t('pages.preference.presets.dialog.applyWarning') }}
+        {{ $t(compatibilityIssues.length ? 'pages.preference.presets.compatibility.hint' : 'pages.preference.presets.dialog.applyWarning') }}
+      </p>
+      <div
+        v-if="compatibilityIssues.length"
+        :aria-label="$t('pages.preference.presets.compatibility.listTitle')"
+        class="preset-compatibility-list"
+        role="region"
+      >
+        <ul class="m-0 list-none p-0">
+          <li
+            v-for="issue in compatibilityIssues"
+            :key="JSON.stringify(issue.path)"
+            class="py-2"
+          >
+            <strong>{{ compatibilityLabel(issue) }}</strong>
+            <div class="text-sm text-color-2">
+              {{ $t('pages.preference.presets.compatibility.savedValue', { value: compatibilityValue(issue) }) }}
+            </div>
+            <div class="text-sm text-color-3">
+              {{ $t(`pages.preference.presets.compatibility.reasons.${issue.reason}`) }}
+            </div>
+            <div
+              v-if="issue.field"
+              class="text-sm text-color-3"
+            >
+              {{ $t('pages.preference.presets.compatibility.supported', { value: compatibilitySupport(issue) }) }}
+            </div>
+          </li>
+        </ul>
+      </div>
+      <p
+        v-if="noCompatibleSettings"
+        class="text-sm text-color-3"
+      >
+        {{ $t('pages.preference.presets.compatibility.none') }}
       </p>
       <div class="my-4 flex items-center">
         <Checkbox
           v-model:checked="generalStore.app.applyPresetSkin"
-          :disabled="applyDisabled"
+          :disabled="applyOperationDisabled"
         >
           {{ $t('pages.preference.presets.dialog.applySkin') }}
         </Checkbox>
@@ -924,6 +1034,29 @@ function cancelPointerDrag(event: PointerEvent) {
 </template>
 
 <style scoped>
+.preset-compatibility-warning {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 4px;
+  color: var(--ant-orange-6, #fa8c16);
+  background: var(--ant-color-bg-elevated);
+}
+.preset-compatibility-warning:focus-visible {
+  outline: 2px solid currentColor;
+}
+.preset-compatibility-list {
+  max-height: min(28vh, 280px);
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.preset-compatibility-list li + li {
+  border-top: 1px solid var(--ant-color-border-secondary);
+}
+
 .preset-import-button,
 .preset-new-button {
   display: inline-flex;
@@ -933,12 +1066,11 @@ function cancelPointerDrag(event: PointerEvent) {
 
 .preset-file-drop {
   box-sizing: border-box;
-  font-size: 125%;
 }
 
 .preset-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, min(300px, calc((100% - 12px) / 2)));
   gap: 12px;
 }
 
@@ -1017,6 +1149,7 @@ function cancelPointerDrag(event: PointerEvent) {
 }
 
 .preset-thumbnail {
+  position: relative;
   display: flex;
   width: 100%;
   aspect-ratio: 16 / 10;

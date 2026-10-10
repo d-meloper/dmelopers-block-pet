@@ -311,7 +311,7 @@ describe('display area visibility persistence and reset', () => {
 })
 
 describe('automatic display area padding persistence', () => {
-  it('defaults missing/invalid values to 2 and clamps legacy saved integers', () => {
+  it('defaults missing/invalid values to 2 and preserves saved padding through 30', () => {
     assert.equal(createDefaultPet3dPreset().autoViewportPaddingPixels, 2)
     for (const [value, expected] of [
       [undefined, 2],
@@ -322,13 +322,16 @@ describe('automatic display area padding persistence', () => {
       [0, 0],
       [8.6, 9],
       [16, 16],
-      [17, 16],
-      [64, 16],
-      [96.6, 16],
-      [128, 16],
-      [256, 16],
+      [17, 17],
+      [20, 20],
+      [30, 30],
+      [31, 30],
+      [64, 30],
+      [96.6, 30],
+      [128, 30],
+      [256, 30],
       [-20, 0],
-      [900, 16],
+      [900, 30],
     ]) {
       const store = createStore()
       Object.assign(store.activePet3dPreset, { autoViewportPaddingPixels: value, cameraZoomPercent: 137 })
@@ -339,13 +342,15 @@ describe('automatic display area padding persistence', () => {
   })
 
   it('reloads either endpoint and resets only with scene, preset, or program settings', () => {
-    for (const autoViewportPaddingPixels of [0, 8, 16]) {
+    for (const autoViewportPaddingPixels of [0, 8, 10, 16, 20, 30]) {
       const source = createStore()
       source.activePet3dPreset.autoViewportPaddingPixels = autoViewportPaddingPixels
       const restored = createStore()
       restored.$patch(JSON.parse(JSON.stringify(source.$state)))
       restored.init()
       restored.init()
+      assert.equal(restored.activePet3dPreset.autoViewportPaddingPixels, autoViewportPaddingPixels)
+      applyPresetSnapshot(restored, capturePresetSnapshot(source))
       restored.resetEnvironment3d()
       assert.equal(restored.activePet3dPreset.autoViewportPaddingPixels, autoViewportPaddingPixels)
       for (const reset of [restored.resetScene3d, restored.resetActivePet3dPreset, restored.resetAllSettings]) {

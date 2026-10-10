@@ -34,6 +34,7 @@ function loadDevice(mocks: Record<string, unknown> = {}, globals: Record<string,
   const defaults: Record<string, unknown> = {
     '../constants': constants,
     '@/features/input/types': inputTypes,
+    '@/plugins/window': {},
   }
   runInNewContext(compiled, {
     exports,
@@ -352,6 +353,10 @@ async function createPreferenceHarness() {
             return presetOperations.presetOperationInProgress.value || presetOperations.presetResetInProgress.value
               || presetOperations.presetNativeEditPending.value > 0
           } },
+          editorsBusy: { get value() {
+            return presetOperations.presetOperationInProgress.value || presetOperations.presetResetInProgress.value
+              || presetOperations.presetNativeMutationPending.value > 0
+          } },
           ready: { value: true },
           markUserEdit: presetEditIntent.markPresetUserEdit,
           setListVisible: () => {},
@@ -366,6 +371,7 @@ async function createPreferenceHarness() {
         '@/features/input/types': inputTypes,
         '@/features/presets/editIntent': presetEditIntent,
         '@/features/presets/operations': presetOperations,
+        '@/features/stateSafety/bridge': { editorsLocked: { value: false } },
         './navigation': { usePreferenceNavigation: () => ({ current: { value: 0 }, innerView: { value: undefined } }) },
         './performanceLifecycle': { shouldMonitorPreferencePerformance: () => false },
       }
@@ -575,7 +581,7 @@ function createComposableHarness(passThrough = false) {
   let nextFrame = 0
   let epoch = 0
   let commandWait = async (_command: string) => {}
-  let monitor = async () => ({ position: { x: 0, y: 0 }, size: { width: 200, height: 100 } })
+  let monitor = async (_point: { x: number, y: number }) => ({ position: { x: 0, y: 0 }, size: { width: 200, height: 100 } })
   const store = { activePet3dPreset: { mouseEnabled: true }, window: { passThrough, visible: true, hideOnHover: false, hideOnHoverDelay: 0 } }
   const exports = loadDevice({
     'vue': { onMounted: (fn: () => unknown) => mounted.push(fn), onUnmounted: (fn: () => void) => unmounted.push(fn), watch: (sources: Array<() => boolean>, fn: (values: boolean[]) => void) => watchers.push(() => fn(sources.map(read => read()))) },
@@ -604,18 +610,14 @@ function createComposableHarness(passThrough = false) {
         }
       },
     },
-    '@tauri-apps/api/webviewWindow': {
-      getCurrentWebviewWindow: () => ({
-        setIgnoreCursorEvents: async (enabled: boolean) => {
-          cursorIgnores.push(enabled)
-        },
-      }),
-    },
+    '@/plugins/window': { setPetCursorEvents: async (enabled: boolean) => {
+      cursorIgnores.push(enabled)
+    } },
     'es-toolkit': { isNil: (value: unknown) => value == null },
     '@/stores/app': { useAppStore: () => ({ windowState: { main: { x: 0, y: 0, width: 200, height: 100 } } }) },
     '@/stores/block': { useBlockStore: () => store },
     '@/utils/is': { inBetween: (value: number, minimum: number, maximum: number) => value >= minimum && value <= maximum },
-    '@/utils/monitor': { getCursorMonitor: () => monitor() },
+    '@/utils/monitor': { getCursorMonitor: (point: { x: number, y: number }) => monitor(point) },
     '@/utils/three3d': { default: { setMouseEnabled: () => { }, setMouseInputActive: () => { }, setInputActive: () => { }, handleSemanticInput: (event: SemanticInputEvent) => dispatched.push(event) } },
   }, {
     document: { body: { style: { setProperty: (name: string, value: string) => styles.set(name, value) } } },
@@ -922,6 +924,216 @@ describe('actual useDevice pointer dispatch', () => {
     await flush()
     assert.equal(h.nativeCalls.at(-1), constants.INVOKE_KEY.STOP_DEVICE_LISTENING)
   })
+  it('keeps one pending monitor lookup across 30 RAFs and delivers only the latest point', async () => {
+    const h = createComposableHarness()
+    const oldMonitor = deferred<{ position: { x: number, y: number }, size: { width: number, height: number } }>()
+    const points: Array<{ x: number, y: number }> = []
+    let inFlight = 0
+    let maximumInFlight = 0
+    h.setMonitor(async (point) => {
+      points.push({ ...point })
+      maximumInFlight = Math.max(maximumInFlight, ++inFlight)
+      try {
+        return points.length === 1
+          ? await oldMonitor.promise
+          : { position: { x: 200, y: 0 }, size: { width: 200, height: 100 } }
+      } finally {
+        inFlight--
+      }
+    })
+    try {
+      await h.mount()
+      const mouseGeneration = h.device.getInputState().mouseGeneration
+      h.event({ kind: 'pointer_activity', x: 10, y: 25, mouseGeneration })
+      h.frame()
+      await flush()
+      for (let index = 1; index <= 30; index++) {
+        h.event({ kind: 'pointer_activity', x: 210 + index * 2, y: 50, mouseGeneration })
+        h.frame()
+        await flush()
+      }
+      assert.equal(points.length, 1, 'native lookup count must not grow while its reply is pending')
+      assert.equal(h.frames.size, 0)
+      h.event(typing)
+      h.event({ kind: 'mouse_primary', active: true, mouseGeneration })
+      h.event({ kind: 'mouse_primary', active: false, mouseGeneration })
+      assert.deepEqual(h.dispatched.map(event => event.kind), ['typing', 'mouse_primary', 'mouse_primary'])
+      oldMonitor.resolve({ position: { x: 0, y: 0 }, size: { width: 200, height: 100 } })
+      await flush()
+      assert.equal(h.frames.size, 1, 'the latest point gets one fresh frame after the old reply')
+      h.frame()
+      await flush()
+      assert.deepEqual(points, [{ x: 10, y: 25 }, { x: 270, y: 50 }])
+      assert.equal(maximumInFlight, 1)
+      assert.deepEqual({ ...h.dispatched.at(-1) }, { kind: 'pointer_activity', x: 0.35, y: 0.5, mouseGeneration })
+      assert.equal(h.frames.size, 0)
+    } finally {
+      oldMonitor.resolve({ position: { x: 0, y: 0 }, size: { width: 200, height: 100 } })
+      h.unmount()
+      await flush()
+    }
+  })
+
+  it('retains the actual monitor cache TTL and rechecks the latest point across monitors', async () => {
+    const h = createComposableHarness()
+    const monitorSource = ts.transpileModule(readFileSync(new URL('../utils/monitor.ts', import.meta.url), 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText
+    const nativePoints: Array<{ x: number, y: number }> = []
+    const first = { position: { x: 0, y: 0 }, size: { width: 200, height: 100 } }
+    const second = { position: { x: -200, y: 0 }, size: { width: 200, height: 100 } }
+    const monitor = {} as { getCursorMonitor: (point: { x: number, y: number }) => Promise<typeof first> }
+    let now = 1000
+    let pending: ReturnType<typeof deferred<typeof first>> | undefined
+    runInNewContext(monitorSource, {
+      exports: monitor,
+      Date: { now: () => now },
+      require: () => ({ monitorFromPoint: async (x: number, y: number) => {
+        nativePoints.push({ x, y })
+        return pending ? pending.promise : x < 0 ? second : first
+      } }),
+    })
+    h.setMonitor(point => monitor.getCursorMonitor(point))
+    try {
+      await h.mount()
+      const mouseGeneration = h.device.getInputState().mouseGeneration
+      const point = async (x: number, y = 25) => {
+        h.event({ kind: 'pointer_activity', x, y, mouseGeneration })
+        h.frame()
+        await flush()
+      }
+      await point(50)
+      await point(100)
+      assert.equal(nativePoints.length, 1, 'warm same-monitor points reuse the real cache')
+      now += 1001
+      pending = deferred<typeof first>()
+      for (let index = 1; index <= 30; index++) await point(100 + index)
+      assert.equal(nativePoints.length, 2, 'TTL expiry still issues only one pending native lookup')
+      const expired = pending
+      pending = undefined
+      expired.resolve(first)
+      await flush()
+      h.frame()
+      await flush()
+      assert.equal(nativePoints.length, 2, 'latest same-monitor point uses the refreshed cache')
+      assert.equal((h.dispatched.at(-1) as { x: number }).x, 0.65)
+      pending = deferred<typeof first>()
+      await point(-190)
+      await point(-60, 50)
+      assert.equal(nativePoints.length, 3, 'cross-monitor movement owns one lookup')
+      const crossed = pending
+      pending = undefined
+      crossed.resolve(second)
+      await flush()
+      h.frame()
+      await flush()
+      assert.deepEqual({ ...h.dispatched.at(-1) }, { kind: 'pointer_activity', x: 0.7, y: 0.5, mouseGeneration })
+      assert.equal(nativePoints.length, 3)
+    } finally {
+      pending?.resolve(first)
+      h.unmount()
+      await flush()
+    }
+  })
+
+  for (const queuedPoint of [false, true]) {
+    it(`recovers from a rejected monitor reply without retrying stale input (queued latest: ${queuedPoint})`, async () => {
+      const h = createComposableHarness()
+      const failed = deferred<{ position: { x: number, y: number }, size: { width: number, height: number } }>()
+      let reads = 0
+      h.setMonitor(async () => ++reads === 1
+        ? failed.promise
+        : { position: { x: 0, y: 0 }, size: { width: 200, height: 100 } })
+      try {
+        await h.mount()
+        const mouseGeneration = h.device.getInputState().mouseGeneration
+        h.event({ kind: 'pointer_activity', x: 50, y: 25, mouseGeneration })
+        h.frame()
+        if (queuedPoint) h.event({ kind: 'pointer_activity', x: 150, y: 50, mouseGeneration })
+        failed.reject(new Error('Native monitor lookup failed.'))
+        await flush()
+        assert.equal(h.frames.size, queuedPoint ? 1 : 0)
+        if (!queuedPoint) h.event({ kind: 'pointer_activity', x: 150, y: 50, mouseGeneration })
+        h.frame()
+        await flush()
+        assert.equal(reads, 2)
+        assert.deepEqual(h.dispatched.map(event => ({ ...event })), [{ kind: 'pointer_activity', x: 0.75, y: 0.5, mouseGeneration }])
+        assert.equal(h.frames.size, 0)
+      } finally {
+        h.unmount()
+        await flush()
+      }
+    })
+  }
+
+  for (const boundary of ['off', 'pause', 'unmount'] as const) {
+    it(`does not reschedule queued pointer input after ${boundary} retires a pending lookup`, async () => {
+      const h = createComposableHarness()
+      const delayed = deferred<{ position: { x: number, y: number }, size: { width: number, height: number } }>()
+      let reads = 0
+      h.setMonitor(async () => ++reads === 1
+        ? delayed.promise
+        : { position: { x: 0, y: 0 }, size: { width: 200, height: 100 } })
+      try {
+        await h.mount()
+        const mouseGeneration = h.device.getInputState().mouseGeneration
+        h.event({ kind: 'pointer_activity', x: 50, y: 25, mouseGeneration })
+        h.frame()
+        h.event({ kind: 'pointer_activity', x: 150, y: 50, mouseGeneration })
+        if (boundary === 'off') await h.device.requestMouseSetting(false)
+        else if (boundary === 'pause') await h.device.setInputActive(false)
+        else h.unmount()
+        delayed.resolve({ position: { x: 0, y: 0 }, size: { width: 200, height: 100 } })
+        await flush()
+        assert.equal(reads, 1)
+        assert.equal(h.frames.size, 0)
+        assert.deepEqual(h.dispatched, [])
+        if (boundary !== 'unmount') {
+          if (boundary === 'pause') await h.device.setInputActive(true)
+          h.event({ kind: 'pointer_activity', x: 150, y: 50, mouseGeneration: h.device.getInputState().mouseGeneration })
+          h.frame()
+          await flush()
+          assert.equal(reads, 2, 'fresh accepted input remains responsive, including mouse-button OFF')
+          assert.equal(h.dispatched.length, 1)
+        }
+      } finally {
+        delayed.resolve({ position: { x: 0, y: 0 }, size: { width: 200, height: 100 } })
+        h.unmount()
+        await flush()
+      }
+    })
+  }
+
+  it('does not let a retired lookup schedule work or disturb a remounted input owner', async () => {
+    const h = createComposableHarness()
+    const delayed = deferred<{ position: { x: number, y: number }, size: { width: number, height: number } }>()
+    h.setMonitor(() => delayed.promise)
+    await h.mount()
+    h.event({ kind: 'pointer_activity', x: 50, y: 25, mouseGeneration: h.device.getInputState().mouseGeneration })
+    h.frame()
+    h.event({ kind: 'pointer_activity', x: 100, y: 50, mouseGeneration: h.device.getInputState().mouseGeneration })
+    h.unmount()
+    await flush()
+    const replacement = h.createDevice()
+    h.setMonitor(async () => ({ position: { x: 0, y: 0 }, size: { width: 200, height: 100 } }))
+    try {
+      await h.mount(replacement)
+      const mouseGeneration = replacement.getInputState().mouseGeneration
+      h.event({ kind: 'pointer_activity', x: 150, y: 50, mouseGeneration })
+      h.frame()
+      await flush()
+      delayed.resolve({ position: { x: 0, y: 0 }, size: { width: 200, height: 100 } })
+      await flush()
+      assert.deepEqual(h.dispatched.map(event => ({ ...event })), [{ kind: 'pointer_activity', x: 0.75, y: 0.5, mouseGeneration }])
+      assert.equal(h.frames.size, 0)
+      assert.equal(replacement.acceptsInput(typing), true)
+    } finally {
+      delayed.resolve({ position: { x: 0, y: 0 }, size: { width: 200, height: 100 } })
+      h.unmount()
+      await flush()
+    }
+  })
+
   it('rejects monitor results from before OFF/ON and keeps keyboard events', async () => {
     const h = createComposableHarness()
     await h.mount()

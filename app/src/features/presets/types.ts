@@ -4,6 +4,8 @@ import type { VoxelSkinModel, VoxelSkinModelPreference } from '@/utils/three3d/v
 import { DESK_SETTING_KEYS } from '@/config/desk'
 import { DEVICE_COLOR_KEYS } from '@/config/deviceColors'
 
+import type { PresetSourceSettings } from './compatibility'
+
 export const PRESET_COLLECTION_VERSION = 4
 export const PRESET_APPLY_REQUEST = 'preset-apply-request'
 export const PRESET_APPLY_RESPONSE = 'preset-apply-response'
@@ -85,6 +87,7 @@ export interface PresetEntry {
   name: string
   favorite: boolean
   snapshot: PresetSnapshot
+  sourceSettings?: PresetSourceSettings
 }
 
 /** Runtime presentation only; bundled entries never enter the saved user catalog. */

@@ -76,7 +76,7 @@ function nativeHarness() {
         await construction?.promise
         return [rid, args.options.id ?? `generated-${++generatedId}`]
       }
-      if (command === 'plugin:menu|popup') {
+      if (command === 'plugin:custom-window|popup_pet_menu') {
         assert.ok(resources.has(args.rid), 'popup owns a live native resource')
         popups++
         await popup?.promise
@@ -142,17 +142,12 @@ function menuHarness(label: string) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, { exports, require: (name: string) => mocks[name] })
   const owner = exports.useAppMenu()
-  const topmost: boolean[] = []
   const warnings: unknown[][] = []
-  let restoreError: Error | undefined
   const context = {
     componentMounted: true,
     blockStore: block,
     getAppMenu: owner.getAppMenu,
-    setAlwaysOnTop: (value: boolean) => {
-      topmost.push(value)
-      if (value && restoreError) throw restoreError
-    },
+    popupPetMenu: (rid: number) => (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args: { rid: number }) => Promise<void> } }).__TAURI_INTERNALS__.invoke('plugin:custom-window|popup_pet_menu', { rid }),
     console: { warn: (...args: unknown[]) => warnings.push(args) },
     popup: undefined as undefined | (() => Promise<void>),
     pending: undefined as undefined | (() => boolean),
@@ -168,20 +163,32 @@ globalThis.pending = () => contextMenuPending`, {
     block,
     context,
     requests,
-    topmost,
     warnings,
     popup: () => context.popup!(),
     pending: () => context.pending!(),
     language: (value: string) => {
       language = value
     },
-    failRestore: (error?: Error) => {
-      restoreError = error
-    },
   }
 }
 
 describe('native pet context menu ownership', () => {
+  it('keeps the resource until native popup completion even if the frontend owner retires', async () => {
+    const native = nativeHarness()
+    const h = menuHarness('main')
+    const held = native.holdPopup()
+    const pending = h.popup()
+    for (let index = 0; index < 20 && native.counts().popups === 0; index++) await Promise.resolve()
+    assert.equal(native.counts().popups, 1)
+    h.context.componentMounted = false
+    assert.equal(native.resources.size, 1)
+    assert.equal(native.counts().closes, 0)
+    held.resolve()
+    await pending
+    assert.deepEqual(native.counts(), { creations: 1, popups: 1, closes: 1 })
+    assert.equal(h.pending(), false)
+  })
+
   it('bounds real SDK resources and callback channels over repeated and changed menus', async () => {
     const native = nativeHarness()
     const h = menuHarness('main')
@@ -249,13 +256,12 @@ describe('native pet context menu ownership', () => {
     await pending
     assert.deepEqual(native.counts(), { creations: 1, popups: 0, closes: 1 })
     assert.equal(native.resources.size, 0)
-    assert.deepEqual(h.topmost, [])
     assert.equal(h.pending(), false)
     await h.popup()
     assert.equal(native.counts().creations, 1)
   })
 
-  it('keeps the native menu alive during popup, blocks duplicates, then restores the latest topmost setting', async () => {
+  it('keeps the native menu alive during popup, blocks duplicates, and preserves the saved setting', async () => {
     const native = nativeHarness()
     const h = menuHarness('main')
     const held = native.holdPopup()
@@ -269,7 +275,7 @@ describe('native pet context menu ownership', () => {
     held.resolve()
     await pending
     assert.equal(native.resources.size, 0)
-    assert.deepEqual(h.topmost, [false, false])
+    assert.equal(h.block.window.alwaysOnTop, false)
     assert.equal(h.pending(), false)
     await h.popup()
     assert.equal(native.counts().creations, 2)
@@ -281,15 +287,12 @@ describe('native pet context menu ownership', () => {
     const popupError = new Error('Popup failed')
     native.failPopup(popupError)
     native.failClose(new Error('Close acknowledgement lost'))
-    h.failRestore(new Error('Topmost restore failed'))
     await assert.rejects(h.popup(), error => error === popupError)
-    assert.deepEqual(h.topmost, [false, true])
-    assert.equal(h.warnings.length, 2)
+    assert.equal(h.warnings.length, 1)
     assert.equal(native.resources.size, 0)
     assert.equal(h.pending(), false)
     native.failPopup()
     native.failClose()
-    h.failRestore()
     await h.popup()
     assert.deepEqual(native.counts(), { creations: 2, popups: 2, closes: 2 })
   })

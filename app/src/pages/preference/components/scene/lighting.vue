@@ -7,15 +7,18 @@ import DefaultSnapSlider from '@/components/default-snap-slider/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import { createDefaultLightingSettings, LIGHTING_LIMITS } from '@/config/lighting'
 import { markPresetUserEdit } from '@/features/presets/editIntent'
+import { presetOperationInProgress, presetResetInProgress } from '@/features/presets/operations'
+import { editorsLocked } from '@/features/stateSafety/bridge'
 import { useBlockStore } from '@/stores/block'
 
 const store = useBlockStore()
 const keyLight = computed(() => store.activePet3dPreset.lighting.key)
 const defaults = createDefaultLightingSettings().key
 const fields = ['strengthPercent', 'azimuthDegrees', 'elevationDegrees'] as const
+const blocked = computed(() => editorsLocked.value || presetOperationInProgress.value || presetResetInProgress.value)
 
 function updateColor(value: string) {
-  if (!/^#[0-9a-f]{6}$/i.test(value)) return
+  if (blocked.value || !/^#[0-9a-f]{6}$/i.test(value)) return
   markPresetUserEdit()
   keyLight.value.color = value
 }
@@ -38,6 +41,7 @@ function updateNumber(key: typeof fields[number], value: number | null) {
       :title="$t('pages.preference.scene.lighting.labels.color')"
     >
       <ColorPicker
+        :disabled="blocked"
         :label="$t('pages.preference.scene.lighting.labels.color')"
         :value="keyLight.color"
         @update:value="updateColor"

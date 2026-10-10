@@ -1,7 +1,10 @@
-//! Own the two low-level hooks on one thread. Only that thread changes hook
-//! handles; a mouse configuration reply follows the completed Win32 operation.
+//! Own Raw Input and the two supplemental hooks on one thread. Only that thread
+//! changes registrations; configuration replies follow the completed operation.
 //! rdev's process-global KEYBOARD_ONLY/exit_grab interfaces cannot provide this.
-use super::{DeviceInputState, InputEpoch, capture_input_epoch, next_mouse_generation};
+use super::{
+    DeviceInputState, InputEpoch, capture_input_epoch, capture_raw_input_epoch, input_time_at,
+    next_mouse_generation,
+};
 use rdev::{Button, EventType};
 use std::{
     cell::RefCell,
@@ -14,23 +17,41 @@ use std::{
     thread::{self, JoinHandle},
 };
 use windows_sys::Win32::{
-    System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId},
+    Foundation::{HWND, POINT},
+    System::{
+        LibraryLoader::GetModuleHandleW,
+        SystemInformation::GetTickCount64,
+        Threading::{GetCurrentProcessId, GetCurrentThreadId},
+    },
     UI::{
-        Input::KeyboardAndMouse::VK_PACKET,
+        Input::{
+            GetRawInputData, GetRegisteredRawInputDevices,
+            KeyboardAndMouse::{MAPVK_VSC_TO_VK_EX, MapVirtualKeyW, VK_PACKET},
+            MOUSE_MOVE_ABSOLUTE, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RAWKEYBOARD, RAWMOUSE,
+            RID_INPUT, RIDEV_DEVNOTIFY, RIDEV_INPUTSINK, RIDEV_REMOVE, RIM_TYPEKEYBOARD,
+            RIM_TYPEMOUSE,
+        },
         WindowsAndMessaging::{
-            CallNextHookEx, DispatchMessageW, GetMessageW, HC_ACTION, HHOOK, KBDLLHOOKSTRUCT, MSG,
-            MSLLHOOKSTRUCT, PM_NOREMOVE, PeekMessageW, PostThreadMessageW, SetWindowsHookExW,
-            TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP, WM_KEYDOWN,
-            WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL,
-            WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+            CallNextHookEx, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
+            GetClassNameW, GetCursorPos, GetMessageTime, GetMessageW, GetWindowThreadProcessId,
+            HC_ACTION, HHOOK, HWND_MESSAGE, IsWindow, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT,
+            PM_NOREMOVE, PeekMessageW, PostThreadMessageW, RegisterClassW, SetWindowsHookExW,
+            TranslateMessage, UnhookWindowsHookEx, UnregisterClassW, WH_KEYBOARD_LL, WH_MOUSE_LL,
+            WM_APP, WM_INPUT, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
+            WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN,
+            WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSW,
         },
     },
 };
 
 const WAKE: u32 = WM_APP + 47;
 
+pub(super) type CapturedInput = (EventType, u64, InputEpoch);
+pub(super) type PendingPointer = Arc<Mutex<Option<CapturedInput>>>;
+
 pub(super) enum InputMessage {
     Event(EventType, u64, InputEpoch),
+    Pointer(PendingPointer),
     ResetMouse,
 }
 
@@ -38,10 +59,451 @@ struct CallbackState {
     sender: Sender<InputMessage>,
     generation: u64,
     mouse_enabled: bool,
+    pointer: PendingPointer,
+    pairs: VecDeque<(EventType, u32, bool)>,
+    motion_pairs: VecDeque<(u32, bool)>,
+    mouse_since: Option<u64>,
+}
+
+impl CallbackState {
+    fn new(sender: Sender<InputMessage>, generation: u64) -> Self {
+        Self {
+            sender,
+            generation,
+            mouse_enabled: false,
+            pointer: Arc::new(Mutex::new(None)),
+            pairs: VecDeque::new(),
+            motion_pairs: VecDeque::new(),
+            mouse_since: None,
+        }
+    }
+
+    fn publish(&mut self, event: EventType, time: u32, raw: bool) {
+        // Pair opposite sources one-for-one using Windows' input timestamp.
+        // Do not collapse same-source repeats or retain keys/text as a history.
+        // Motion has its own bounded ledger so high-rate movement cannot evict
+        // an unpaired release. Keep pairs through mouse/consumer epoch changes:
+        // the second source must not revive an event already captured earlier.
+        let duplicate = if matches!(event, EventType::MouseMove { .. }) {
+            if let Some(index) = self
+                .motion_pairs
+                .iter()
+                .position(|(t, r)| *t == time && *r != raw)
+            {
+                self.motion_pairs.remove(index);
+                true
+            } else {
+                self.motion_pairs
+                    .retain(|(t, _)| time.wrapping_sub(*t) as i32 <= 1000);
+                if self.motion_pairs.len() == 256 {
+                    self.motion_pairs.pop_front();
+                }
+                self.motion_pairs.push_back((time, raw));
+                false
+            }
+        } else if let Some(index) = self
+            .pairs
+            .iter()
+            .position(|(e, t, r)| *e == event && *t == time && *r != raw)
+        {
+            self.pairs.remove(index);
+            true
+        } else {
+            self.pairs
+                .retain(|(_, t, _)| time.wrapping_sub(*t) as i32 <= 1000);
+            if self.pairs.len() == 256 {
+                self.pairs.pop_front();
+            }
+            self.pairs.push_back((event, time, raw));
+            false
+        };
+        if duplicate
+            || (raw
+                && !matches!(event, EventType::KeyPress(_) | EventType::KeyRelease(_))
+                && self.mouse_since.is_some_and(|cutoff| {
+                    input_time_at(time, unsafe { GetTickCount64() }) <= cutoff
+                }))
+            || (!self.mouse_enabled
+                && !matches!(
+                    event,
+                    EventType::KeyPress(_) | EventType::KeyRelease(_) | EventType::MouseMove { .. }
+                ))
+        {
+            return;
+        }
+        let epoch = if raw {
+            capture_raw_input_epoch(&event, time)
+        } else {
+            capture_input_epoch()
+        };
+        if matches!(event, EventType::MouseMove { .. }) {
+            if let Ok(mut pending) = self.pointer.lock() {
+                let wake = pending.is_none();
+                *pending = Some((event, self.generation, epoch));
+                if wake {
+                    let _ = self
+                        .sender
+                        .send(InputMessage::Pointer(Arc::clone(&self.pointer)));
+                }
+            }
+        } else {
+            // Seal preceding motion before a press/release so later movement
+            // cannot be coalesced across a drag boundary.
+            self.seal_pointer();
+            let _ = self
+                .sender
+                .send(InputMessage::Event(event, self.generation, epoch));
+        }
+    }
+
+    fn seal_pointer(&mut self) {
+        // The queued wake owns the old slot. Never reuse it across a discrete
+        // event: an older wake could otherwise take motion after that event.
+        if self.pointer.lock().is_ok_and(|pending| pending.is_some()) {
+            self.pointer = Arc::new(Mutex::new(None));
+        }
+    }
+}
+
+fn publish(event: EventType, time: u32, raw: bool) {
+    #[cfg(test)]
+    SOURCE_COUNTS.with_borrow_mut(|counts| {
+        let kind = match event {
+            EventType::KeyPress(_) | EventType::KeyRelease(_) => Some(0),
+            EventType::ButtonPress(_) | EventType::ButtonRelease(_) => Some(1),
+            _ => None,
+        };
+        if let Some(kind) = kind {
+            counts[usize::from(raw) * 2 + kind] += 1;
+        }
+    });
+    CALLBACK.with_borrow_mut(|state| {
+        if let Some(state) = state {
+            state.publish(event, time, raw);
+        }
+    });
+}
+
+fn raw_keyboard_event(data: &RAWKEYBOARD) -> Option<EventType> {
+    if data.VKey == 255 || data.MakeCode == 0xff {
+        return None;
+    }
+    let extended = data.Flags & 2 != 0;
+    let vk = match data.VKey {
+        0x10 => unsafe { MapVirtualKeyW(u32::from(data.MakeCode), MAPVK_VSC_TO_VK_EX) },
+        0x11 => {
+            if extended {
+                0xa3
+            } else {
+                0xa2
+            }
+        }
+        0x12 => {
+            if extended {
+                0xa5
+            } else {
+                0xa4
+            }
+        }
+        vk => u32::from(vk),
+    };
+    keyboard_event(
+        data.Message,
+        &KBDLLHOOKSTRUCT {
+            vkCode: vk,
+            scanCode: u32::from(data.MakeCode),
+            ..Default::default()
+        },
+    )
+}
+
+fn raw_mouse_events(data: &RAWMOUSE, mut emit: impl FnMut(EventType)) {
+    let buttons = unsafe { data.Anonymous.Anonymous };
+    for (flag, message) in [
+        (1, WM_LBUTTONDOWN),
+        (2, WM_LBUTTONUP),
+        (4, WM_RBUTTONDOWN),
+        (8, WM_RBUTTONUP),
+        (16, WM_MBUTTONDOWN),
+        (32, WM_MBUTTONUP),
+        (0x400, WM_MOUSEWHEEL),
+        (0x800, WM_MOUSEHWHEEL),
+    ] {
+        if buttons.usButtonFlags & flag != 0 {
+            if let Some(event) = mouse_event(
+                message,
+                &MSLLHOOKSTRUCT {
+                    mouseData: u32::from(buttons.usButtonData) << 16,
+                    ..Default::default()
+                },
+            ) {
+                emit(event);
+            }
+        }
+    }
+    if data.usFlags & MOUSE_MOVE_ABSOLUTE != 0 || data.lLastX != 0 || data.lLastY != 0 {
+        // Raw deltas are device units, not desktop pixels. Preserve absolute
+        // pointer semantics across acceleration, DPI and absolute devices.
+        let mut point = POINT::default();
+        if unsafe { GetCursorPos(&mut point) } != 0 {
+            emit(EventType::MouseMove {
+                x: f64::from(point.x),
+                y: f64::from(point.y),
+            });
+        }
+    }
+}
+
+unsafe extern "system" fn raw_window_proc(hwnd: HWND, message: u32, w: usize, l: isize) -> isize {
+    if message == WM_INPUT {
+        let mut input = RAWINPUT::default();
+        let mut size = std::mem::size_of::<RAWINPUT>() as u32;
+        let read = unsafe {
+            GetRawInputData(
+                l as _,
+                RID_INPUT,
+                (&mut input as *mut RAWINPUT).cast(),
+                &mut size,
+                std::mem::size_of::<RAWINPUTHEADER>() as u32,
+            )
+        };
+        let time = unsafe { GetMessageTime() } as u32;
+        if read != u32::MAX && read >= std::mem::size_of::<RAWINPUTHEADER>() as u32 {
+            match input.header.dwType {
+                RIM_TYPEKEYBOARD
+                    if read
+                        >= (std::mem::size_of::<RAWINPUTHEADER>()
+                            + std::mem::size_of::<RAWKEYBOARD>())
+                            as u32 =>
+                {
+                    if let Some(event) = raw_keyboard_event(unsafe { &input.data.keyboard }) {
+                        publish(event, time, true);
+                    }
+                }
+                RIM_TYPEMOUSE
+                    if read
+                        >= (std::mem::size_of::<RAWINPUTHEADER>() + std::mem::size_of::<RAWMOUSE>())
+                            as u32 =>
+                {
+                    raw_mouse_events(unsafe { &input.data.mouse }, |event| {
+                        publish(event, time, true)
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+    // WM_INPUT foreground delivery also requires DefWindowProc cleanup.
+    unsafe { DefWindowProcW(hwnd, message, w, l) }
+}
+
+fn registered_devices() -> Result<Vec<RAWINPUTDEVICE>, String> {
+    let mut count = 0;
+    let size = std::mem::size_of::<RAWINPUTDEVICE>() as u32;
+    if unsafe { GetRegisteredRawInputDevices(null_mut(), &mut count, size) } == u32::MAX {
+        return Err(raw_error("query"));
+    }
+    let mut devices = vec![RAWINPUTDEVICE::default(); count as usize];
+    if count != 0 {
+        let read = unsafe { GetRegisteredRawInputDevices(devices.as_mut_ptr(), &mut count, size) };
+        if read == u32::MAX {
+            return Err(raw_error("query"));
+        }
+        devices.truncate(read as usize);
+    }
+    Ok(devices)
+}
+
+struct RawReceiver {
+    hwnd: HWND,
+    class: Vec<u16>,
+    owned: [bool; 2],
+    previous: [Option<RAWINPUTDEVICE>; 2],
+}
+
+fn restorable_registration(mut device: RAWINPUTDEVICE) -> RAWINPUTDEVICE {
+    // GetRegisteredRawInputDevices omits DEVNOTIFY on the tested Windows host.
+    // Pinned Tao 0.35.3 registers this bit for every non-remove filter on its
+    // process-owned event target. Recover only that known framework contract;
+    // unknown targets retain their observable flags without guessed additions.
+    let mut class = [0_u16; 64];
+    let mut process = 0;
+    let length =
+        unsafe { GetClassNameW(device.hwndTarget, class.as_mut_ptr(), class.len() as i32) };
+    unsafe {
+        GetWindowThreadProcessId(device.hwndTarget, &mut process);
+    }
+    if process == unsafe { GetCurrentProcessId() }
+        && length > 0
+        && class[..length as usize]
+            .iter()
+            .copied()
+            .eq("Tao Thread Event Target".encode_utf16())
+    {
+        device.dwFlags |= RIDEV_DEVNOTIFY;
+    }
+    device
+}
+
+impl RawReceiver {
+    fn registration(hwnd: HWND, flags: u32) -> [RAWINPUTDEVICE; 2] {
+        [
+            RAWINPUTDEVICE {
+                usUsagePage: 1,
+                usUsage: 6,
+                dwFlags: flags,
+                hwndTarget: hwnd,
+            },
+            RAWINPUTDEVICE {
+                usUsagePage: 1,
+                usUsage: 2,
+                dwFlags: flags,
+                hwndTarget: hwnd,
+            },
+        ]
+    }
+
+    fn start() -> Result<Self, String> {
+        // Tao already registers the same usages within this process. Save its
+        // exact flags/target and restore only usages still owned by this sink.
+        let registrations = registered_devices()?;
+        let class: Vec<u16> = format!("BlockPetInputSink{}\0", unsafe { GetCurrentThreadId() })
+            .encode_utf16()
+            .collect();
+        let instance = unsafe { GetModuleHandleW(null_mut()) };
+        let wc = WNDCLASSW {
+            lpfnWndProc: Some(raw_window_proc),
+            hInstance: instance,
+            lpszClassName: class.as_ptr(),
+            ..Default::default()
+        };
+        if unsafe { RegisterClassW(&wc) } == 0 {
+            return Err(raw_error("class_start"));
+        }
+        let hwnd = unsafe {
+            CreateWindowExW(
+                0,
+                class.as_ptr(),
+                class.as_ptr(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                HWND_MESSAGE,
+                null_mut(),
+                instance,
+                null_mut(),
+            )
+        };
+        let devices = Self::registration(hwnd, RIDEV_INPUTSINK);
+        let previous = devices.map(|device| {
+            registrations
+                .iter()
+                .find(|old| old.usUsagePage == device.usUsagePage && old.usUsage == device.usUsage)
+                .copied()
+                .map(restorable_registration)
+        });
+        let mut receiver = Self {
+            hwnd,
+            class,
+            owned: [false; 2],
+            previous,
+        };
+        if hwnd.is_null() {
+            return Err(raw_error("window_start"));
+        }
+        if unsafe {
+            windows_sys::Win32::UI::Input::RegisterRawInputDevices(
+                devices.as_ptr(),
+                2,
+                std::mem::size_of::<RAWINPUTDEVICE>() as u32,
+            )
+        } == 0
+        {
+            return Err(raw_error("register"));
+        }
+        receiver.owned = [true; 2];
+        Ok(receiver)
+    }
+
+    fn stop(&mut self) -> Result<(), String> {
+        if self.owned.iter().any(|owned| *owned) {
+            let current = registered_devices()?;
+            for (index, device) in Self::registration(null_mut(), RIDEV_REMOVE)
+                .into_iter()
+                .enumerate()
+            {
+                if !self.owned[index] {
+                    continue;
+                }
+                if current.iter().any(|now| {
+                    now.usUsagePage == device.usUsagePage
+                        && now.usUsage == device.usUsage
+                        && now.hwndTarget == self.hwnd
+                }) {
+                    // A previous window may have ended while this lease lived.
+                    // Remove our registration instead of resurrecting an invalid
+                    // target (which would prevent acknowledged shutdown).
+                    let restore = self.previous[index]
+                        .filter(|old| {
+                            old.hwndTarget.is_null() || unsafe { IsWindow(old.hwndTarget) } != 0
+                        })
+                        .unwrap_or(device);
+                    if unsafe {
+                        windows_sys::Win32::UI::Input::RegisterRawInputDevices(
+                            &restore,
+                            1,
+                            std::mem::size_of::<RAWINPUTDEVICE>() as u32,
+                        )
+                    } == 0
+                    {
+                        return Err(raw_error("restore"));
+                    }
+                }
+                // A newer owner (for example Tao reconfiguration) keeps its
+                // registration. Do not remove or overwrite that owner.
+                self.owned[index] = false;
+            }
+        }
+        if !self.hwnd.is_null() {
+            if unsafe { DestroyWindow(self.hwnd) } == 0 {
+                return Err(raw_error("window_stop"));
+            }
+            self.hwnd = null_mut();
+        }
+        if !self.class.is_empty() {
+            if unsafe { UnregisterClassW(self.class.as_ptr(), GetModuleHandleW(null_mut())) } == 0 {
+                return Err(raw_error("class_stop"));
+            }
+            self.class.clear();
+        }
+        Ok(())
+    }
+}
+
+fn raw_error(operation: &str) -> String {
+    let error = std::io::Error::last_os_error();
+    crate::diagnostics::warn(
+        "input.raw_receiver",
+        &format!("{operation}:WIN32_{}", error.raw_os_error().unwrap_or(0)),
+    );
+    format!("Raw Input {operation} failed: {error}")
+}
+
+impl Drop for RawReceiver {
+    fn drop(&mut self) {
+        let _ = self.stop();
+    }
 }
 
 thread_local! {
     static CALLBACK: RefCell<Option<CallbackState>> = const { RefCell::new(None) };
+}
+
+#[cfg(test)]
+thread_local! {
+    static SOURCE_COUNTS: RefCell<[usize; 4]> = const { RefCell::new([0; 4]) };
 }
 
 fn keyboard_event(message: u32, data: &KBDLLHOOKSTRUCT) -> Option<EventType> {
@@ -94,15 +556,11 @@ unsafe extern "system" fn keyboard_callback(code: i32, param: usize, data: isize
         if let Some(event) =
             keyboard_event(param as u32, unsafe { &*(data as *const KBDLLHOOKSTRUCT) })
         {
-            CALLBACK.with_borrow(|state| {
-                if let Some(state) = state {
-                    let _ = state.sender.send(InputMessage::Event(
-                        event,
-                        state.generation,
-                        capture_input_epoch(),
-                    ));
-                }
-            });
+            publish(
+                event,
+                unsafe { &*(data as *const KBDLLHOOKSTRUCT) }.time,
+                false,
+            );
         }
     }
     // Keyboard input always passes through, including while mouse tracking is off.
@@ -127,18 +585,7 @@ unsafe fn process_mouse_callback(
         // Windows owns the structure for the duration of this callback.
         let data = unsafe { &*(data as *const MSLLHOOKSTRUCT) };
         if let Some(event) = mouse_event(param as u32, data) {
-            CALLBACK.with_borrow(|state| {
-                let Some(state) = state.as_ref().filter(|state| {
-                    state.mouse_enabled || matches!(event, EventType::MouseMove { .. })
-                }) else {
-                    return;
-                };
-                let _ = state.sender.send(InputMessage::Event(
-                    event,
-                    state.generation,
-                    capture_input_epoch(),
-                ));
-            });
+            publish(event, data.time, false);
         }
     }
     // Global monitoring never consumes a button press or release. The webview's
@@ -152,12 +599,15 @@ enum Request {
     Stop(Sender<Result<(), String>>),
     #[cfg(test)]
     Inspect(Sender<(usize, usize, DeviceInputState)>),
+    #[cfg(test)]
+    InspectRaw(Sender<(usize, [usize; 4])>),
 }
 
 struct Hooks {
     keyboard: HHOOK,
     mouse: HHOOK,
     state: DeviceInputState,
+    raw: RawReceiver,
 }
 
 fn change_mouse_hook<T: Copy + Default>(
@@ -181,11 +631,8 @@ impl Hooks {
             mouse_enabled: false,
             mouse_generation: next_mouse_generation(),
         };
-        CALLBACK.set(Some(CallbackState {
-            sender,
-            generation: state.mouse_generation,
-            mouse_enabled: false,
-        }));
+        let raw = RawReceiver::start()?;
+        CALLBACK.set(Some(CallbackState::new(sender, state.mouse_generation)));
         let keyboard = unsafe {
             SetWindowsHookExW(
                 WH_KEYBOARD_LL,
@@ -197,13 +644,17 @@ impl Hooks {
         if keyboard.is_null() {
             CALLBACK.set(None);
             let error = std::io::Error::last_os_error();
-            crate::diagnostics::warn("input.keyboard_hook_start", &format!("WIN32_{}", error.raw_os_error().unwrap_or(0)));
+            crate::diagnostics::warn(
+                "input.keyboard_hook_start",
+                &format!("WIN32_{}", error.raw_os_error().unwrap_or(0)),
+            );
             return Err(format!("Keyboard hook could not start: {error}"));
         }
         let mut hooks = Self {
             keyboard,
             mouse: null_mut(),
             state,
+            raw,
         };
         hooks.set_mouse_hook(true)?;
         hooks.configure(mouse_enabled)?;
@@ -230,7 +681,10 @@ impl Hooks {
                 };
                 if mouse.is_null() {
                     let error = std::io::Error::last_os_error();
-                    crate::diagnostics::warn("input.mouse_hook_start", &format!("WIN32_{}", error.raw_os_error().unwrap_or(0)));
+                    crate::diagnostics::warn(
+                        "input.mouse_hook_start",
+                        &format!("WIN32_{}", error.raw_os_error().unwrap_or(0)),
+                    );
                     return Err(format!("Mouse hook could not start: {error}"));
                 }
                 Ok(mouse)
@@ -240,7 +694,10 @@ impl Hooks {
                 // returned. Keep the handle and prior state if Win32 rejects removal.
                 if unsafe { UnhookWindowsHookEx(mouse) } == 0 {
                     let error = std::io::Error::last_os_error();
-                    crate::diagnostics::warn("input.mouse_hook_stop", &format!("WIN32_{}", error.raw_os_error().unwrap_or(0)));
+                    crate::diagnostics::warn(
+                        "input.mouse_hook_stop",
+                        &format!("WIN32_{}", error.raw_os_error().unwrap_or(0)),
+                    );
                     return Err(format!("Mouse hook could not stop: {error}"));
                 }
                 Ok(())
@@ -260,6 +717,8 @@ impl Hooks {
             if let Some(callback) = callback {
                 callback.mouse_enabled = enabled;
                 callback.generation = self.state.mouse_generation;
+                callback.mouse_since = Some(unsafe { GetTickCount64() });
+                callback.seal_pointer();
                 let _ = callback.sender.send(InputMessage::ResetMouse);
             }
         });
@@ -268,11 +727,15 @@ impl Hooks {
 
     fn stop(&mut self) -> Result<(), String> {
         self.configure(false)?;
+        self.raw.stop()?;
         self.set_mouse_hook(false)?;
         if !self.keyboard.is_null() {
             if unsafe { UnhookWindowsHookEx(self.keyboard) } == 0 {
                 let error = std::io::Error::last_os_error();
-                crate::diagnostics::warn("input.keyboard_hook_stop", &format!("WIN32_{}", error.raw_os_error().unwrap_or(0)));
+                crate::diagnostics::warn(
+                    "input.keyboard_hook_stop",
+                    &format!("WIN32_{}", error.raw_os_error().unwrap_or(0)),
+                );
                 return Err(format!("Keyboard hook could not stop: {error}"));
             }
             self.keyboard = null_mut();
@@ -346,7 +809,10 @@ impl HookListener {
                     if result <= 0 {
                         if result < 0 {
                             let code = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-                            crate::diagnostics::error("input.message_loop", &format!("WIN32_{code}"));
+                            crate::diagnostics::error(
+                                "input.message_loop",
+                                &format!("WIN32_{code}"),
+                            );
                         }
                         break;
                     }
@@ -397,7 +863,10 @@ impl HookListener {
         // leave a latent configuration to be applied by a later request.
         if unsafe { PostThreadMessageW(self.thread_id, WAKE, 0, 0) } == 0 {
             let error = std::io::Error::last_os_error();
-            crate::diagnostics::warn("input.post_request", &format!("WIN32_{}", error.raw_os_error().unwrap_or(0)));
+            crate::diagnostics::warn(
+                "input.post_request",
+                &format!("WIN32_{}", error.raw_os_error().unwrap_or(0)),
+            );
             return Err(format!("Input hook request could not be posted: {error}"));
         }
         requests.push_back(request);
@@ -483,9 +952,18 @@ fn process_requests(receive: &Mutex<Option<VecDeque<Request>>>, hooks: &mut Hook
             Request::Inspect(reply) => {
                 let _ = reply.send((hooks.keyboard as usize, hooks.mouse as usize, hooks.state));
             }
+            #[cfg(test)]
+            Request::InspectRaw(reply) => {
+                let counts = SOURCE_COUNTS.replace([0; 4]);
+                let _ = reply.send((hooks.raw.hwnd as usize, counts));
+            }
         }
     }
 }
+
+#[cfg(test)]
+#[path = "windows_tests.rs"]
+mod raw_tests;
 
 #[cfg(test)]
 mod tests {
@@ -494,11 +972,9 @@ mod tests {
     #[test]
     fn mouse_callbacks_forward_both_click_buttons_without_consuming_them() {
         let (sender, events) = mpsc::channel();
-        CALLBACK.set(Some(CallbackState {
-            sender,
-            generation: 7,
-            mouse_enabled: true,
-        }));
+        let mut state = CallbackState::new(sender, 7);
+        state.mouse_enabled = true;
+        CALLBACK.set(Some(state));
         let data: MSLLHOOKSTRUCT = unsafe { std::mem::zeroed() };
         let pointer = &data as *const MSLLHOOKSTRUCT as isize;
         for (message, expected) in [
@@ -530,6 +1006,7 @@ mod tests {
                     assert_eq!(generation, 7);
                 }
                 InputMessage::ResetMouse => panic!("button input must remain an animation event"),
+                InputMessage::Pointer(_) => panic!("button input must remain an animation event"),
             }
             assert!(events.try_recv().is_err());
         }
@@ -542,12 +1019,17 @@ mod tests {
             assert!(events.try_recv().is_err());
         }
         let result = unsafe {
-            process_mouse_callback(HC_ACTION as i32, WM_MOUSEMOVE as usize, pointer, |_, _, _| 43)
+            process_mouse_callback(
+                HC_ACTION as i32,
+                WM_MOUSEMOVE as usize,
+                pointer,
+                |_, _, _| 43,
+            )
         };
         assert_eq!(result, 43);
         assert!(matches!(
             events.try_recv().unwrap(),
-            InputMessage::Event(EventType::MouseMove { .. }, 7, _)
+            InputMessage::Pointer(_)
         ));
         CALLBACK.set(None);
     }

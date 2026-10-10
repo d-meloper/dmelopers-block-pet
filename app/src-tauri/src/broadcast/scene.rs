@@ -111,7 +111,7 @@ fn validate_preset(preset: &Value) -> Result<(), String> {
             | "mouseScalePercent"
             | "keyboardScalePercent"
             | "cameraZoomPercent" => number(value, 1.0, 1000.0),
-            "autoViewportPaddingPixels" => number(value, 0.0, 16.0),
+            "autoViewportPaddingPixels" => number(value, 0.0, 30.0),
             "viewportModeRevision" => number(value, 0.0, 9_007_199_254_740_991.0),
             "petHeadScalePercent" => number(value, 25.0, 200.0),
             "deskHeightOffset" | "deskWidthOffset" | "deskDepthOffset" => number(value, -1.0, 1.0),

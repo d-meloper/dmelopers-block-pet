@@ -19,6 +19,13 @@ import { createSkinFaceBounds, installPixelFilter } from './pixelFilter'
 export type VoxelSkinModel = 'wide' | 'slim'
 export type VoxelSkinModelPreference = VoxelSkinModel | 'auto'
 
+export class VoxelSkinDecodeError extends Error {
+  constructor(readonly code: 'PNG_ONLY' | 'INVALID_PNG' | 'INVALID_DIMENSIONS', message: string) {
+    super(message)
+    this.name = 'VoxelSkinDecodeError'
+  }
+}
+
 export interface VoxelSkinPixelSource {
   width: number
   height: number
@@ -694,7 +701,7 @@ export async function decodeVoxelSkin(
   model: VoxelSkinModelPreference = 'auto',
 ): Promise<NormalizedVoxelSkin> {
   if (source.type && source.type !== 'image/png') {
-    throw new Error('Voxel skins must be PNG images.')
+    throw new VoxelSkinDecodeError('PNG_ONLY', 'Voxel skins must be PNG images.')
   }
   // Reject oversized image dimensions before either browser decoder can allocate
   // pixels. A small compressed PNG can still describe a very large bitmap.
@@ -704,21 +711,21 @@ export async function decodeVoxelSkin(
     signature.length !== PNG_SIGNATURE.length
     || PNG_SIGNATURE.some((value, index) => signature[index] !== value)
   ) {
-    throw new Error('Voxel skins must contain a valid PNG signature.')
+    throw new VoxelSkinDecodeError('INVALID_PNG', 'Voxel skins must contain a valid PNG signature.')
   }
   const fields = new DataView(header)
   if (header.byteLength < 33 || fields.getUint32(8) !== 13 || fields.getUint32(12) !== 0x49484452) {
-    throw new Error('Voxel skins must contain a valid PNG IHDR header.')
+    throw new VoxelSkinDecodeError('INVALID_PNG', 'Voxel skins must contain a valid PNG IHDR header.')
   }
   const width = fields.getUint32(16)
   const height = fields.getUint32(20)
   if (width !== 64 || (height !== 64 && height !== 32)) {
-    throw new Error('Voxel skins must be 64x64 or legacy 64x32 images.')
+    throw new VoxelSkinDecodeError('INVALID_DIMENSIONS', 'Voxel skins must be 64x64 or legacy 64x32 images.')
   }
   const decoded = await decodeCanvasImage(source)
   try {
     if (decoded.width !== 64 || (decoded.height !== 64 && decoded.height !== 32)) {
-      throw new Error('Voxel skins must be 64x64 or legacy 64x32 images.')
+      throw new VoxelSkinDecodeError('INVALID_DIMENSIONS', 'Voxel skins must be 64x64 or legacy 64x32 images.')
     }
     const canvas = typeof OffscreenCanvas === 'undefined'
       ? document.createElement('canvas')

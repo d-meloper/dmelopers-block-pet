@@ -96,7 +96,7 @@ fn validate_settings(s: &Value) -> bool {
         crate::settings_defaults::numeric_range("preset", "keyboardBaseXOffset"),
         crate::settings_defaults::numeric_range("preset", "keyboardBaseZOffset"),
         ("keyboardScalePercent", 50.0, 200.0),
-        ("autoViewportPaddingPixels", 0.0, 16.0),
+        ("autoViewportPaddingPixels", 0.0, 30.0),
     ];
     let colors = [
         "deskColor",

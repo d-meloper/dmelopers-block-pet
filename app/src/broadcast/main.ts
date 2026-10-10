@@ -32,10 +32,13 @@ function connect() {
   socket = connection
   lastMessage = Date.now()
   connection.onopen = () => {
-    if (socket === connection) diagnostics.flush()
+    if (!disposed && socket === connection && connection.readyState === WebSocket.OPEN) diagnostics.flush()
   }
   connection.onmessage = ({ data }) => {
-    if (socket !== connection || typeof data !== 'string' || data.length > 4 * 1024 * 1024) return
+    if (disposed || socket !== connection || connection.readyState !== WebSocket.OPEN
+      || typeof data !== 'string' || data.length > 4 * 1024 * 1024) {
+      return
+    }
     lastMessage = Date.now()
     try {
       session.receive(JSON.parse(data))
@@ -54,7 +57,7 @@ function connect() {
 }
 
 const heartbeat = setInterval(() => {
-  if (socket && Date.now() - lastMessage > 8000) {
+  if (socket && socket.readyState < WebSocket.CLOSING && Date.now() - lastMessage > 8000) {
     diagnostics.report('heartbeat_timeout')
     session.disconnect()
     socket.close()
@@ -64,8 +67,10 @@ window.addEventListener('pagehide', () => {
   disposed = true
   clearTimeout(reconnect)
   clearInterval(heartbeat)
+  const connection = socket
+  socket = undefined
   session.disconnect()
-  socket?.close()
+  connection?.close()
   view.dispose()
   diagnostics.dispose()
 }, { once: true })

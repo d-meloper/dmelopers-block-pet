@@ -20,9 +20,12 @@ function harness(apply: () => Promise<void> = async () => {}) {
   let timerId = 0
   let now = 0
   let pagehide!: () => void
-  const effects = { inputs: 0, clears: 0, disposed: 0 }
+  const effects = { inputs: 0, resets: 0, clears: 0, disposed: 0 }
   class Socket {
+    static CONNECTING = 0
     static OPEN = 1
+    static CLOSING = 2
+    static CLOSED = 3
     readyState = 1
     sent: string[] = []
     closeCalls = 0
@@ -59,7 +62,9 @@ function harness(apply: () => Promise<void> = async () => {}) {
             input: () => {
               effects.inputs++
             },
-            reset: () => {},
+            reset: () => {
+              effects.resets++
+            },
             clear: () => {
               effects.clears++
             },
@@ -154,6 +159,60 @@ it('clears stale output on heartbeat timeout and cancels reconnect when the page
   h.pagehide()
   h.reconnect()
   assert.equal(h.sockets.length, 1)
+})
+
+for (const boundary of ['pagehide', 'heartbeat'] as const) {
+  it(`ignores queued scene/reset/input from a connection retired by ${boundary}`, async () => {
+    let applications = 0
+    const h = harness(async () => {
+      applications++
+    })
+    const socket = h.sockets[0]
+    socket.onmessage!({ data: JSON.stringify(scene) })
+    await flush()
+    if (boundary === 'pagehide') h.pagehide()
+    else h.advance(9000)
+    const cleared = h.effects.clears
+    const resets = h.effects.resets
+    const sent = socket.sent.length
+    socket.onopen!()
+    socket.onmessage!({ data: JSON.stringify({ ...scene, revision: 2 }) })
+    await flush()
+    socket.onmessage!({ data: '{"type":"reset"}' })
+    socket.onmessage!({ data: JSON.stringify(input) })
+    assert.equal(applications, 1, 'teardown must never recreate a renderer from a buffered scene')
+    assert.equal(h.effects.inputs, 0)
+    assert.equal(h.effects.resets, resets)
+    assert.equal(h.effects.clears, cleared)
+    assert.equal(socket.sent.length, sent)
+    h.advance(9000)
+    assert.equal(socket.closeCalls, 1, 'a closing connection must not repeat timeout cleanup')
+    socket.onclose!()
+    assert.equal(h.timers.size, boundary === 'heartbeat' ? 1 : 0)
+    if (boundary === 'heartbeat') {
+      h.reconnect()
+      const replacement = h.sockets[1]
+      replacement.onmessage!({ data: JSON.stringify(scene) })
+      await flush()
+      replacement.onmessage!({ data: JSON.stringify(input) })
+      assert.equal(applications, 2, 'a new OPEN connection retains normal scene initialization')
+      assert.equal(h.effects.inputs, 1)
+    }
+    h.pagehide()
+  })
+}
+
+it('still times out a connection that never opened without repeating close work', () => {
+  const h = harness()
+  const socket = h.sockets[0]
+  socket.readyState = 0
+  h.advance(9000)
+  assert.equal(socket.closeCalls, 1)
+  h.advance(9000)
+  assert.equal(socket.closeCalls, 1)
+  socket.onclose!()
+  assert.equal(h.timers.size, 1)
+  h.pagehide()
 })
 
 it('closes malformed messages and reports renderer failure without acknowledging readiness', async () => {

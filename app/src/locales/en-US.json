@@ -66,7 +66,7 @@
         },
         "hints": {
           "empty": "No presets yet. Try creating a new preset to save your current skin and settings.",
-          "scope": "Save or load your settings (skin, Pet, Objects, and Scene) as presets. Performance, Shortcuts, and Preferences are not saved in presets.\n\n(Drag a .petpreset file here to import it.)",
+          "scope": "Save or load your settings (skin, Pet, Objects, and Scene) as presets. Performance, Shortcuts, and Preferences are not saved in presets.",
           "reorder": "Drag a handle, or focus it and press Alt + ← / → (↑ / ↓) to reorder within the same group.",
           "moveToEnd": "Move to the end of this group"
         },
@@ -90,6 +90,7 @@
           "deleteHint": "This deletes the preset and cannot be undone. Your current skin and settings are kept."
         },
         "transfer": {
+          "dropActiveTitle": "Release to import presets",
           "buttons": {
             "import": "Import",
             "export": "Export"
@@ -246,7 +247,7 @@
           "mouseMirror": "When enabled, the mouse will mirror the hand movement.",
           "ignoreMouse": "When enabled, the model will not respond to mouse events. Useful for keyboard mode.",
           "passThrough": "When enabled, clicks pass through the window without affecting it.",
-          "alwaysOnTop": "When enabled, the window stays above all other windows.",
+          "alwaysOnTop": "Keep the pet window above other windows. The pet may not be visible in full-screen games even when this option is enabled. Please use the game's windowed or borderless windowed mode.",
           "keepInScreen": "When enabled, the window automatically stays within the screen boundaries.",
           "windowSize": "Scale the pet window from 10% to 100% while preserving its composition and aspect ratio.",
           "hideOnHover": "When enabled, the window hides automatically on mouse hover. You can set a delay; 0 means hide immediately.",
@@ -322,6 +323,7 @@
       "skinLibrary": {
         "title": "Skin Library",
         "drop": {
+          "activeTitle": "Release to import skins",
           "title": "Drop PNG skin files here",
           "hint": "You can import multiple files at once."
         },
@@ -374,6 +376,14 @@
           "apply": "The skin could not be applied. Your current skin is unchanged.",
           "delete": "The selected skins could not be deleted.",
           "importAll": "Could not import {count} skin(s).",
+          "importReasons": {
+            "pngOnly": "Only PNG files can be loaded.",
+            "invalidPng": "This is not a valid PNG image.",
+            "dimensions": "Only 64×64 or 64×32 pixel PNGs can be loaded.",
+            "tooLarge": "The file exceeds the allowed size limit.",
+            "storage": "The skin library is unavailable.",
+            "unknown": "The image could not be loaded for an unknown reason."
+          },
           "invalidName": "Use 1–255 characters after trimming and do not include control characters.",
           "rename": "The skin name could not be saved. Please try again.",
           "preview": "Could not load the default skin preview."
@@ -560,7 +570,7 @@
         "hints": {
           "visible": "Show or hide the pet.",
           "passThrough": "Allow clicks to pass through the pet window.",
-          "alwaysOnTop": "Keep the pet window above other windows.",
+          "alwaysOnTop": "Keep the pet window above other windows. The pet may not be visible in full-screen games even when this option is enabled. Please use the game's windowed or borderless windowed mode.",
           "hideOnHover": "Hide the pet window after the selected delay when the pointer moves over it.",
           "keepInScreen": "Keep the pet window within the visible screen area.",
           "showTaskbarIcon": "Show the pet as a taskbar icon.",

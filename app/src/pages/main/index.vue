@@ -52,7 +52,9 @@ import { registerNativeDrain } from '@/features/stateSafety/runtime'
 import {
   dragMainWindow,
   hideWindow,
+  popupPetMenu,
   setAlwaysOnTop,
+  setPetCursorEvents,
   setTaskbarVisibility,
   setWindowMemoryActive,
   showWindow,
@@ -98,6 +100,7 @@ watch(rendererLoading, loading => three3d.setPetPresentationVisible(!loading), {
 const viewportHologramVisible = ref(false)
 let viewportHologramInteractionActive = false
 let petWindowDragging = false
+let petNativeDragPending = false
 let petWindowDragGeneration = 0
 let rendererReady = false
 let activeWindowScalePercent = 100
@@ -355,7 +358,7 @@ const viewportInteraction = createViewportInteraction((held) => {
   viewportHologramInteractionActive = held
   if (!held && !petWindowDragging) viewportHologramVisible.value = false
   refreshAutomaticViewportMutationGuard()
-  viewportUpdateScheduler.setHeld(held && !viewportResetPending && !presetApplyInProgress)
+  viewportUpdateScheduler.setHeld((held || petNativeDragPending) && !viewportResetPending && !presetApplyInProgress)
   if (!held || (viewportUpdatePending && viewportUpdateMode === 'live-scale')) return
   boundsMeasurementGeneration += 1
   viewportGeometryGeneration += 1
@@ -365,7 +368,7 @@ const viewportInteraction = createViewportInteraction((held) => {
 })
 
 function isViewportInteractionBlocking(): boolean {
-  return !presetApplyInProgress && viewportInteraction.isHeld() && !rendererInitialization && !viewportResetPending
+  return !presetApplyInProgress && (viewportInteraction.isHeld() || petNativeDragPending) && !rendererInitialization && !viewportResetPending
     && viewportUpdateMode !== 'live-scale'
 }
 
@@ -590,10 +593,27 @@ async function applyNativeFullViewport(): Promise<boolean> {
 
 function clearViewportHologram(): void {
   petWindowDragging = false
+  petNativeDragPending = false
   petWindowDragGeneration += 1
   viewportInteraction.cancel('pet-drag')
   viewportHologramVisible.value = false
   viewportHologramInteractionActive = false
+  viewportUpdateScheduler.setHeld(viewportInteraction.isHeld() && !viewportResetPending && !presetApplyInProgress)
+}
+
+function releasePetDragHologram(): void {
+  if (!petWindowDragging) return
+  if (!petNativeDragPending) {
+    // A quick click can release before the two paint frames finish. Retire the
+    // request now so it cannot start a native move loop after that release.
+    clearViewportHologram()
+    return
+  }
+  // Physical release ends presentation even if its native completion reply is
+  // delayed. Retain the issued drag owner so another press cannot overlap it.
+  viewportHologramVisible.value = false
+  viewportHologramInteractionActive = false
+  viewportInteraction.cancel('pet-drag')
 }
 
 function showViewportHologram(): void {
@@ -1444,6 +1464,7 @@ async function registerInputListeners() {
     listen<unknown>(LISTEN_KEY.SEMANTIC_INPUT, ({ payload }) => {
       if (!componentMounted || !isSemanticInputEvent(payload) || !device.acceptsInput(payload)) return
       if (payload.kind === 'mouse_primary' || payload.kind === 'mouse_secondary') {
+        if (payload.kind === 'mouse_primary' && !payload.active) releasePetDragHologram()
         viewportInteraction.setNativeButton(payload.kind === 'mouse_primary' ? 1 : 2, payload.active)
       }
     }),
@@ -1515,6 +1536,9 @@ onUnmounted(() => {
 useEventListener('resize', debouncedResize)
 useEventListener(window, 'pointerdown', captureViewportPointer, { capture: true })
 useEventListener(window, ['pointerdown', 'pointermove', 'pointerup', 'mousedown', 'mouseup'], (event: MouseEvent) => {
+  if ((event.type === 'pointerup' || event.type === 'mouseup') && event.button === 0 && (event.buttons & 1) === 0) {
+    releasePetDragHologram()
+  }
   if (!petWindowDragging && event.buttons === 0 && !viewportInteraction.isSourceHeld('preference')) clearViewportHologram()
   viewportInteraction.setButtons('main', event.buttons)
 }, { capture: true })
@@ -1546,7 +1570,7 @@ watch(() => blockStore.activePet3dPreset.mouseEnabled, () => {
 watch(() => desktopPetVisible.value, () => {
   if (!presetApplyInProgress) void synchronizeWindowVisibility()
 })
-watch(() => blockStore.window.passThrough, value => appWindow.setIgnoreCursorEvents(value), { immediate: true })
+watch(() => blockStore.window.passThrough, value => void setPetCursorEvents(value).catch(error => console.warn('Failed to apply pet click-through.', error)), { immediate: true })
 watch(() => blockStore.window.alwaysOnTop, setAlwaysOnTop, { immediate: true })
 watch(() => generalStore.app.taskbarVisible, setTaskbarVisibility, { immediate: true })
 watch(() => blockStore.model.eyebrowAnimationEnabled, three3d.setEyebrowAnimationEnabled.bind(three3d), { immediate: true })
@@ -1940,7 +1964,7 @@ useTauriListen<PresetApplyRequest>(PRESET_APPLY_REQUEST, ({ payload }) => {
     } finally {
       presetApplyInProgress = false
       activePresetRequestId = undefined
-      viewportUpdateScheduler.setHeld(viewportInteraction.isHeld())
+      viewportUpdateScheduler.setHeld(viewportInteraction.isHeld() || petNativeDragPending)
       cancelledPresetRequests.delete(payload.requestId)
     }
     await emitTo(WINDOW_LABEL.PREFERENCE, PRESET_APPLY_RESPONSE, {
@@ -1990,6 +2014,7 @@ async function handleMouseDown(event: MouseEvent) {
     // Give the overlay a paint before entering the native modal move loop.
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     if (generation !== petWindowDragGeneration || !componentMounted || !desktopPetVisible.value) return
+    petNativeDragPending = true
     await dragMainWindow(blockStore.window.keepInScreen)
   } catch (error) {
     if (generation === petWindowDragGeneration) clearViewportHologram()
@@ -2007,23 +2032,13 @@ async function showContextMenu() {
   if (contextMenuPending || !componentMounted) return
   contextMenuPending = true
   let menu: Awaited<ReturnType<typeof getAppMenu>> | undefined
-  let restoreTopmost = false
   try {
     menu = await getAppMenu()
     if (!componentMounted) return
-    restoreTopmost = true
-    if (blockStore.window.alwaysOnTop) setAlwaysOnTop(false)
-    await menu.popup()
+    await popupPetMenu(menu.rid)
   } finally {
-    // Restore presentation and release the resource independently. Cleanup
-    // errors must not replace a failed popup or retain the creation guard.
-    if (restoreTopmost) {
-      try {
-        setAlwaysOnTop(blockStore.window.alwaysOnTop)
-      } catch (error) {
-        console.warn('Failed to restore the pet window after its context menu.', error)
-      }
-    }
+    // Native owns priority restoration even if this page retires. Root cleanup
+    // must not replace a failed popup or retain the creation guard.
     try {
       await menu?.close()
     } catch (error) {
@@ -2103,6 +2118,9 @@ function handleContextmenu(event: MouseEvent) {
 }
 
 .viewport-hologram {
+  box-shadow:
+    inset 0 0 0 1px black,
+    inset 0 0 0 2px white;
   background-color: rgb(70 210 220 / 8%);
   background-image:
     linear-gradient(rgb(100 225 235 / 12%) 1px, transparent 1px),
@@ -2113,10 +2131,10 @@ function handleContextmenu(event: MouseEvent) {
     24px 24px,
     100% 4px;
   opacity: 0;
-  transition: opacity 80ms linear;
 }
 
 .viewport-hologram-visible {
   opacity: 1;
+  transition: opacity 80ms linear;
 }
 </style>

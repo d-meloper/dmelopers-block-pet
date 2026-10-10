@@ -26,6 +26,10 @@ See [Security](SECURITY.md) for download warnings, checksums and signatures.
 
 For storage locations and reset or uninstall options, see the [Data Management Guide](https://aismash.notion.site/3f32dc0bb4ae80808222e5e0cf123464). The [Privacy Policy](https://aismash.notion.site/3f32dc0bb4ae803ea9aed8d3b366c391) explains information processing and contact form data. Both guides are maintained on Notion.
 
+## Full-screen Games
+
+The pet may not be visible in full-screen games even with Always on Top enabled. Please set the game's display mode to windowed or borderless windowed mode.
+
 ## Questions and Bug Reports
 
 Use [GitHub Issues](https://github.com/d-meloper/dmelopers-block-pet/issues) for questions, bugs and suggestions. Include:

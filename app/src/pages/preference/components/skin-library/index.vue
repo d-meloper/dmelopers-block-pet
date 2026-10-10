@@ -18,6 +18,7 @@ import type {
 import type { SkinLibrarySelectionState } from '@/utils/skinLibrarySelection'
 import type { NormalizedVoxelSkin } from '@/utils/three3d/voxelSkin'
 
+import FileDropSurface from '@/components/file-drop-surface/index.vue'
 import { getSkinSelectionId } from '@/config/skinIdentity'
 import { onPresetSelectionChange } from '@/features/presets/editIntent'
 import { beginPresetNativeEdit } from '@/features/presets/operations'
@@ -62,7 +63,7 @@ import {
   createSkinFaceThumbnailPngBase64,
   createSkinThumbnailDataUrl,
 } from '@/utils/skinThumbnail'
-import { decodeVoxelSkin, suggestVoxelSkinHeadTopColor } from '@/utils/three3d/voxelSkin'
+import { decodeVoxelSkin, suggestVoxelSkinHeadTopColor, VoxelSkinDecodeError } from '@/utils/three3d/voxelSkin'
 
 const emit = defineEmits<{
   back: []
@@ -77,6 +78,8 @@ const selection = ref<SkinLibrarySelectionState>(
 const loading = ref(true)
 const busy = ref(false)
 const importing = ref(false)
+type ImportFailureReason = 'pngOnly' | 'invalidPng' | 'dimensions' | 'tooLarge' | 'storage' | 'unknown'
+const lastImportFailure = ref<ImportFailureReason>()
 const applying = ref(false)
 const loadError = ref(false)
 const cleanupPending = ref(false)
@@ -95,6 +98,22 @@ const renameInput = ref<HTMLInputElement>()
 const renaming = ref(false)
 let unlistenDragDrop: (() => void) | undefined
 let mounted = true
+let importFailureGeneration = 0
+let importFailureTimer: ReturnType<typeof setTimeout> | undefined
+
+function setImportFailure(reason?: ImportFailureReason) {
+  importFailureGeneration += 1
+  if (importFailureTimer !== undefined) clearTimeout(importFailureTimer)
+  importFailureTimer = undefined
+  lastImportFailure.value = reason
+  if (!mounted || !reason) return
+  const generation = importFailureGeneration
+  importFailureTimer = setTimeout(() => {
+    if (!mounted || generation !== importFailureGeneration) return
+    importFailureTimer = undefined
+    lastImportFailure.value = undefined
+  }, 3000)
+}
 
 type SkinLibraryImportCandidate
   = | { kind: 'picker', file: File }
@@ -104,6 +123,29 @@ interface ImportedLocalSkin {
   entry: SkinLibraryEntry
   pngBase64: string
   decoded: NormalizedVoxelSkin
+}
+
+interface IndexedLocalSkinFile extends LocalSkinFileResponse {
+  importIndex: number
+}
+
+interface ImportFailure {
+  index: number
+  reason: ImportFailureReason
+}
+
+function importFailureReason(error: unknown): ImportFailureReason {
+  if (error instanceof VoxelSkinDecodeError || error instanceof SkinLibraryError) {
+    switch (error.code) {
+      case 'PNG_ONLY': return 'pngOnly'
+      case 'INVALID_PNG': return 'invalidPng'
+      case 'INVALID_DIMENSIONS': return 'dimensions'
+      case 'TOO_LARGE': return 'tooLarge'
+      case 'STORAGE_UNAVAILABLE':
+      case 'CATALOG_CORRUPT': return 'storage'
+    }
+  }
+  return 'unknown'
 }
 
 const selectedIds = computed(() => selection.value.selectedIds)
@@ -153,7 +195,7 @@ function getPngBase64(dataUrl: string): string {
 
 async function readPickedSkinFile(file: File): Promise<LocalSkinFileResponse> {
   if (!file.name.toLowerCase().endsWith('.png')) {
-    throw new Error(t('pages.preference.block.errors.pngOnly'))
+    throw new VoxelSkinDecodeError('PNG_ONLY', 'Voxel skins must be PNG images.')
   }
   if (file.size > MAX_SKIN_LIBRARY_PNG_BYTES) {
     throw new SkinLibraryError('TOO_LARGE')
@@ -168,6 +210,9 @@ async function readPickedSkinFile(file: File): Promise<LocalSkinFileResponse> {
 async function readImportCandidate(
   candidate: SkinLibraryImportCandidate,
 ): Promise<LocalSkinFileResponse> {
+  if (candidate.kind === 'drop' && !candidate.filePath.toLowerCase().endsWith('.png')) {
+    throw new VoxelSkinDecodeError('PNG_ONLY', 'Voxel skins must be PNG images.')
+  }
   return candidate.kind === 'picker'
     ? readPickedSkinFile(candidate.file)
     : readLocalSkinFile(candidate.filePath)
@@ -386,7 +431,7 @@ async function loadDefaultThumbnail() {
 }
 
 async function importCandidate(
-  candidate: SkinLibraryPlannedImport<LocalSkinFileResponse>,
+  candidate: SkinLibraryPlannedImport<IndexedLocalSkinFile>,
   generation: number,
 ): Promise<ImportedLocalSkin> {
   if (!applyRequestGate.isCurrent(generation)) throw new Error('Import cancelled.')
@@ -415,27 +460,30 @@ async function prepareImportCandidates(
   candidates: readonly SkinLibraryImportCandidate[],
   generation: number,
 ): Promise<{
-  candidates: SkinLibraryPreparedImport<LocalSkinFileResponse>[]
+  candidates: SkinLibraryPreparedImport<IndexedLocalSkinFile>[]
   failureCount: number
+  lastFailure?: ImportFailure
 }> {
-  const prepared: SkinLibraryPreparedImport<LocalSkinFileResponse>[] = []
+  const prepared: SkinLibraryPreparedImport<IndexedLocalSkinFile>[] = []
   let failureCount = 0
-  for (const candidate of candidates) {
+  let lastFailure: ImportFailure | undefined
+  for (const [index, candidate] of candidates.entries()) {
     try {
       if (!applyRequestGate.isCurrent(generation)) throw new Error('Import cancelled.')
       const value = await readImportCandidate(candidate)
-      prepared.push({ originalFilename: value.originalFilename, value })
+      prepared.push({ originalFilename: value.originalFilename, value: { ...value, importIndex: index } })
     } catch (error) {
       if (!applyRequestGate.isCurrent(generation)) throw new Error('Import cancelled.')
       reportDiagnostic('warn', 'skin_library.import_read', error)
       failureCount += 1
+      lastFailure = { index, reason: importFailureReason(error) }
     }
   }
-  return { candidates: prepared, failureCount }
+  return { candidates: prepared, failureCount, lastFailure }
 }
 
 function confirmSkinLibraryOverwrites(
-  plan: SkinLibraryOverwritePlan<LocalSkinFileResponse>,
+  plan: SkinLibraryOverwritePlan<IndexedLocalSkinFile>,
 ): Promise<boolean> {
   const singleFilename = plan.collisionFilenames[0]
   return new Promise((resolve) => {
@@ -496,11 +544,14 @@ async function importCandidates(candidates: readonly SkinLibraryImportCandidate[
   if (!mounted || editorsLocked.value || candidates.length === 0 || busy.value || applying.value || loading.value) return
   const release = beginPresetNativeEdit()
   const generation = applyRequestGate.begin()
+  setImportFailure()
+  let lastFailure: ImportFailure | undefined
   busy.value = true
   importing.value = true
   dropActive.value = false
   try {
     const prepared = await prepareImportCandidates(candidates, generation)
+    lastFailure = prepared.lastFailure
     const overwritePlan = planSkinLibraryOverwrites(
       prepared.candidates,
       entries.value,
@@ -515,7 +566,12 @@ async function importCandidates(candidates: readonly SkinLibraryImportCandidate[
     )
     const result = await importSkinLibraryBatch(resolved.candidates, {
       importOne: candidate => importCandidate(candidate, generation).catch((error) => {
-        if (applyRequestGate.isCurrent(generation)) reportDiagnostic('warn', 'skin_library.import_store', error)
+        if (applyRequestGate.isCurrent(generation)) {
+          reportDiagnostic('warn', 'skin_library.import_store', error)
+          if (!lastFailure || candidate.value.importIndex > lastFailure.index) {
+            lastFailure = { index: candidate.value.importIndex, reason: importFailureReason(error) }
+          }
+        }
         throw error
       }),
       refresh: async () => {
@@ -534,11 +590,13 @@ async function importCandidates(candidates: readonly SkinLibraryImportCandidate[
     if (applyRequestGate.isCurrent(generation)) {
       const successCount = result.successes.length
       const failureCount = prepared.failureCount + result.failures.length
+      setImportFailure(lastFailure?.reason)
       showImportResult(successCount, failureCount, resolved.skippedCount)
     }
   } catch (error) {
     if (applyRequestGate.isCurrent(generation)) {
       reportDiagnostic('error', 'skin_library.import', error)
+      setImportFailure(lastFailure?.reason ?? importFailureReason(error))
       message.error(t('pages.preference.skinLibrary.errors.importAll', {
         count: candidates.length,
       }))
@@ -777,6 +835,7 @@ const stopPresetSelectionListener = onPresetSelectionChange(() => {
 onBeforeUnmount(stopPresetSelectionListener)
 onBeforeUnmount(() => {
   mounted = false
+  setImportFailure()
   cancelSkinApplication()
   dropActive.value = false
   unlistenDragDrop?.()
@@ -790,40 +849,13 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="relative h-screen min-w-0 flex flex-col bg-color-1">
-    <div
-      v-if="dropActive"
-      aria-live="polite"
-      class="bg-color-1/90 pointer-events-none absolute inset-0 z-50 flex items-center justify-center p-6"
-      role="status"
-    >
-      <Flex
-        align="center"
-        class="h-full w-full b-2 b-primary-6 rounded-2xl b-dashed text-center"
-        gap="small"
-        justify="center"
-        vertical
-      >
-        <span
-          aria-hidden="true"
-          class="i-lucide:images size-10 text-primary-6"
-        />
-        <strong class="text-lg">
-          {{ $t('pages.preference.skinLibrary.drop.title') }}
-        </strong>
-        <span class="text-sm text-color-3">
-          {{ $t('pages.preference.skinLibrary.drop.hint') }}
-        </span>
-      </Flex>
-    </div>
     <Flex
       align="center"
       class="h-16 flex-shrink-0 b-b b-color-2 b-solid px-5"
-      data-tauri-drag-region
       justify="space-between"
     >
       <h1
         class="m-0 text-lg font-semibold"
-        data-tauri-drag-region
       >
         {{ $t('pages.preference.skinLibrary.title') }}
       </h1>
@@ -867,207 +899,226 @@ onBeforeUnmount(() => {
       </Flex>
     </Flex>
 
-    <main class="min-h-0 flex-1 overflow-auto p-5">
-      <Flex
-        v-if="loading"
-        align="center"
-        class="mb-5 text-color-3"
-        justify="center"
+    <div class="skin-library-viewport relative min-h-0 flex-1 overflow-hidden">
+      <main class="h-full min-h-0 overflow-auto p-5">
+        <p
+          v-if="lastImportFailure"
+          class="mb-5 mt-0 text-sm text-danger"
+          role="alert"
+        >
+          {{ $t(`pages.preference.skinLibrary.errors.importReasons.${lastImportFailure}`) }}
+        </p>
+        <Flex
+          v-if="loading"
+          align="center"
+          class="mb-5 text-color-3"
+          justify="center"
+          role="status"
+        >
+          {{ $t('pages.preference.skinLibrary.status.loading') }}
+        </Flex>
+        <Flex
+          v-else-if="loadError"
+          align="center"
+          class="mb-5"
+          gap="middle"
+          justify="center"
+          vertical
+        >
+          <span role="alert">{{ $t('pages.preference.skinLibrary.errors.load') }}</span>
+          <Button @click="loadEntries(true)">
+            {{ $t('pages.preference.skinLibrary.buttons.retry') }}
+          </Button>
+        </Flex>
+        <Flex
+          v-else-if="entries.length === 0"
+          align="center"
+          class="mb-5 text-color-3"
+          justify="center"
+        >
+          {{ $t('pages.preference.skinLibrary.status.empty') }}
+        </Flex>
+        <Flex
+          v-if="cleanupPending"
+          align="center"
+          class="mb-5"
+          gap="middle"
+          justify="center"
+          vertical
+        >
+          <span role="alert">{{ $t('pages.preference.skinLibrary.status.cleanupPending') }}</span>
+          <Button
+            :disabled="busy || applying || cleaningUp"
+            :loading="cleaningUp"
+            @click="cleanupLibraryFiles"
+          >
+            {{ $t('pages.preference.skinLibrary.buttons.retryCleanup') }}
+          </Button>
+        </Flex>
+        <div
+          :aria-multiselectable="multiMode"
+          class="grid grid-cols-[repeat(auto-fill,minmax(148px,1fr))] gap-4"
+          role="listbox"
+        >
+          <div
+            :aria-disabled="busy"
+            :aria-label="$t('pages.preference.skinLibrary.builtinName')"
+            :aria-selected="defaultSelected"
+            class="relative min-w-0 cursor-pointer b-2 rounded-xl b-solid bg-color-2 p-3 outline-none transition focus-visible:(ring-2 ring-primary-6)"
+            :class="defaultSelected ? 'b-primary-6' : 'b-color-2 hover:b-primary-4'"
+            :data-skin-id="BUILTIN_DMELOPER_SKIN.id"
+            role="option"
+            tabindex="0"
+            @click="selectCard(BUILTIN_DMELOPER_SKIN.id)"
+            @keydown="onCardKeydown($event, BUILTIN_DMELOPER_SKIN.id)"
+          >
+            <Tag
+              v-if="defaultActive"
+              class="absolute right-2 top-2 m-0!"
+              color="blue"
+            >
+              {{ $t('pages.preference.skinLibrary.status.current') }}
+            </Tag>
+            <img
+              v-if="defaultThumbnailUrl"
+              :alt="$t('pages.preference.skinLibrary.labels.preview', { name: $t('pages.preference.skinLibrary.builtinName') })"
+              class="[image-rendering:pixelated] aspect-square w-full rounded-lg bg-color-3 object-cover"
+              draggable="false"
+              :src="defaultThumbnailUrl"
+            >
+            <div
+              v-else
+              aria-hidden="true"
+              class="aspect-square w-full flex items-center justify-center rounded-lg bg-color-3 text-color-3"
+            >
+              <span class="i-lucide:user-round size-12" />
+            </div>
+            <div class="mt-3 min-w-0 truncate text-color-1 font-medium">
+              {{ $t('pages.preference.skinLibrary.builtinName') }}
+            </div>
+            <Flex
+              class="mt-1 text-xs text-color-3"
+              gap="small"
+              wrap="wrap"
+            >
+              <span>{{ $t('pages.preference.skinLibrary.sources.builtin') }}</span>
+              <span aria-hidden="true">·</span>
+              <span>{{ $t(`pages.preference.block.options.dmeloperSkinModel.${BUILTIN_DMELOPER_SKIN.model}`) }}</span>
+            </Flex>
+            <div
+              v-if="defaultThumbnailError"
+              class="mt-2 text-xs text-color-3"
+            >
+              <span role="alert">{{ $t('pages.preference.skinLibrary.errors.preview') }}</span>
+              <Button
+                class="mt-2"
+                size="small"
+                @click.stop="loadDefaultThumbnail"
+                @keydown.stop
+              >
+                {{ $t('pages.preference.skinLibrary.buttons.retry') }}
+              </Button>
+            </div>
+          </div>
+          <div
+            v-for="entry in entries"
+            :key="entry.id"
+            :aria-label="entry.displayName"
+            :aria-selected="selected.has(entry.id)"
+            class="relative min-w-0 cursor-pointer b-2 rounded-xl b-solid bg-color-2 p-3 outline-none transition focus-visible:(ring-2 ring-primary-6)"
+            :class="selected.has(entry.id) ? 'b-primary-6' : 'b-color-2 hover:b-primary-4'"
+            :data-skin-id="entry.id"
+            role="option"
+            tabindex="0"
+            @click="selectCard(entry.id)"
+            @keydown="onCardKeydown($event, entry.id)"
+          >
+            <button
+              :aria-checked="selected.has(entry.id)"
+              :aria-label="$t('pages.preference.skinLibrary.buttons.toggleSelection', { name: entry.displayName })"
+              class="bg-color-1/90 absolute left-2 top-2 z-1 size-7 flex cursor-pointer items-center justify-center b-0 rounded-md p-0 text-color-3"
+              role="checkbox"
+              type="button"
+              @click.stop="toggleCheckbox(entry.id)"
+              @keydown.stop
+            >
+              <span
+                aria-hidden="true"
+                class="size-5"
+                :class="selected.has(entry.id) ? 'i-lucide:square-check-big text-primary-6' : 'i-lucide:square'"
+              />
+            </button>
+            <Tag
+              v-if="activeEntryId === entry.id"
+              class="absolute right-2 top-2 m-0!"
+              color="blue"
+            >
+              {{ $t('pages.preference.skinLibrary.status.current') }}
+            </Tag>
+            <img
+              :alt="$t('pages.preference.skinLibrary.labels.preview', { name: entry.displayName })"
+              class="[image-rendering:pixelated] aspect-square w-full rounded-lg bg-color-3 object-cover"
+              draggable="false"
+              :src="createSkinThumbnailDataUrl(entry.thumbnailPngBase64)"
+            >
+            <div class="mt-3 min-w-0">
+              <button
+                v-if="editingEntryId !== entry.id"
+                :aria-label="$t('pages.preference.skinLibrary.labels.rename', { name: entry.displayName })"
+                class="w-full cursor-text truncate b-0 bg-transparent p-0 text-left text-color-1 font-medium"
+                :disabled="busy || applying"
+                :title="entry.displayName"
+                type="button"
+                @click.stop="beginNameEdit(entry)"
+                @keydown.stop
+              >
+                {{ entry.displayName }}
+              </button>
+              <template v-else>
+                <input
+                  :ref="setRenameInput"
+                  v-model="editingName"
+                  :aria-busy="renaming"
+                  :aria-describedby="renameHintId(entry.id)"
+                  :aria-label="$t('pages.preference.skinLibrary.labels.renameInput', { name: entry.displayName })"
+                  class="w-full b b-color-2 rounded-md bg-color-1 px-2 py-1 text-color-1 font-medium outline-none focus:b-primary-6"
+                  :readonly="busy || renaming"
+                  type="text"
+                  @blur="saveEditedName(entry)"
+                  @click.stop
+                  @keydown="onRenameKeydown($event, entry)"
+                >
+                <span
+                  :id="renameHintId(entry.id)"
+                  class="sr-only"
+                >
+                  {{ $t('pages.preference.skinLibrary.hints.rename') }}
+                </span>
+              </template>
+            </div>
+            <Flex
+              class="mt-1 text-xs text-color-3"
+              gap="small"
+              wrap="wrap"
+            >
+              <span>{{ $t(`pages.preference.skinLibrary.sources.${entry.source}`) }}</span>
+              <span aria-hidden="true">·</span>
+              <span>{{ $t(`pages.preference.block.options.dmeloperSkinModel.${entry.model}`) }}</span>
+            </Flex>
+          </div>
+        </div>
+      </main>
+      <div
+        v-if="dropActive"
+        aria-live="polite"
+        class="pointer-events-none absolute inset-0 z-50 flex items-center justify-center p-6"
         role="status"
       >
-        {{ $t('pages.preference.skinLibrary.status.loading') }}
-      </Flex>
-      <Flex
-        v-else-if="loadError"
-        align="center"
-        class="mb-5"
-        gap="middle"
-        justify="center"
-        vertical
-      >
-        <span role="alert">{{ $t('pages.preference.skinLibrary.errors.load') }}</span>
-        <Button @click="loadEntries(true)">
-          {{ $t('pages.preference.skinLibrary.buttons.retry') }}
-        </Button>
-      </Flex>
-      <Flex
-        v-else-if="entries.length === 0"
-        align="center"
-        class="mb-5 text-color-3"
-        justify="center"
-      >
-        {{ $t('pages.preference.skinLibrary.status.empty') }}
-      </Flex>
-      <Flex
-        v-if="cleanupPending"
-        align="center"
-        class="mb-5"
-        gap="middle"
-        justify="center"
-        vertical
-      >
-        <span role="alert">{{ $t('pages.preference.skinLibrary.status.cleanupPending') }}</span>
-        <Button
-          :disabled="busy || applying || cleaningUp"
-          :loading="cleaningUp"
-          @click="cleanupLibraryFiles"
-        >
-          {{ $t('pages.preference.skinLibrary.buttons.retryCleanup') }}
-        </Button>
-      </Flex>
-      <div
-        :aria-multiselectable="multiMode"
-        class="grid grid-cols-[repeat(auto-fill,minmax(148px,1fr))] gap-4"
-        role="listbox"
-      >
-        <div
-          :aria-disabled="busy"
-          :aria-label="$t('pages.preference.skinLibrary.builtinName')"
-          :aria-selected="defaultSelected"
-          class="relative min-w-0 cursor-pointer b-2 rounded-xl b-solid bg-color-2 p-3 outline-none transition focus-visible:(ring-2 ring-primary-6)"
-          :class="defaultSelected ? 'b-primary-6' : 'b-color-2 hover:b-primary-4'"
-          :data-skin-id="BUILTIN_DMELOPER_SKIN.id"
-          role="option"
-          tabindex="0"
-          @click="selectCard(BUILTIN_DMELOPER_SKIN.id)"
-          @keydown="onCardKeydown($event, BUILTIN_DMELOPER_SKIN.id)"
-        >
-          <Tag
-            v-if="defaultActive"
-            class="absolute right-2 top-2 m-0!"
-            color="blue"
-          >
-            {{ $t('pages.preference.skinLibrary.status.current') }}
-          </Tag>
-          <img
-            v-if="defaultThumbnailUrl"
-            :alt="$t('pages.preference.skinLibrary.labels.preview', { name: $t('pages.preference.skinLibrary.builtinName') })"
-            class="[image-rendering:pixelated] aspect-square w-full rounded-lg bg-color-3 object-cover"
-            draggable="false"
-            :src="defaultThumbnailUrl"
-          >
-          <div
-            v-else
-            aria-hidden="true"
-            class="aspect-square w-full flex items-center justify-center rounded-lg bg-color-3 text-color-3"
-          >
-            <span class="i-lucide:user-round size-12" />
-          </div>
-          <div class="mt-3 min-w-0 truncate text-color-1 font-medium">
-            {{ $t('pages.preference.skinLibrary.builtinName') }}
-          </div>
-          <Flex
-            class="mt-1 text-xs text-color-3"
-            gap="small"
-            wrap="wrap"
-          >
-            <span>{{ $t('pages.preference.skinLibrary.sources.builtin') }}</span>
-            <span aria-hidden="true">·</span>
-            <span>{{ $t(`pages.preference.block.options.dmeloperSkinModel.${BUILTIN_DMELOPER_SKIN.model}`) }}</span>
-          </Flex>
-          <div
-            v-if="defaultThumbnailError"
-            class="mt-2 text-xs text-color-3"
-          >
-            <span role="alert">{{ $t('pages.preference.skinLibrary.errors.preview') }}</span>
-            <Button
-              class="mt-2"
-              size="small"
-              @click.stop="loadDefaultThumbnail"
-              @keydown.stop
-            >
-              {{ $t('pages.preference.skinLibrary.buttons.retry') }}
-            </Button>
-          </div>
-        </div>
-        <div
-          v-for="entry in entries"
-          :key="entry.id"
-          :aria-label="entry.displayName"
-          :aria-selected="selected.has(entry.id)"
-          class="relative min-w-0 cursor-pointer b-2 rounded-xl b-solid bg-color-2 p-3 outline-none transition focus-visible:(ring-2 ring-primary-6)"
-          :class="selected.has(entry.id) ? 'b-primary-6' : 'b-color-2 hover:b-primary-4'"
-          :data-skin-id="entry.id"
-          role="option"
-          tabindex="0"
-          @click="selectCard(entry.id)"
-          @keydown="onCardKeydown($event, entry.id)"
-        >
-          <button
-            :aria-checked="selected.has(entry.id)"
-            :aria-label="$t('pages.preference.skinLibrary.buttons.toggleSelection', { name: entry.displayName })"
-            class="bg-color-1/90 absolute left-2 top-2 z-1 size-7 flex cursor-pointer items-center justify-center b-0 rounded-md p-0 text-color-3"
-            role="checkbox"
-            type="button"
-            @click.stop="toggleCheckbox(entry.id)"
-            @keydown.stop
-          >
-            <span
-              aria-hidden="true"
-              class="size-5"
-              :class="selected.has(entry.id) ? 'i-lucide:square-check-big text-primary-6' : 'i-lucide:square'"
-            />
-          </button>
-          <Tag
-            v-if="activeEntryId === entry.id"
-            class="absolute right-2 top-2 m-0!"
-            color="blue"
-          >
-            {{ $t('pages.preference.skinLibrary.status.current') }}
-          </Tag>
-          <img
-            :alt="$t('pages.preference.skinLibrary.labels.preview', { name: entry.displayName })"
-            class="[image-rendering:pixelated] aspect-square w-full rounded-lg bg-color-3 object-cover"
-            draggable="false"
-            :src="createSkinThumbnailDataUrl(entry.thumbnailPngBase64)"
-          >
-          <div class="mt-3 min-w-0">
-            <button
-              v-if="editingEntryId !== entry.id"
-              :aria-label="$t('pages.preference.skinLibrary.labels.rename', { name: entry.displayName })"
-              class="w-full cursor-text truncate b-0 bg-transparent p-0 text-left text-color-1 font-medium"
-              :disabled="busy || applying"
-              :title="entry.displayName"
-              type="button"
-              @click.stop="beginNameEdit(entry)"
-              @keydown.stop
-            >
-              {{ entry.displayName }}
-            </button>
-            <template v-else>
-              <input
-                :ref="setRenameInput"
-                v-model="editingName"
-                :aria-busy="renaming"
-                :aria-describedby="renameHintId(entry.id)"
-                :aria-label="$t('pages.preference.skinLibrary.labels.renameInput', { name: entry.displayName })"
-                class="w-full b b-color-2 rounded-md bg-color-1 px-2 py-1 text-color-1 font-medium outline-none focus:b-primary-6"
-                :readonly="busy || renaming"
-                type="text"
-                @blur="saveEditedName(entry)"
-                @click.stop
-                @keydown="onRenameKeydown($event, entry)"
-              >
-              <span
-                :id="renameHintId(entry.id)"
-                class="sr-only"
-              >
-                {{ $t('pages.preference.skinLibrary.hints.rename') }}
-              </span>
-            </template>
-          </div>
-          <Flex
-            class="mt-1 text-xs text-color-3"
-            gap="small"
-            wrap="wrap"
-          >
-            <span>{{ $t(`pages.preference.skinLibrary.sources.${entry.source}`) }}</span>
-            <span aria-hidden="true">·</span>
-            <span>{{ $t(`pages.preference.block.options.dmeloperSkinModel.${entry.model}`) }}</span>
-          </Flex>
-        </div>
+        <FileDropSurface
+          :title="$t('pages.preference.skinLibrary.drop.activeTitle')"
+        />
       </div>
-    </main>
+    </div>
 
     <Flex
       align="center"

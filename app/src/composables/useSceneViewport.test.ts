@@ -163,6 +163,105 @@ function viewportHarness(emitRequest?: Parameters<typeof useSceneViewport>[0], s
 }
 
 describe('scene viewport request acknowledgements', () => {
+  it('keeps first edits available throughout repeated focus queries and lets a mode change supersede a query', async () => {
+    const h = viewportHarness()
+    try {
+      await h.mount()
+      h.ack()
+      for (let drag = 0; drag < 3; drag++) {
+        await h.focus()
+        const queryId = h.events.at(-1)!.payload.requestId
+        assert.equal(h.api.viewportPending.value, false, 'focus readback must not disable a held slider')
+        assert.equal(presetOperations.presetNativeEditPending.value, 1, 'preset/save serialization still owns the query')
+        assert.equal(presetOperations.presetNativeMutationPending.value, 0, 'a query must not make the editor inert')
+        const edit = h.api.requestViewportMode(false)
+        await flush()
+        assert.equal(h.api.viewportPending.value, true, 'actual mode changes still block dependent controls')
+        assert.equal(presetOperations.presetNativeMutationPending.value, 1)
+        const editId = h.events.at(-1)!.payload.requestId
+        assert.notEqual(editId, queryId)
+        h.ack({ ...state(true), revision: 0 }, queryId)
+        assert.equal(h.api.viewportPending.value, true, 'retired query cannot complete the current edit')
+        h.ack({ ...state(false), revision: drag + 1 }, editId)
+        assert.equal(await edit, true)
+        assert.equal(presetOperations.presetNativeEditPending.value, 0)
+        assert.equal(presetOperations.presetNativeMutationPending.value, 0)
+      }
+    } finally {
+      h.unmount()
+    }
+  })
+
+  it('retires background refreshes without errors, stale writes or push-triggered retries, and can refresh again', async () => {
+    const h = viewportHarness()
+    try {
+      await h.mount()
+      const queryId = h.events.at(-1)!.payload.requestId
+      assert.equal(presetOperations.presetNativeEditPending.value, 1, 'normal preset operations still serialize queries')
+      presetOperations.cancelPresetNativeQueries()
+      assert.equal(h.api.viewportPending.value, false)
+      assert.equal(h.timers.size, 0)
+      assert.equal(presetOperations.presetNativeEditPending.value, 0)
+      h.ack({ ...state(false), revision: 7 }, queryId)
+      assert.equal(h.store.activePet3dPreset.autoViewportEnabled, true)
+      assert.equal(h.store.activePet3dPreset.viewportModeRevision, 0)
+      h.publish(state())
+      await flush()
+      assert.equal(h.events.length, 1, 'a retired query must not restart during Quit readiness')
+      assert.equal(h.api.viewportError.value, undefined)
+      assert.deepEqual(h.warnings, [])
+      await h.focus()
+      assert.equal(h.api.viewportPending.value, false, 'a later focus refresh must leave editors available')
+      assert.equal(h.events.length, 2, 'a later focus may refresh normally after a failed Quit')
+      h.ack()
+      assert.equal(presetOperations.presetNativeEditPending.value, 0)
+    } finally {
+      h.unmount()
+    }
+  })
+
+  it('preserves an explicit mode change and its pending edit lease when Quit retires background queries', async () => {
+    const h = viewportHarness()
+    try {
+      await h.mount()
+      h.ack()
+      const edit = h.api.requestViewportMode(false)
+      await flush()
+      presetOperations.cancelPresetNativeQueries()
+      assert.equal(h.api.viewportPending.value, true)
+      assert.equal(presetOperations.presetNativeEditPending.value, 1)
+      assert.equal(h.store.activePet3dPreset.autoViewportEnabled, true)
+      h.ack({ ...state(false), revision: 1 })
+      assert.equal(await edit, true)
+      assert.equal(h.store.activePet3dPreset.autoViewportEnabled, false)
+      assert.equal(h.store.activePet3dPreset.viewportModeRevision, 1)
+      assert.equal(presetOperations.presetNativeEditPending.value, 0)
+    } finally {
+      h.unmount()
+    }
+  })
+
+  it('invalidates a retired query still waiting in the preference event queue', async () => {
+    const held = deferred()
+    const delivered: sceneTypes.SceneViewportRequest[] = []
+    const h = viewportHarness(async (request, isCurrent) => {
+      await held.promise
+      if (isCurrent?.()) delivered.push(request)
+    })
+    try {
+      await h.mount()
+      presetOperations.cancelPresetNativeQueries()
+      held.resolve()
+      await flush()
+      assert.deepEqual(delivered, [])
+      assert.equal(h.api.viewportPending.value, false)
+      assert.equal(presetOperations.presetNativeEditPending.value, 0)
+    } finally {
+      held.resolve()
+      h.unmount()
+    }
+  })
+
   it('ignores equal-valued manual corrections without retriggering reactive preset edits', async () => {
     const store = useBlockStore(createPinia())
     Object.assign(store.activePet3dPreset, { autoViewportEnabled: false, manualViewportRect: { ...state(false).rect } })
@@ -285,7 +384,7 @@ describe('scene viewport request acknowledgements', () => {
         const retry = h.api.requestViewportMode()
         await flush()
         assert.equal(h.listeners.size, 2)
-        assert.equal(h.api.viewportPending.value, true)
+        assert.equal(h.api.viewportPending.value, false, 'retrying readback must leave editors available')
         h.ack()
         assert.equal(await retry, true)
         assert.equal(h.api.viewportError.value, undefined)
@@ -349,7 +448,7 @@ describe('scene viewport request acknowledgements', () => {
       release()
     }
     await flush()
-    assert.equal(h.api.viewportPending.value, true)
+    assert.equal(h.api.viewportPending.value, false, 'post-operation readback leaves editors available')
     h.ack()
     h.unmount()
     assert.equal(presetOperations.presetNativeEditPending.value, 0)
@@ -379,7 +478,7 @@ describe('scene viewport request acknowledgements', () => {
       requests.push(request)
     })
     await h.mount()
-    assert.equal(h.api.viewportPending.value, true)
+    assert.equal(h.api.viewportPending.value, false, 'queued readback is not an editor mutation')
     assert.equal(h.events.length, 0)
     assert.equal(requests.length, 0)
     earlierEvent.resolve()
@@ -393,7 +492,7 @@ describe('scene viewport request acknowledgements', () => {
   it('preserves camera pan on refresh and resets it only after an explicit mode acknowledgement', async () => {
     const h = viewportHarness()
     await h.mount()
-    assert.equal(h.api.viewportPending.value, true)
+    assert.equal(h.api.viewportPending.value, false, 'initial readback is not an editor mutation')
     assert.equal(h.events[0].target, constants.WINDOW_LABEL.MAIN)
     assert.equal(h.events[0].name, sceneTypes.SCENE_VIEWPORT_REQUEST)
     assert.equal(h.events[0].payload.automatic, undefined)
@@ -524,7 +623,7 @@ describe('scene viewport request acknowledgements', () => {
         await flush()
         assert.equal(h.events.length, 2, 'recovery is a single serialized readback')
         assert.equal(h.events.at(-1)!.payload.automatic, undefined)
-        assert.equal(h.api.viewportPending.value, true)
+        assert.equal(h.api.viewportPending.value, false, 'recovery readback leaves editors available')
         assert.equal(h.store.activePet3dPreset.cameraHorizontalOffset, 0.4)
         h.ack()
         assert.equal(h.api.viewportPending.value, false)

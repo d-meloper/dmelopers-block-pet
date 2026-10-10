@@ -92,7 +92,7 @@ describe('scene viewport geometry and camera', () => {
         const bounds = projectVisibleSceneBounds(f.root, f.camera, 500, 422)!
         let current = renderer.getConservativeContentRect()
         let previousPadding = 16
-        for (const padding of [0, 1, 4, 8, 15, 16, 0, 16]) {
+        for (const padding of [0, 1, 4, 8, 10, 15, 16, 17, 20, 29, 30, 0, 30, 16]) {
           current = resizeAutoViewportPadding(current, previousPadding, padding, zoom)
           renderer.setAutoViewportPadding(padding)
           assert.deepEqual(renderer.getConservativeContentRect(), padContentRect(bounds, Math.ceil(padding * zoom / 100)))

@@ -409,3 +409,6 @@ mod capability_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod window_input_registration_tests;

@@ -12,7 +12,7 @@ impl Rect {
     fn valid(self) -> bool {
         self.width > 0 && self.height > 0
     }
-    fn contains(self, (x, y): (i32, i32)) -> bool {
+    pub(super) fn contains(self, (x, y): (i32, i32)) -> bool {
         x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
     }
 }

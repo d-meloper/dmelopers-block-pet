@@ -31,6 +31,7 @@ import {
   suggestVoxelSkinEyebrowColor,
   suggestVoxelSkinHeadTopColor,
   suggestVoxelSkinPalmColor,
+  VoxelSkinDecodeError,
 } from './voxelSkin'
 
 const SKIN_64_LENGTH = 64 * 64 * 4
@@ -703,14 +704,14 @@ describe('voxel skin browser decoding', () => {
       const oversized = grayscalePng(2048, 2048)
       assert.ok(oversized.length < 2 * 1024 * 1024, 'the PNG passes the file picker byte limit')
       for (const bytes of [oversized, grayscalePng(64, 128), grayscalePng(32, 64)]) {
-        await assert.rejects(decodeVoxelSkin(new Blob([new Uint8Array(bytes)], { type: 'image/png' })), /64x64/)
+        await assert.rejects(decodeVoxelSkin(new Blob([new Uint8Array(bytes)], { type: 'image/png' })), error => error instanceof VoxelSkinDecodeError && error.code === 'INVALID_DIMENSIONS' && /64x64/.test(error.message))
       }
       const invalidLength = grayscalePng(64, 64)
       invalidLength.writeUInt32BE(12, 8)
       const invalidChunk = grayscalePng(64, 64)
       invalidChunk.write('IDAT', 12)
       for (const bytes of [PNG_SIGNATURE, grayscalePng(64, 64).subarray(0, 32), invalidLength, invalidChunk]) {
-        await assert.rejects(decodeVoxelSkin(new Blob([new Uint8Array(bytes)], { type: 'image/png' })), /valid PNG IHDR header/)
+        await assert.rejects(decodeVoxelSkin(new Blob([new Uint8Array(bytes)], { type: 'image/png' })), error => error instanceof VoxelSkinDecodeError && error.code === 'INVALID_PNG' && /valid PNG IHDR header/.test(error.message))
       }
       assert.equal(decoderCalls, 0)
     } finally {
@@ -722,14 +723,14 @@ describe('voxel skin browser decoding', () => {
   it('rejects an explicitly non-PNG MIME type before decoding', async () => {
     await assert.rejects(
       decodeVoxelSkin(new Blob(['not a png'], { type: 'image/jpeg' })),
-      /PNG image/,
+      error => error instanceof VoxelSkinDecodeError && error.code === 'PNG_ONLY',
     )
   })
 
   it('rejects PNG MIME data without the PNG file signature', async () => {
     await assert.rejects(
       decodeVoxelSkin(new Blob(['not a png'], { type: 'image/png' })),
-      /valid PNG signature/,
+      error => error instanceof VoxelSkinDecodeError && error.code === 'INVALID_PNG',
     )
   })
 

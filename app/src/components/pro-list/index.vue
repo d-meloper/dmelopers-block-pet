@@ -18,7 +18,6 @@ const { title } = defineProps<{
     >
       <div
         class="text-lg text-color-1 font-semibold"
-        data-tauri-drag-region
       >
         {{ title }}
       </div>

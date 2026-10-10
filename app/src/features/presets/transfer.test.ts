@@ -22,6 +22,22 @@ it('reads the frozen native/frontend v1 fixture with exactly the preset settings
   assert.deepEqual(parsePortablePreset(new Uint8Array([0xEF, 0xBB, 0xBF, ...fixture])), doc)
 })
 
+it('round-trips automatic padding through 30 and rejects invalid portable padding', async () => {
+  for (const padding of [0, 2, 10, 16, 17, 20, 30]) {
+    const snapshot = createDefaultPresetSnapshot()
+    snapshot.preset.autoViewportPaddingPixels = padding
+    snapshot.appearance.minecraftSkinUsername = 'Fixture_User'
+    const exported = await exportPortablePreset('Padding', snapshot, 'nickname')
+    const imported = parsePortablePreset(new TextEncoder().encode(serializePortablePreset(exported)))
+    assert.equal(imported.settings.preset.autoViewportPaddingPixels, padding)
+  }
+  for (const padding of [-1, 31, 16.5, '30', null]) {
+    const document = JSON.parse(fixture.toString())
+    document.settings.preset.autoViewportPaddingPixels = padding
+    assert.throws(() => parsePortablePreset(new TextEncoder().encode(JSON.stringify(document))), { code: 'invalidSettings' })
+  }
+})
+
 it('projects nickname exports without reading images, issuing network calls or leaking local state', async () => {
   const snapshot = createDefaultPresetSnapshot()
   snapshot.appearance.minecraftSkinUsername = 'Fixture_User'

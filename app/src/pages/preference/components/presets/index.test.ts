@@ -16,6 +16,29 @@ import type { PresetListEntry } from '@/features/presets/types'
 import { isMinecraftUsername } from '@/services/minecraftSkin'
 import { isValidSkinLibraryDisplayName } from '@/services/skinLibrary'
 
+function warningClock() {
+  let now = 0
+  let sequence = 0
+  const pending = new Map<number, { due: number, callback: () => void }>()
+  return {
+    pending,
+    setTimeout: (callback: () => void, delay: number) => {
+      pending.set(++sequence, { due: now + delay, callback })
+      return sequence
+    },
+    clearTimeout: (id: number) => pending.delete(id),
+    advance: (milliseconds: number) => {
+      now += milliseconds
+      for (const [id, timer] of pending) {
+        if (timer.due <= now) {
+          pending.delete(id)
+          timer.callback()
+        }
+      }
+    },
+  }
+}
+
 function entry(id: string, options: Partial<PresetListEntry> = {}): PresetListEntry {
   return {
     id,
@@ -93,9 +116,9 @@ function manager() {
   return { value, entries, calls, result, importResult, exportResult, retryable, busy, cardPending }
 }
 
-function renderListState(manager: PresetManager, general = vue.reactive({ app: { applyPresetSkin: true } })) {
+function renderListState(manager: PresetManager, general = vue.reactive({ app: { applyPresetSkin: true } }), runtime: UiTestRuntime = {}) {
   const source = readFileSync(new URL('./index.vue', import.meta.url), 'utf8')
-    .replace('</script>', '\ndefineExpose({ importSources, retryImport, openDeleteDialog, closeDeleteDialog, selectEntry, closeApplyDialog, applyEntry })\n</script>')
+    .replace('</script>', '\ndefineExpose({ importSources, openDeleteDialog, closeDeleteDialog, selectEntry, closeApplyDialog, applyEntry })\n</script>')
   const { descriptor } = parse(source)
   const component = compileScript(descriptor, { id: 'preset-list-render-test', inlineTemplate: true })
   type Render = (context: { $t: (key: string) => string }, cache: unknown[]) => vue.VNode
@@ -105,6 +128,8 @@ function renderListState(manager: PresetManager, general = vue.reactive({ app: {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, {
     exports,
+    setTimeout: runtime.timers?.setTimeout ?? setTimeout,
+    clearTimeout: runtime.timers?.clearTimeout ?? clearTimeout,
     require: (name: string) => {
       if (name === '@/services/diagnostics') return { reportDiagnostic: () => {} }
       if (name === '@/stores/general') return { useGeneralStore: () => general }
@@ -114,7 +139,7 @@ function renderListState(manager: PresetManager, general = vue.reactive({ app: {
       return { default: 'name-dialog' }
     },
   })
-  let controls: Pick<ListControls, 'importSources' | 'retryImport' | 'openDeleteDialog' | 'closeDeleteDialog' | 'selectEntry' | 'closeApplyDialog' | 'applyEntry'> | undefined
+  let controls: Pick<ListControls, 'importSources' | 'openDeleteDialog' | 'closeDeleteDialog' | 'selectEntry' | 'closeApplyDialog' | 'applyEntry'> | undefined
   const render = exports.default.setup({ manager }, {
     expose: (value: typeof controls) => {
       controls = value
@@ -131,6 +156,7 @@ function renderList(manager: PresetManager): vue.VNode[] {
 }
 
 interface UiTestRuntime {
+  timers?: ReturnType<typeof warningClock>
   general?: { app: { applyPresetSkin: boolean } }
   success?: string[]
   mounted?: Array<() => unknown>
@@ -139,6 +165,7 @@ interface UiTestRuntime {
   elementFromPoint?: (x: number, y: number) => Element | null
   overflowY?: (element: Element) => string
   rowGap?: string
+  gridTemplateColumns?: (element: Element) => string
   innerHeight?: number
   resizeListeners?: Set<() => void>
   requestAnimationFrame?: (callback: FrameRequestCallback) => number
@@ -152,6 +179,8 @@ function loadSetup<T>(filename: string, props: object, exposed: string, emitted:
   const source = `${descriptor.scriptSetup!.content}\nglobalThis.controls = { ${exposed} }`
   const context = {
     exports: {},
+    setTimeout: runtime.timers?.setTimeout ?? setTimeout,
+    clearTimeout: runtime.timers?.clearTimeout ?? clearTimeout,
     defineProps: () => props,
     defineEmits: () => (event: string) => emitted.push(event),
     controls: undefined as T | undefined,
@@ -161,7 +190,11 @@ function loadSetup<T>(filename: string, props: object, exposed: string, emitted:
       addEventListener: (_event: string, callback: () => void) => runtime.resizeListeners?.add(callback),
       removeEventListener: (_event: string, callback: () => void) => runtime.resizeListeners?.delete(callback),
     },
-    getComputedStyle: (element: Element) => ({ overflowY: runtime.overflowY?.(element) ?? 'visible', rowGap: runtime.rowGap ?? '12px' }),
+    getComputedStyle: (element: Element) => ({
+      overflowY: runtime.overflowY?.(element) ?? 'visible',
+      rowGap: runtime.rowGap ?? '12px',
+      gridTemplateColumns: runtime.gridTemplateColumns?.(element) ?? '309px 309px',
+    }),
     requestAnimationFrame: (callback: FrameRequestCallback) => runtime.requestAnimationFrame?.(callback) ?? 1,
     cancelAnimationFrame: (id: number) => runtime.cancelAnimationFrame?.(id),
     require: (name: string) => {
@@ -207,7 +240,6 @@ interface ListControls {
   exportingId: vue.Ref<string | undefined>
   importSources: (sources: Array<File | string>) => Promise<void>
   onFileInputChange: (event: Event) => Promise<void>
-  retryImport: () => Promise<void>
   importErrorText: vue.ComputedRef<string | undefined>
   onNativeFileDrop: (payload: DragDropEvent) => void
   fileDropActive: vue.Ref<boolean>
@@ -240,7 +272,7 @@ function listControls(value: PresetManager, runtime: UiTestRuntime = {}) {
     onMoveKeydown, startPointerDrag, movePointerDrag, finishPointerDrag, cancelPointerDrag, nameDialogOpen,
     draggedId, dropTarget, dropAtGroupEnd, presetList,
     deletingId, deleteError, errorText,
-    openExportDialog, exportingId, importSources, onFileInputChange, retryImport, importErrorText,
+    openExportDialog, exportingId, importSources, onFileInputChange, importErrorText,
     onNativeFileDrop, fileDropActive, fileDropRegion, listenForPresetFileDrops,
   `, [], runtime)
 }
@@ -971,7 +1003,105 @@ describe('preset naming dialogs', () => {
 })
 
 describe('preset file import controls', () => {
-  it('retains batch file results after a tab remount and never applies a partially retried batch', async () => {
+  it('rearms identical manager failures for new attachments without reviving them on export dialog changes', async () => {
+    const { value, retryable } = manager()
+    const timers = warningClock()
+    const beforeUnmount: Array<() => void> = []
+    let attempt = 0
+    value.importPreset = async () => {
+      value.importResults.value = [{ key: String(++attempt), file: 'invalid.petpreset', status: 'failed', error: 'Invalid file' }]
+      value.transferError.value = 'Invalid file'
+      retryable.value = true
+      return undefined
+    }
+    const control = listControls(value, { timers, beforeUnmount })
+    await control.importSources(['invalid.petpreset'])
+    timers.advance(2000)
+    await control.importSources(['invalid.petpreset'])
+    timers.advance(2999)
+    assert.equal(control.importErrorText.value, 'Invalid file')
+    timers.advance(1)
+    assert.equal(control.importErrorText.value, undefined)
+    assert.equal(retryable.value, true, 'resident import recovery state remains intact')
+    control.openExportDialog(value.entries.value[0])
+    value.transferError.value = 'Export error'
+    control.exportingId.value = undefined
+    assert.equal(control.importErrorText.value, undefined)
+    assert.equal(timers.pending.size, 0)
+    beforeUnmount.forEach(callback => callback())
+  })
+
+  it('expires each repeated warning after 3000 ms and cancels stale timers on success or disposal', async () => {
+    const { value } = manager()
+    const timers = warningClock()
+    const beforeUnmount: Array<() => void> = []
+    value.importPreset = async () => {
+      throw new Error('Invalid attachment')
+    }
+    const control = listControls(value, { timers, beforeUnmount })
+    await control.importSources(['invalid.petpreset'])
+    const stale = [...timers.pending.values()][0].callback
+    timers.advance(2000)
+    await control.importSources(['invalid.petpreset'])
+    stale()
+    assert.ok(control.importErrorText.value)
+    assert.equal(timers.pending.size, 1)
+    timers.advance(2999)
+    assert.ok(control.importErrorText.value)
+    timers.advance(1)
+    assert.equal(control.importErrorText.value, undefined)
+    assert.equal(timers.pending.size, 0)
+
+    await control.importSources(['invalid.petpreset'])
+    value.importPreset = async () => 'last'
+    await control.importSources(['valid.petpreset'])
+    assert.equal(control.importErrorText.value, undefined)
+    assert.equal(timers.pending.size, 0)
+    control.closeApplyDialog()
+
+    value.importPreset = async () => {
+      throw new Error('Invalid attachment')
+    }
+    await control.importSources(['invalid.petpreset'])
+    const disposed = [...timers.pending.values()][0].callback
+    beforeUnmount.forEach(callback => callback())
+    disposed()
+    assert.equal(timers.pending.size, 0)
+    assert.equal(control.importErrorText.value, undefined)
+  })
+
+  it('ignores superseded or disposed asynchronous attachment failures', async () => {
+    const { value } = manager()
+    const timers = warningClock()
+    const beforeUnmount: Array<() => void> = []
+    let fail!: (error: Error) => void
+    value.importPreset = () => new Promise((_resolve, reject) => {
+      fail = reject
+    })
+    const control = listControls(value, { timers, beforeUnmount })
+    const old = control.importSources(['old.petpreset'])
+    const oldFail = fail
+    value.importPreset = async () => {
+      throw new Error('New invalid attachment')
+    }
+    await control.importSources(['new.petpreset'])
+    timers.advance(1000)
+    oldFail(new Error('Old invalid attachment'))
+    await old
+    timers.advance(2000)
+    assert.equal(control.importErrorText.value, undefined, 'old completion must not rearm the newer warning')
+    value.importPreset = () => new Promise((_resolve, reject) => {
+      fail = reject
+    })
+    const pending = control.importSources(['disposed.petpreset'])
+    beforeUnmount.forEach(callback => callback())
+    fail(new Error('Disposed attachment'))
+    await pending
+    assert.equal(control.importErrorText.value, undefined)
+    assert.equal(timers.pending.size, 0)
+  })
+
+  it('retains batch records after a tab remount while expiring only failed-file warnings without retry controls', () => {
     const { value, retryable, calls } = manager()
     value.importResults.value = [
       { key: 'a', file: 'one.petpreset', status: 'saved', presetId: 'last' },
@@ -984,12 +1114,20 @@ describe('preset file import controls', () => {
     listControls(value, { beforeUnmount })
     beforeUnmount.forEach(callback => callback())
     const control = listControls(value)
-    const nodes = renderList(value)
+    const timers = warningClock()
+    const view = renderListState(value, undefined, { timers })
+    const nodes = view.nodes()
     assert.ok(nodes.some(node => node.children === 'pages.preference.presets.transfer.batch.summary'))
     assert.ok(nodes.some(node => typeof node.children === 'string' && node.children.includes('bad.petpreset')))
     assert.ok(nodes.some(node => node.children === 'pages.preference.presets.transfer.batch.stopped'))
-    await control.retryImport()
-    assert.deepEqual(calls, [{ action: 'retryImport', args: [] }])
+    assert.equal(nodes.some(node => node.children === 'pages.preference.presets.transfer.batch.retry'), false)
+    timers.advance(2999)
+    assert.ok(view.nodes().some(node => typeof node.children === 'string' && node.children.includes('bad.petpreset')))
+    timers.advance(1)
+    assert.equal(view.nodes().some(node => typeof node.children === 'string' && node.children.includes('bad.petpreset')), false)
+    assert.ok(view.nodes().some(node => typeof node.children === 'string' && node.children.includes('one.petpreset')))
+    assert.ok(view.nodes().some(node => typeof node.children === 'string' && node.children.includes('remaining.petpreset')))
+    assert.deepEqual(calls, [])
     assert.equal(control.applyingId.value, undefined)
     assert.equal(value.importResults.value.length, 3)
   })
@@ -997,11 +1135,12 @@ describe('preset file import controls', () => {
     const { value, calls, result, busy } = manager()
     const view = renderListState(value)
     result.value = false
+    const importing = view.controls.importSources(['C:\\invalid.petpreset'])
     value.transferError.value = 'This preset format is invalid.'
-    await view.controls.importSources(['C:\\invalid.petpreset'])
+    await importing
     let nodes = view.nodes()
     assert.ok(nodes.some(node => node.children === 'This preset format is invalid.'))
-    assert.equal(nodes.some(node => node.props?.onClick === view.controls.retryImport), false)
+    assert.equal(nodes.some(node => node.children === 'pages.preference.presets.buttons.retry'), false)
     busy.value = true
     for (const phase of ['reading', 'skin', 'applying', 'saving'] as const) {
       value.transferPhase.value = phase
@@ -1069,7 +1208,7 @@ describe('preset file import controls', () => {
     assert.equal(ko.dialog.newHint, '현재 적용된 스킨과 설정을 새 프리셋으로 저장합니다.')
   })
 
-  it('uses the empty-list anchor for a fixed two-row file-drop region and imports into an empty catalog', async () => {
+  it('uses resolved responsive tracks for the empty-list two-row file-drop region and imports into an empty catalog', async () => {
     const { value, entries, calls } = manager()
     entries.value = []
     const scroller = {
@@ -1078,6 +1217,7 @@ describe('preset file import controls', () => {
       getBoundingClientRect: () => ({ bottom: 1000 }),
     }
     let width = 630
+    let tracks = '300px 300px'
     const anchor = {
       parentElement: scroller,
       querySelector: () => null,
@@ -1086,18 +1226,28 @@ describe('preset file import controls', () => {
     const control = listControls(value, {
       innerHeight: 1000,
       overflowY: element => element === scroller as unknown as HTMLElement ? 'auto' : 'visible',
+      gridTemplateColumns: () => tracks,
     })
     control.presetList.value = {
       querySelector: (selector: string) => selector === '.preset-grid' ? anchor : null,
     } as unknown as HTMLElement
     control.onNativeFileDrop({ type: 'enter', paths: ['scene.petpreset'], position: { x: 0, y: 0 } } as DragDropEvent)
-    assert.deepEqual({ ...control.fileDropRegion.value }, { top: '145px', left: '163px', width: '630px', height: '542.75px' })
+    assert.deepEqual({ ...control.fileDropRegion.value }, { top: '145px', left: '163px', width: '630px', height: '531.5px' })
     scroller.scrollTop = 450
     control.onNativeFileDrop({ type: 'over', position: { x: 0, y: 0 } } as DragDropEvent)
     assert.equal(control.fileDropRegion.value?.top, '145px')
     width = 420
+    tracks = '204px 204px'
     control.onNativeFileDrop({ type: 'over', position: { x: 0, y: 0 } } as DragDropEvent)
     assert.equal(control.fileDropRegion.value?.height, '411.5px')
+    width = 185
+    tracks = '86.5px 86.5px'
+    control.onNativeFileDrop({ type: 'over', position: { x: 0, y: 0 } } as DragDropEvent)
+    assert.deepEqual({ ...control.fileDropRegion.value }, { top: '145px', left: '163px', width: '185px', height: '264.625px' })
+    width = 1260
+    tracks = '300px 300px 300px 300px'
+    control.onNativeFileDrop({ type: 'over', position: { x: 0, y: 0 } } as DragDropEvent)
+    assert.deepEqual({ ...control.fileDropRegion.value }, { top: '145px', left: '163px', width: '1260px', height: '531.5px' })
     control.onNativeFileDrop({ type: 'drop', paths: ['scene.petpreset'], position: { x: 0, y: 0 } } as DragDropEvent)
     await vue.nextTick()
     assert.equal(control.fileDropActive.value, false)
@@ -1208,20 +1358,22 @@ describe('preset file import controls', () => {
     assert.equal(control.fileDropActive.value, false)
   })
 
-  it('shows import errors with retry and reports success only after the manager acknowledges completion', async () => {
+  it('allows a new attachment after an import error and reports success only after the manager acknowledges completion', async () => {
     const { value, calls, result, retryable } = manager()
     const success: string[] = []
     const control = listControls(value, { success })
     result.value = false
-    value.transferError.value = 'Could not fetch the skin.'
     retryable.value = true
-    await control.importSources(['C:\\scene.petpreset'])
+    const importing = control.importSources(['C:\\scene.petpreset'])
+    value.transferError.value = 'Could not fetch the skin.'
+    await importing
     assert.equal(control.importErrorText.value, 'Could not fetch the skin.')
     assert.equal(control.applyingId.value, undefined)
     assert.deepEqual(success, [])
     result.value = true
-    await control.retryImport()
-    assert.deepEqual(calls.map(call => call.action), ['import', 'retryImport'])
+    await control.importSources(['C:\\scene.petpreset'])
+    assert.equal(control.importErrorText.value, undefined)
+    assert.deepEqual(calls.map(call => call.action), ['import', 'import'])
     assert.deepEqual(success, ['pages.preference.presets.transfer.success.import'])
     assert.equal(control.applyingId.value, 'last')
     success.length = 0

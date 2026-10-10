@@ -7,7 +7,7 @@ import type { SceneViewportRequest, SceneViewportResponse, SceneViewportState } 
 
 import { WINDOW_LABEL } from '@/constants'
 import { confirmPresetUserEdit, markPresetUserEdit, onPresetSelectionChange } from '@/features/presets/editIntent'
-import { beginPresetNativeEdit, presetOperationInProgress, presetResetInProgress } from '@/features/presets/operations'
+import { beginPresetNativeEdit, beginPresetNativeQuery, presetOperationInProgress, presetResetInProgress } from '@/features/presets/operations'
 import { isSceneViewportState, SCENE_VIEWPORT_REQUEST, SCENE_VIEWPORT_RESPONSE, SCENE_VIEWPORT_STATE } from '@/features/scene/types'
 import { equalViewportRect } from '@/features/scene/viewportSettings'
 import { editorsLocked } from '@/features/stateSafety/bridge'
@@ -64,12 +64,18 @@ export function useSceneViewport(
       if (!disposed) viewportError.value = t('pages.preference.scene.errors.unavailable')
       return false
     }
-    if (disposed || pending || editorsLocked.value || generation !== selectionGeneration
+    if (disposed || editorsLocked.value || generation !== selectionGeneration
       || presetOperationInProgress.value || presetResetInProgress.value) {
       return false
     }
+    if (pending) {
+      if (automatic === undefined || pending.automatic !== undefined) return false
+      // A focus readback cannot consume the user's first explicit mode change.
+      // Retire its reply owner; issued native work retains its existing guards.
+      finish(false)
+    }
     refreshFailed = false
-    viewportPending.value = true
+    viewportPending.value = automatic !== undefined
     viewportError.value = undefined
     return new Promise((resolve) => {
       const requestId = crypto.randomUUID()
@@ -78,7 +84,13 @@ export function useSceneViewport(
         automatic,
         manualRect: { ...store.activePet3dPreset.manualViewportRect },
         resolve,
-        releaseNative: beginPresetNativeEdit(),
+        releaseNative: automatic === undefined
+          ? beginPresetNativeQuery(() => {
+              finish(false)
+              // Intentional retirement must not retry on an unrelated push.
+              refreshFailed = false
+            })
+          : beginPresetNativeEdit(),
         timer: setTimeout(() => {
           console.warn('The scene viewport acknowledgement timed out.')
           viewportError.value = t('pages.preference.scene.errors.timeout')

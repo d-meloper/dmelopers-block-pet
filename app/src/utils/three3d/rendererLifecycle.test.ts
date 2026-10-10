@@ -429,6 +429,133 @@ describe('pet-only loading presentation', () => {
     assert.deepEqual(await h.engine.measureVisibleContentRect(), { status: 'success', rect })
   })
 
+  it('retires destroyed measurement and antialias callers before their raw GPU readback settles', async (t) => {
+    const h = fixture(t)
+    const retired = fakeRenderer()
+    Object.assign(h.state.renderer!, {
+      domElement: retired.canvas,
+      getContext: retired.renderer.getContext,
+      dispose: retired.renderer.dispose,
+    })
+    const readback = deferred<Uint8Array>()
+    let pixels!: Uint8Array
+    const reads = t.mock.method(h.state.renderer!, 'readRenderTargetPixelsAsync', (...args: Parameters<WebGLRenderer['readRenderTargetPixelsAsync']>) => {
+      pixels = args[5] as Uint8Array
+      return readback.promise
+    })
+    let measured: unknown
+    let queued: unknown
+    let antialiasSettled = false
+    const measurement = h.engine.measureVisibleContentRect().then(result => measured = result)
+    await flush()
+    const queuedMeasurement = h.engine.measureVisibleContentRect().then(result => queued = result)
+    const replacement = h.engine.setAntialiasEnabled(true).then((result) => {
+      antialiasSettled = true
+      assert.equal(result, undefined)
+    })
+    try {
+      assert.equal(reads.mock.callCount(), 1)
+      h.engine.destroy()
+      await flush()
+      assert.deepEqual(measured, { status: 'stale' })
+      assert.deepEqual(queued, { status: 'stale' })
+      assert.equal(antialiasSettled, true)
+      assert.deepEqual(retired.calls, ['dispose'], 'raw readback still owns the old context until it settles')
+      assert.equal(reads.mock.callCount(), 1, 'the retired queued measurement must not allocate another read')
+    } finally {
+      readback.resolve(pixels)
+      await Promise.all([measurement, queuedMeasurement, replacement])
+      await flush()
+    }
+    assert.deepEqual(retired.calls, ['dispose', 'lose'])
+  })
+
+  it('disposes an in-flight measurement target once when destroy precedes the readback reply', async (t) => {
+    const h = fixture(t)
+    const retired = fakeRenderer()
+    Object.assign(h.state.renderer!, {
+      domElement: retired.canvas,
+      getContext: retired.renderer.getContext,
+      dispose: retired.renderer.dispose,
+    })
+    const readback = deferred<Uint8Array>()
+    const dispose = t.mock.method(WebGLRenderTarget.prototype, 'dispose')
+    let pixels!: Uint8Array
+    t.mock.method(h.state.renderer!, 'readRenderTargetPixelsAsync', (...args: Parameters<WebGLRenderer['readRenderTargetPixelsAsync']>) => {
+      pixels = args[5] as Uint8Array
+      return readback.promise
+    })
+    const measurement = h.engine.measureVisibleContentRect()
+    await flush()
+    h.engine.destroy()
+    assert.equal(dispose.mock.callCount(), 1)
+    readback.resolve(pixels)
+    assert.deepEqual(await measurement, { status: 'stale' })
+    await flush()
+    assert.equal(dispose.mock.callCount(), 1)
+  })
+
+  it('releases a rejected raw readback after retirement without reporting a current measurement failure', async (t) => {
+    const h = fixture(t)
+    const retired = fakeRenderer()
+    Object.assign(h.state.renderer!, {
+      domElement: retired.canvas,
+      getContext: retired.renderer.getContext,
+      dispose: retired.renderer.dispose,
+    })
+    const readback = deferred<Uint8Array>()
+    t.mock.method(h.state.renderer!, 'readRenderTargetPixelsAsync', () => readback.promise)
+    const warnings = t.mock.method(console, 'warn', () => {})
+    let measured: unknown
+    const measurement = h.engine.measureVisibleContentRect().then(result => measured = result)
+    await flush()
+    try {
+      h.engine.destroy()
+      await flush()
+      assert.deepEqual(measured, { status: 'stale' })
+      assert.deepEqual(retired.calls, ['dispose'])
+    } finally {
+      readback.reject(new Error('retired raw GPU read failed'))
+      await measurement
+      await flush()
+    }
+    assert.deepEqual(retired.calls, ['dispose', 'lose'])
+    assert.equal(warnings.mock.callCount(), 0)
+  })
+
+  it('does not delay the new renderer retirement behind another context pending readback', async (t) => {
+    const h = fixture(t)
+    const retired = fakeRenderer()
+    Object.assign(h.state.renderer!, {
+      domElement: retired.canvas,
+      getContext: retired.renderer.getContext,
+      dispose: retired.renderer.dispose,
+    })
+    const readback = deferred<Uint8Array>()
+    let pixels!: Uint8Array
+    t.mock.method(h.state.renderer!, 'readRenderTargetPixelsAsync', (...args: Parameters<WebGLRenderer['readRenderTargetPixelsAsync']>) => {
+      pixels = args[5] as Uint8Array
+      return readback.promise
+    })
+    const measurement = h.engine.measureVisibleContentRect()
+    await flush()
+    const fresh = fakeRenderer()
+    try {
+      h.engine.destroy()
+      await flush()
+      h.state.renderer = fresh.renderer
+      h.engine.destroy()
+      await flush()
+      assert.deepEqual(fresh.calls, ['dispose', 'lose'], 'the new context has no outstanding raw GL work')
+      assert.deepEqual(retired.calls, ['dispose'], 'the old context still owns its pending raw readback')
+    } finally {
+      readback.resolve(pixels)
+      await measurement
+      await flush()
+    }
+    assert.deepEqual(retired.calls, ['dispose', 'lose'])
+  })
+
   it('restores scene visibility on draw failure and preserves an independently hidden pet', (t) => {
     const h = fixture(t)
     h.fail(true)

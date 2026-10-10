@@ -9,6 +9,7 @@ import { useI18n } from 'vue-i18n'
 import type { PresetManager } from '@/composables/usePresetManager'
 import type { PresetListEntry } from '@/features/presets/types'
 
+import FileDropSurface from '@/components/file-drop-surface/index.vue'
 import PreferenceInfo from '@/components/preference-info/index.vue'
 import PreferenceSections from '@/components/preference-sections/index.vue'
 import { reportDiagnostic } from '@/services/diagnostics'
@@ -21,7 +22,7 @@ const props = defineProps<{ manager: PresetManager }>()
 const { t, te } = useI18n()
 const generalStore = useGeneralStore()
 const { entries, busy, ready, error, hasIndependentError, thumbnails, thumbnailErrors, cardPending } = props.manager
-const { transferError, transferPhase, canRetryImport } = props.manager
+const { transferError, transferPhase } = props.manager
 const { importResults, importProgress, importBatchStopped, isBatchImport } = props.manager
 const { createError, createName, createNeedsName, canRetryCreate } = props.manager
 const nameDialogOpen = ref(false)
@@ -46,6 +47,9 @@ const fileInputError = ref<string>()
 const showImportError = ref(false)
 const announcement = ref('')
 let mounted = true
+let importAttempt = 0
+let importWarningGeneration = 0
+let importWarningTimer: ReturnType<typeof setTimeout> | undefined
 let unlistenFileDrops: (() => void) | undefined
 let pointerDrag: {
   pointerId: number
@@ -64,10 +68,12 @@ const applyingEntry = computed(() => entries.value.find(entry => entry.id === ap
 const dialogOpen = computed(() => nameDialogOpen.value || Boolean(deletingId.value) || Boolean(exportingEntry.value) || Boolean(applyingId.value))
 const importDisabled = computed(() => disabled.value || dialogOpen.value)
 const applyDisabled = computed(() => disabled.value || applying.value || Boolean(applyingEntry.value && cardPending.value[applyingEntry.value.id]))
-const importErrorText = computed(() => fileInputError.value
-  ?? (!isBatchImport.value && (showImportError.value || canRetryImport.value) && !exportingEntry.value
+const importErrorText = computed(() => showImportError.value
+  ? fileInputError.value ?? (!isBatchImport.value && !exportingEntry.value
     ? importResults.value.find(result => result.status === 'failed')?.error ?? transferError.value
-    : undefined))
+    : undefined)
+  : undefined)
+const visibleImportResults = computed(() => importResults.value.filter(result => result.status !== 'failed' || showImportError.value))
 const importSummary = computed(() => t('pages.preference.presets.transfer.batch.summary', {
   saved: importResults.value.filter(result => result.status === 'saved').length,
   failed: importResults.value.filter(result => result.status === 'failed').length,
@@ -84,6 +90,29 @@ const groups = computed(() => [
 ].filter(group => group.entries.length > 0))
 const deletingEntry = computed(() => entries.value.find(entry => entry.id === deletingId.value))
 const draggedEntry = computed(() => entries.value.find(entry => entry.id === draggedId.value))
+
+function clearImportWarning() {
+  importWarningGeneration += 1
+  if (importWarningTimer !== undefined) clearTimeout(importWarningTimer)
+  importWarningTimer = undefined
+  showImportError.value = false
+}
+
+const stopImportWarning = watch([
+  fileInputError,
+  transferError,
+  () => JSON.stringify(importResults.value.filter(result => result.status === 'failed').map(result => [result.key, result.error])),
+], ([fileError, transferFailure, failures]) => {
+  clearImportWarning()
+  if (!mounted || exportingEntry.value || (!fileError && !transferFailure && failures === '[]')) return
+  showImportError.value = true
+  const generation = importWarningGeneration
+  importWarningTimer = setTimeout(() => {
+    if (!mounted || generation !== importWarningGeneration) return
+    importWarningTimer = undefined
+    showImportError.value = false
+  }, 3000)
+}, { immediate: true, flush: 'sync' })
 
 function isEntryDisabled(entry: PresetListEntry) {
   return disabled.value || dialogOpen.value || Boolean(cardPending.value[entry.id])
@@ -176,8 +205,8 @@ function onEntryMenu(key: string | number, entry: PresetListEntry) {
 function openExportDialog(entry: PresetListEntry) {
   if (entry.origin === 'builtin' || isEntryDisabled(entry)) return
   exportingId.value = entry.id
-  showImportError.value = false
   fileInputError.value = undefined
+  clearImportWarning()
 }
 
 function openFilePicker() {
@@ -186,13 +215,19 @@ function openFilePicker() {
 
 async function importSources(sources: Array<File | string>) {
   if (!mounted || importDisabled.value || sources.length === 0) return
+  const attempt = ++importAttempt
   fileInputError.value = undefined
-  showImportError.value = true
+  clearImportWarning()
   try {
-    if (sources.length === 1) completeImport(await props.manager.importPreset(sources[0]))
-    else await props.manager.importPresets(sources)
+    if (sources.length === 1) {
+      const id = await props.manager.importPreset(sources[0])
+      if (mounted && attempt === importAttempt) completeImport(id)
+    } else {
+      await props.manager.importPresets(sources)
+    }
   } catch (error) {
-    if (mounted) reportDiagnostic('error', 'presets.import_ui', error)
+    if (!mounted || attempt !== importAttempt) return
+    reportDiagnostic('error', 'presets.import_ui', error)
     fileInputError.value = t('pages.preference.presets.transfer.errors.import')
   }
 }
@@ -202,19 +237,6 @@ async function onFileInputChange(event: Event) {
   const files = Array.from(input.files ?? [])
   input.value = ''
   await importSources(files)
-}
-
-async function retryImport() {
-  if (importDisabled.value || !canRetryImport.value) return
-  fileInputError.value = undefined
-  showImportError.value = true
-  try {
-    const id = await props.manager.retryImport()
-    if (!isBatchImport.value) completeImport(id)
-  } catch (error) {
-    if (mounted) reportDiagnostic('error', 'presets.retry_import_ui', error)
-    fileInputError.value = t('pages.preference.presets.transfer.errors.import')
-  }
 }
 
 function completeImport(id: string | undefined) {
@@ -236,11 +258,13 @@ function updateFileDropRegion() {
   // Restore the list's origin before scrolling, then keep the overlay in viewport coordinates.
   const top = rect.top + (scroller?.scrollTop ?? 0)
   const bottom = Math.min(window.innerHeight, scroller?.getBoundingClientRect().bottom ?? window.innerHeight)
-  const rowGap = Number.parseFloat(getComputedStyle(grid).rowGap) || 0
-  // An empty list has no card to measure: use the same two-column 16:10 preview
+  const gridStyle = getComputedStyle(grid)
+  const rowGap = Number.parseFloat(gridStyle.rowGap) || 0
+  // An empty list uses the resolved grid track width for its 16:10 preview
   // and normal card chrome (22px horizontal inset, 86px toolbar/text/spacing).
+  const cardWidth = Number.parseFloat(gridStyle.gridTemplateColumns) || rect.width
   const cardHeight = card?.getBoundingClientRect().height
-    ?? Math.max(0, (rect.width - rowGap) / 2 - 22) * 10 / 16 + 86
+    ?? Math.max(0, cardWidth - 22) * 10 / 16 + 86
   const twoRows = cardHeight * 2 + rowGap
   fileDropRegion.value = {
     top: `${top}px`,
@@ -292,6 +316,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', updateFileDropRegion)
   mounted = false
+  importAttempt += 1
+  stopImportWarning()
+  clearImportWarning()
   applyingId.value = undefined
   applyError.value = undefined
   endDrag()
@@ -562,7 +589,7 @@ function cancelPointerDrag(event: PointerEvent) {
       </p>
       <ul class="mb-2 mt-2 max-h-40 overflow-y-auto pl-5">
         <li
-          v-for="result in importResults"
+          v-for="result in visibleImportResults"
           :key="result.key"
           class="break-words"
           :class="result.status === 'failed' ? 'text-danger' : 'text-color-3'"
@@ -577,29 +604,13 @@ function cancelPointerDrag(event: PointerEvent) {
       >
         {{ $t('pages.preference.presets.transfer.batch.stopped') }}
       </p>
-      <Button
-        v-if="canRetryImport"
-        :disabled="importDisabled"
-        size="small"
-        @click="retryImport"
-      >
-        {{ $t('pages.preference.presets.transfer.batch.retry') }}
-      </Button>
     </div>
     <div
       v-if="importErrorText"
-      class="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm"
+      class="mb-4 text-sm text-red-6"
       role="alert"
     >
-      <span class="min-w-0 flex-1 text-red-6">{{ importErrorText }}</span>
-      <Button
-        v-if="canRetryImport && !fileInputError"
-        :disabled="importDisabled"
-        size="small"
-        @click="retryImport"
-      >
-        {{ $t('pages.preference.presets.buttons.retry') }}
-      </Button>
+      {{ importErrorText }}
     </div>
     <div
       v-if="createErrorText"
@@ -832,11 +843,14 @@ function cancelPointerDrag(event: PointerEvent) {
       </section>
       <div
         v-if="fileDropActive && fileDropRegion"
-        class="preset-file-drop bg-color-1/95 pointer-events-none fixed z-10 flex items-center justify-center b-2 b-primary-6 rounded-xl b-dashed p-6 text-center text-primary-7"
+        aria-live="polite"
+        class="preset-file-drop pointer-events-none fixed z-10"
         role="status"
         :style="fileDropRegion"
       >
-        {{ $t('pages.preference.presets.transfer.hints.drop') }}
+        <FileDropSurface
+          :title="$t('pages.preference.presets.transfer.dropActiveTitle')"
+        />
       </div>
     </PreferenceSections>
     <span
@@ -933,12 +947,11 @@ function cancelPointerDrag(event: PointerEvent) {
 
 .preset-file-drop {
   box-sizing: border-box;
-  font-size: 125%;
 }
 
 .preset-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, min(300px, calc((100% - 12px) / 2)));
   gap: 12px;
 }
 

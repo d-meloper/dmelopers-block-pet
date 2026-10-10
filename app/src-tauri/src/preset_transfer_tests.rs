@@ -34,6 +34,23 @@ fn shared_ranges_accept_fractional_values_and_reject_outside_portable_inputs() {
     }
 }
 
+#[test]
+fn automatic_padding_portable_round_trip_preserves_thirty_and_legacy_values() {
+    for padding in [0, 2, 10, 16, 17, 20, 30] {
+        let mut document = fixture();
+        document["settings"]["preset"]["autoViewportPaddingPixels"] = json!(padding);
+        let restored = validate_document(&serde_json::to_vec(&document).unwrap()).unwrap();
+        assert_eq!(restored.settings["preset"]["autoViewportPaddingPixels"], json!(padding));
+        let reread = validate_document(&serde_json::to_vec(&restored).unwrap()).unwrap();
+        assert_eq!(reread.settings["preset"]["autoViewportPaddingPixels"], json!(padding));
+    }
+    for padding in [json!(-1), json!(31), json!(16.5), json!("30"), Value::Null] {
+        let mut document = fixture();
+        document["settings"]["preset"]["autoViewportPaddingPixels"] = padding;
+        assert!(validate_document(&serde_json::to_vec(&document).unwrap()).is_err());
+    }
+}
+
 fn fixture() -> Value {
     serde_json::from_str(include_str!(
         "../../src/features/presets/fixtures/portable-v1.json"

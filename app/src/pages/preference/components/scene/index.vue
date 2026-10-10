@@ -44,7 +44,7 @@ const automatic = computed(() => preset.value.autoViewportEnabled)
 const manualDisabled = computed(() => automatic.value || props.viewportPending || !props.viewportState)
 const automaticPaddingDisabled = computed(() => !automatic.value || props.viewportPending || !props.viewportState)
 const dimensions = ['width', 'height'] as const
-const automaticPaddingLimits = { ...AUTO_VIEWPORT_PADDING_LIMITS, max: 10 } as const
+const automaticPaddingLimits = AUTO_VIEWPORT_PADDING_LIMITS
 
 function formatPixels(value?: number) {
   return `${value}px`

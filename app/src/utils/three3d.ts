@@ -184,9 +184,10 @@ export class Three3DRenderer {
   )
 
   private contentMeasurementGeneration = 0
+  private contentMeasurementAbort = new AbortController()
   private contentMeasurementTail: Promise<void> = Promise.resolve()
   private readonly contentMeasurementTargets = new Set<WebGLRenderTarget>()
-  private readonly contentReadbacks = new Set<Promise<unknown>>()
+  private readonly contentReadbacks = new WeakMap<WebGLRenderer, Set<Promise<unknown>>>()
   private rotationDegrees: number = MODEL_3D_CONFIG.scene.rotationDegrees
   private cameraElevationDegrees: number = MODEL_3D_CONFIG.camera.elevationDegrees
   private cameraDistancePercent: number = MODEL_3D_CONFIG.camera.distancePercent
@@ -583,6 +584,7 @@ export class Three3DRenderer {
     const renderer = this.renderer
     const scene = this.scene
     const camera = this.camera
+    const signal = this.contentMeasurementAbort.signal
     if (!renderer || !scene || !camera) {
       return { status: 'failure', reason: 'renderer-unavailable' }
     }
@@ -650,8 +652,7 @@ export class Three3DRenderer {
       }
     }
     if (renderFailure) {
-      this.contentMeasurementTargets.delete(renderTarget)
-      renderTarget.dispose()
+      if (this.contentMeasurementTargets.delete(renderTarget)) renderTarget.dispose()
       return {
         status: 'failure',
         reason: this.getMeasurementFailureReason(renderer, 'render-failed'),
@@ -667,12 +668,17 @@ export class Three3DRenderer {
         measurementHeight,
         pixels,
       )
-      this.contentReadbacks.add(readback)
-      try {
-        await readback
-      } finally {
-        this.contentReadbacks.delete(readback)
+      const readbacks = this.contentReadbacks.get(renderer) ?? new Set<Promise<unknown>>()
+      this.contentReadbacks.set(renderer, readbacks)
+      readbacks.add(readback)
+      // Retire a destroyed owner's caller promptly, but retain the raw GL work
+      // until it settles so context loss/reuse cannot overtake its fences.
+      const releaseReadback = () => {
+        readbacks.delete(readback)
+        if (readbacks.size === 0) this.contentReadbacks.delete(renderer)
       }
+      void readback.then(releaseReadback, releaseReadback)
+      await awaitAssetOperation(readback, signal)
       if (
         renderer !== this.renderer
         || scene !== this.scene
@@ -711,8 +717,7 @@ export class Three3DRenderer {
         reason: this.getMeasurementFailureReason(renderer, 'readback-failed'),
       }
     } finally {
-      this.contentMeasurementTargets.delete(renderTarget)
-      renderTarget.dispose()
+      if (this.contentMeasurementTargets.delete(renderTarget)) renderTarget.dispose()
     }
   }
 
@@ -830,7 +835,7 @@ export class Three3DRenderer {
     oldMap?.dispose()
     oldMapPass?.dispose()
     this.rendererDiagnosticCleanups.get(previous)?.()
-    disposeReplacedRenderer(previous, Promise.allSettled([...this.contentReadbacks]))
+    disposeReplacedRenderer(previous, Promise.allSettled([...(this.contentReadbacks.get(previous) ?? [])]))
     this.noteActivity()
     return canvas
   }
@@ -1179,6 +1184,8 @@ export class Three3DRenderer {
     this.initializationAbort?.abort()
     this.initializationAbort = undefined
     this.cancelPendingPetAssetLoad()
+    this.contentMeasurementAbort.abort()
+    this.contentMeasurementAbort = new AbortController()
     this.contentMeasurementTail = Promise.resolve()
     if (this.frameId !== undefined) cancelAnimationFrame(this.frameId)
     this.frameId = undefined
@@ -1209,7 +1216,7 @@ export class Three3DRenderer {
     this.lastAnimationAt = 0
     if (renderer) {
       this.rendererDiagnosticCleanups.get(renderer)?.()
-      disposeRendererForReuse(renderer, Promise.allSettled([...this.contentReadbacks]))
+      disposeRendererForReuse(renderer, Promise.allSettled([...(this.contentReadbacks.get(renderer) ?? [])]))
     }
   }
 

@@ -167,7 +167,6 @@ bool MsiAbsent(const std::wstring& product, const std::wstring& sid) {
     UINT status = 0; MsiInfo(product, sid, MSIINSTALLCONTEXT_USERUNMANAGED, INSTALLPROPERTY_PRODUCTSTATE, &status);
     return status == ERROR_UNKNOWN_PRODUCT;
 }
-#if defined(BP_OFFICIAL_BUILD)
 bool StableProductVersion(const std::wstring& version) {
     // The official producer permits only stable X.Y.Z, without leading zeroes,
     // prerelease/build labels or components beyond its 16-bit packaging bound.
@@ -189,11 +188,16 @@ bool StableProductVersion(const std::wstring& version) {
     }
     return true;
 }
-std::wstring OfficialProductCode(const std::wstring& version) {
+std::wstring ProfileProductCode(const std::wstring& version) {
     if (!StableProductVersion(version)) return {};
     // RFC 4122 UUIDv5: network-order namespace + UTF-8 "product:X.Y.Z".
     // SHA-1 only derives an identity; package authentication remains SHA-256.
+#if defined(BP_OFFICIAL_BUILD)
     constexpr BYTE space[] = { 0xe6, 0x54, 0x53, 0x12, 0xe3, 0x82, 0x51, 0x62, 0xb6, 0x4f, 0x49, 0x3b, 0x27, 0x2f, 0xb6, 0xad };
+#else
+    // Preserve the historical fixture GUIDs while accepting future test versions.
+    constexpr BYTE space[] = { 0x6c, 0x92, 0x63, 0x89, 0xda, 0x1f, 0x5c, 0xa5, 0x8e, 0x76, 0xac, 0xad, 0x2b, 0x87, 0xcc, 0x72 };
+#endif
     std::vector<BYTE> input(space, space + _countof(space));
     for (char value : std::string("product:")) input.push_back(static_cast<BYTE>(value));
     for (wchar_t value : version) input.push_back(static_cast<BYTE>(value));
@@ -220,16 +224,8 @@ std::wstring OfficialProductCode(const std::wstring& version) {
     }
     return result + L"}";
 }
-#endif
 std::wstring KnownProductCode(const std::wstring& version) {
-#if defined(BP_OFFICIAL_BUILD)
-    return OfficialProductCode(version);
-#else
-    // The maintained isolated fixture pair retains its fixed identities.
-    if (version == L"1.0.0") return L"{ABA6A476-9128-5421-B39A-E19FA42FB0C8}";
-    if (version == L"1.0.1") return L"{EF7EC346-73F1-5CAB-9E09-EC9981BC63A3}";
-#endif
-    return {};
+    return ProfileProductCode(version);
 }
 bool ProductAbsentEverywhere(const std::wstring& product, const std::wstring& sid) {
     if (!CanonicalGuid(product) || sid.empty()) return false;
@@ -1681,8 +1677,18 @@ public:
             KnownProductCode(L"1.0.1") != L"{9AEADDD4-2CAB-581F-99C1-722CE5381CA6}" ||
             KnownProductCode(L"1.0.2") != L"{38B4C1CA-16AE-508C-B207-2BBB57BE6897}" ||
             KnownProductCode(L"1.0.3") != L"{C8C2867E-1D8C-56CC-AD2E-A8A3406EE20E}" ||
+            KnownProductCode(L"1.1.1") != L"{30654C54-2EF1-5146-B135-C12D13477C0F}" ||
             KnownProductCode(L"0.0.0") != L"{B09DD206-2E8C-586A-9D9B-7326FE345697}" ||
             KnownProductCode(L"65535.65535.65535") != L"{8D375323-FC40-5511-90A9-19141BA23341}") return false;
+#else
+        if (KnownProductCode(L"1.0.0") != L"{ABA6A476-9128-5421-B39A-E19FA42FB0C8}" ||
+            KnownProductCode(L"1.0.1") != L"{EF7EC346-73F1-5CAB-9E09-EC9981BC63A3}" ||
+            KnownProductCode(L"1.0.2") != L"{98C2AFA2-0EED-5B73-BFC5-93FA21239246}" ||
+            KnownProductCode(L"1.0.3") != L"{715E6473-DF2B-58A4-A640-E2A5B5E005DF}" ||
+            KnownProductCode(L"1.1.1") != L"{B7F410F5-E0C9-56BE-A122-D3EB26971397}" ||
+            KnownProductCode(L"0.0.0") != L"{7F2EE652-CE35-5FF1-BA57-96701A694108}" ||
+            KnownProductCode(L"65535.65535.65535") != L"{178303F5-B601-5346-B166-C6FFAE18A09B}") return false;
+#endif
         for (const wchar_t* invalid : { L"", L"1", L"1.0", L"1.0.0.0", L"01.0.0", L"1.00.0", L"1.0.00", L"1.0.-1",
                 L"1.0.0-beta", L"1.0.0+build", L"v1.0.0", L"1.0.0 ", L" 1.0.0", L"1.0.0\n", L"65536.0.0", L"0.65536.0",
                 L"0.0.65536", L"999999999999999999999.0.0", L"1.0.０", L"1/0/0" })
@@ -1694,9 +1700,6 @@ public:
         if (ReplaceNeeded(futureOld, futureCandidate, old.root) || !ReplaceNeeded(futureOld, futureCandidate, L"C:\\Unicode 시험\\next")) return false;
         futureCandidate = futureOld; futureCandidate.package = L"{22222222-2222-4222-8222-222222222222}";
         if (!ReplaceNeeded(futureOld, futureCandidate, old.root)) return false;
-#else
-        if (!KnownProductCode(L"1.0.2").empty() || !KnownProductCode(L"1.0.3").empty()) return false;
-#endif
         setup.active_ = true; setup.quiet_ = true; setup.Cancel();
         return setup.CheckCanceled() && MsiRemovalUi(&setup, INSTALLMESSAGE_PROGRESS, 0) == IDCANCEL;
     }

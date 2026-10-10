@@ -27,7 +27,7 @@ import {
   validatePresetCollection,
   validatePresetName,
 } from '@/features/presets/model'
-import { beginPresetOperation, presetNativeEditPending, presetOperationInProgress, presetResetInProgress } from '@/features/presets/operations'
+import { beginPresetOperation, presetNativeEditPending, presetNativeMutationPending, presetOperationInProgress, presetResetInProgress } from '@/features/presets/operations'
 import { createPresetRequestClient } from '@/features/presets/request'
 import { preparePresetSkin, restorePresetSkin } from '@/features/presets/skin'
 import { createPresetThumbnailBatch } from '@/features/presets/thumbnail'
@@ -64,6 +64,7 @@ export function usePresetManager(
   const ready = ref(false)
   const localBusy = ref(true)
   const busy = computed(() => localBusy.value || presetResetInProgress.value || presetNativeEditPending.value > 0)
+  const editorsBusy = computed(() => localBusy.value || presetResetInProgress.value || presetNativeMutationPending.value > 0)
   const status = ref<'saving' | 'saved' | 'error'>('saving')
   const error = ref<string>()
   const createError = ref<string>()
@@ -94,6 +95,7 @@ export function usePresetManager(
       ...builtinPresets(t),
     ]
   })
+  const entriesById = computed(() => new Map(entries.value.map(entry => [entry.id, entry])))
   const client = createPresetRequestClient(emit)
   const stops: Array<() => void> = []
   const thumbnailKeys = shallowReactive(new Map<string, string>())
@@ -229,14 +231,14 @@ export function usePresetManager(
           const prepared = await preparePresetSkin(clonePreset(entry.snapshot))
           if (disposed || !listVisible || busy.value) break
           const thumbnail = await batch.render(prepared)
-          const current = entries.value.find(item => item.id === entry.id)
+          const current = entriesById.value.get(entry.id)
           if (disposed || !current || JSON.stringify(current.snapshot) !== key) continue
           thumbnails.value = { ...thumbnails.value, [entry.id]: thumbnail }
           thumbnailKeys.set(entry.id, key)
           thumbnailErrorKeys.delete(entry.id)
           delete thumbnailErrors.value[entry.id]
         } catch (cause) {
-          const current = entries.value.find(item => item.id === entry.id)
+          const current = entriesById.value.get(entry.id)
           if (disposed || !current || JSON.stringify(current.snapshot) !== key) continue
           reportDiagnostic('warn', 'presets.thumbnail', cause)
           thumbnailErrorKeys.set(entry.id, key)
@@ -725,6 +727,7 @@ export function usePresetManager(
     entries,
     status,
     busy,
+    editorsBusy,
     ready,
     error,
     hasIndependentError,

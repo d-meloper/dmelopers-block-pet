@@ -10,7 +10,10 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+#[path = "device/windows.rs"]
 mod windows;
+#[path = "device/pointer_mailbox.rs"]
+mod pointer_mailbox;
 use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewWindow, async_runtime, command};
 
 const SEMANTIC_INPUT_EVENT: &str = "semantic-input";
@@ -67,14 +70,12 @@ struct AggregateState {
     pressed_keys: HashSet<Key>,
     primary_pressed: bool,
     dragging: bool,
-    last_pointer_emit: Option<Instant>,
 }
 
 impl AggregateState {
     fn reset_mouse(&mut self) {
         self.primary_pressed = false;
         self.dragging = false;
-        self.last_pointer_emit = None;
     }
 }
 
@@ -141,6 +142,20 @@ static WINDOWS_LISTENER: Mutex<ListenerRegistry> = Mutex::new(ListenerRegistry {
 static DESKTOP_INPUT: AtomicU64 = AtomicU64::new(0);
 static BROADCAST_INPUT: AtomicU64 = AtomicU64::new(0);
 
+#[derive(Default)]
+struct InputCutoffs {
+    keyboard: AtomicU64,
+    mouse: AtomicU64,
+}
+static DESKTOP_CUTOFFS: InputCutoffs = InputCutoffs {
+    keyboard: AtomicU64::new(0),
+    mouse: AtomicU64::new(0),
+};
+static BROADCAST_CUTOFFS: InputCutoffs = InputCutoffs {
+    keyboard: AtomicU64::new(0),
+    mouse: AtomicU64::new(0),
+};
+
 #[derive(Clone, Copy)]
 pub(super) struct InputEpoch {
     desktop: u64,
@@ -151,6 +166,44 @@ fn capture_input_epoch() -> InputEpoch {
     InputEpoch {
         desktop: DESKTOP_INPUT.load(Ordering::SeqCst),
         broadcast: BROADCAST_INPUT.load(Ordering::SeqCst),
+    }
+}
+
+fn input_time_at(time: u32, now: u64) -> u64 {
+    // Extend the message clock into the current 64-bit uptime cycle; queued
+    // messages from just before rollover belong to the previous cycle.
+    let extended = (now & !u64::from(u32::MAX)) | u64::from(time);
+    if extended > now {
+        extended.saturating_sub(1_u64 << 32)
+    } else {
+        extended
+    }
+}
+
+fn capture_raw_input_epoch(event: &EventType, time: u32) -> InputEpoch {
+    let time = input_time_at(time, unsafe {
+        windows_sys::Win32::System::SystemInformation::GetTickCount64()
+    });
+    InputEpoch {
+        desktop: capture_raw_word(event, time, &DESKTOP_INPUT, &DESKTOP_CUTOFFS),
+        broadcast: capture_raw_word(event, time, &BROADCAST_INPUT, &BROADCAST_CUTOFFS),
+    }
+}
+
+fn capture_raw_word(event: &EventType, time: u64, word: &AtomicU64, cutoffs: &InputCutoffs) -> u64 {
+    loop {
+        let current = word.load(Ordering::SeqCst);
+        let cutoff = if matches!(event, EventType::KeyPress(_) | EventType::KeyRelease(_)) {
+            cutoffs.keyboard.load(Ordering::SeqCst)
+        } else {
+            cutoffs.mouse.load(Ordering::SeqCst)
+        };
+        if current != word.load(Ordering::SeqCst) {
+            continue;
+        }
+        // Conservative same-millisecond exclusion prevents a queued old Raw
+        // Input message from entering a newly acknowledged consumer epoch.
+        break if time > cutoff { current } else { 0 };
     }
 }
 
@@ -168,14 +221,24 @@ fn next_consumer_word(previous: u64, demand: Option<bool>) -> u64 {
     ((previous & !3) + 4 + lifetime) | demand.map_or(0, |mouse| 1 | (u64::from(mouse) << 1))
 }
 
-fn set_consumer_word(word: &AtomicU64, demand: Option<bool>) {
-    word.store(
-        next_consumer_word(word.load(Ordering::SeqCst), demand),
-        Ordering::SeqCst,
-    );
+fn set_consumer_word(word: &AtomicU64, cutoffs: &InputCutoffs, demand: Option<bool>) {
+    let previous = word.load(Ordering::SeqCst);
+    let next = next_consumer_word(previous, demand);
+    if next == previous {
+        return;
+    }
+    let now = unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() };
+    cutoffs.mouse.store(now, Ordering::SeqCst);
+    if previous >> 32 != next >> 32 {
+        cutoffs.keyboard.store(now, Ordering::SeqCst);
+    }
+    word.store(next, Ordering::SeqCst);
 }
 
 fn accepts_captured_input(event: &EventType, captured: u64, current: u64) -> bool {
+    if consumer_demand(captured).is_none() {
+        return false;
+    }
     if matches!(event, EventType::KeyPress(_) | EventType::KeyRelease(_)) {
         captured >> 32 == current >> 32 && consumer_demand(current).is_some()
     } else if matches!(event, EventType::MouseMove { .. }) {
@@ -226,7 +289,8 @@ pub async fn start_device_listening<R: Runtime>(
         })
         .await
         .map_err(|error| error.to_string())?
-    }.await;
+    }
+    .await;
     if let Err(error) = &result {
         log_input_failure("input.start", error);
     }
@@ -235,15 +299,25 @@ pub async fn start_device_listening<R: Runtime>(
 
 // Classify existing native errors without recording keys, pointer positions or raw messages.
 fn log_input_failure(operation: &'static str, error: &str) {
-    let code = if error.starts_with("Keyboard hook could not start") { "KEYBOARD_HOOK_START_FAILED" }
-        else if error.starts_with("Keyboard hook could not stop") { "KEYBOARD_HOOK_STOP_FAILED" }
-        else if error.starts_with("Mouse hook could not start") { "MOUSE_HOOK_START_FAILED" }
-        else if error.starts_with("Mouse hook could not stop") { "MOUSE_HOOK_STOP_FAILED" }
-        else if error.contains("lock") || error.contains("queue") { "INPUT_QUEUE_UNAVAILABLE" }
-        else if error.contains("thread") { "INPUT_THREAD_UNAVAILABLE" }
-        else if error.contains("only available") { "INVALID_WINDOW" }
-        else if error.contains("not started") { "NOT_STARTED" }
-        else { "INPUT_OPERATION_FAILED" };
+    let code = if error.starts_with("Keyboard hook could not start") {
+        "KEYBOARD_HOOK_START_FAILED"
+    } else if error.starts_with("Keyboard hook could not stop") {
+        "KEYBOARD_HOOK_STOP_FAILED"
+    } else if error.starts_with("Mouse hook could not start") {
+        "MOUSE_HOOK_START_FAILED"
+    } else if error.starts_with("Mouse hook could not stop") {
+        "MOUSE_HOOK_STOP_FAILED"
+    } else if error.contains("lock") || error.contains("queue") {
+        "INPUT_QUEUE_UNAVAILABLE"
+    } else if error.contains("thread") {
+        "INPUT_THREAD_UNAVAILABLE"
+    } else if error.contains("only available") {
+        "INVALID_WINDOW"
+    } else if error.contains("not started") {
+        "NOT_STARTED"
+    } else {
+        "INPUT_OPERATION_FAILED"
+    };
     crate::diagnostics::warn(operation, code);
 }
 
@@ -273,8 +347,8 @@ fn reconcile_listener<R: Runtime>(
     } else {
         registry.listener = Some(create_windows_listener(app, consumers.mouse_enabled())?);
     }
-    set_consumer_word(&DESKTOP_INPUT, consumers.desktop);
-    set_consumer_word(&BROADCAST_INPUT, consumers.broadcast);
+    set_consumer_word(&DESKTOP_INPUT, &DESKTOP_CUTOFFS, consumers.desktop);
+    set_consumer_word(&BROADCAST_INPUT, &BROADCAST_CUTOFFS, consumers.broadcast);
     registry.consumers = consumers;
     Ok(())
 }
@@ -292,47 +366,48 @@ fn create_windows_listener<R: Runtime>(
             let mut broadcast = AggregateState::default();
             let mut desktop_epoch = 0;
             let mut broadcast_epoch = 0;
-            while let Ok(message) = receive.recv() {
-                match message {
+            pointer_mailbox::consume_input(receive, POINTER_INTERVAL, |message| {
+                let (event, generation, epoch) = match message {
                     windows::InputMessage::ResetMouse => {
                         desktop.reset_mouse();
                         broadcast.reset_mouse();
+                        return;
+                    }
+                    windows::InputMessage::Pointer(pending) => {
+                        let Some(input) = pending.lock().ok().and_then(|mut slot| slot.take())
+                        else {
+                            return;
+                        };
+                        input
                     }
                     windows::InputMessage::Event(event, generation, epoch) => {
-                        if !is_current_input(
-                            &event,
-                            generation,
-                            MOUSE_GENERATION.load(Ordering::SeqCst),
-                        ) {
-                            continue;
-                        }
-                        if accepts_captured_input(
-                            &event,
-                            epoch.desktop,
-                            DESKTOP_INPUT.load(Ordering::SeqCst),
-                        ) {
-                            refresh_aggregate(&mut desktop, &mut desktop_epoch, epoch.desktop);
-                            process_input_event(&mut desktop, &event, |event| {
-                                emit_to_main(&app, event, epoch.desktop)
-                            });
-                        }
-                        if accepts_captured_input(
-                            &event,
-                            epoch.broadcast,
-                            BROADCAST_INPUT.load(Ordering::SeqCst),
-                        ) {
-                            refresh_aggregate(
-                                &mut broadcast,
-                                &mut broadcast_epoch,
-                                epoch.broadcast,
-                            );
-                            process_input_event(&mut broadcast, &event, |event| {
-                                emit_to_broadcast(&app, event, epoch.broadcast)
-                            });
-                        }
+                        (event, generation, epoch)
                     }
+                };
+                if !is_current_input(&event, generation, MOUSE_GENERATION.load(Ordering::SeqCst)) {
+                    return;
                 }
-            }
+                if accepts_captured_input(
+                    &event,
+                    epoch.desktop,
+                    DESKTOP_INPUT.load(Ordering::SeqCst),
+                ) {
+                    refresh_aggregate(&mut desktop, &mut desktop_epoch, epoch.desktop);
+                    process_input_event(&mut desktop, &event, |event| {
+                        emit_to_main(&app, event, epoch.desktop)
+                    });
+                }
+                if accepts_captured_input(
+                    &event,
+                    epoch.broadcast,
+                    BROADCAST_INPUT.load(Ordering::SeqCst),
+                ) {
+                    refresh_aggregate(&mut broadcast, &mut broadcast_epoch, epoch.broadcast);
+                    process_input_event(&mut broadcast, &event, |event| {
+                        emit_to_broadcast(&app, event, epoch.broadcast)
+                    });
+                }
+            });
         })
         .map_err(|error| error.to_string())?;
     Ok(WindowsListener {
@@ -376,7 +451,8 @@ pub async fn set_device_input_active<R: Runtime>(
         })
         .await
         .map_err(|error| error.to_string())?
-    }.await;
+    }
+    .await;
     if let Err(error) = &result {
         log_input_failure("input.set_active", error);
     }
@@ -408,7 +484,8 @@ pub async fn set_device_mouse_enabled<R: Runtime>(
         })
         .await
         .map_err(|error| error.to_string())?
-    }.await;
+    }
+    .await;
     if let Err(error) = &result {
         log_input_failure("input.set_mouse_enabled", error);
     }
@@ -438,8 +515,8 @@ pub fn stop_listening() -> Result<(), String> {
     }
     registry.listener = None;
     registry.consumers = Consumers::default();
-    set_consumer_word(&DESKTOP_INPUT, None);
-    set_consumer_word(&BROADCAST_INPUT, None);
+    set_consumer_word(&DESKTOP_INPUT, &DESKTOP_CUTOFFS, None);
+    set_consumer_word(&BROADCAST_INPUT, &BROADCAST_CUTOFFS, None);
     Ok(())
 }
 
@@ -461,7 +538,8 @@ pub async fn stop_device_listening<R: Runtime>(window: WebviewWindow<R>) -> Resu
         })
         .await
         .map_err(|error| error.to_string())?
-    }.await;
+    }
+    .await;
     if let Err(error) = &result {
         log_input_failure("input.stop", error);
     }
@@ -524,14 +602,6 @@ fn process_input_event(
                 state.dragging = true;
                 emit(SemanticInputEvent::Drag { active: true });
             }
-            let now = Instant::now();
-            if state
-                .last_pointer_emit
-                .is_some_and(|last| now.duration_since(last) < POINTER_INTERVAL)
-            {
-                return;
-            }
-            state.last_pointer_emit = Some(now);
             emit(SemanticInputEvent::PointerActivity { x: *x, y: *y });
         }
         EventType::Wheel { delta_x, delta_y } => emit(SemanticInputEvent::Scroll {
@@ -635,13 +705,16 @@ fn emit_to_main<R: Runtime>(app: &AppHandle<R>, event: SemanticInputEvent, epoch
         mouse_generation: Option<u64>,
     }
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-        if window.emit(
-            SEMANTIC_INPUT_EVENT,
-            Payload {
-                event,
-                mouse_generation,
-            },
-        ).is_err() {
+        if window
+            .emit(
+                SEMANTIC_INPUT_EVENT,
+                Payload {
+                    event,
+                    mouse_generation,
+                },
+            )
+            .is_err()
+        {
             crate::diagnostics::warn("input.desktop_delivery", "EVENT_EMIT_FAILED");
         }
     }
@@ -744,6 +817,129 @@ fn typing_intensity(events: &VecDeque<Instant>) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn delayed_raw_input_keeps_independent_consumer_boundaries_and_keyboard_releases() {
+        let on = next_consumer_word(0, Some(true));
+        let desktop = AtomicU64::new(next_consumer_word(
+            next_consumer_word(on, Some(false)),
+            Some(true),
+        ));
+        let broadcast = AtomicU64::new(on);
+        let desktop_cutoffs = InputCutoffs {
+            keyboard: AtomicU64::new(10),
+            mouse: AtomicU64::new(100),
+        };
+        let broadcast_cutoffs = InputCutoffs {
+            keyboard: AtomicU64::new(10),
+            mouse: AtomicU64::new(10),
+        };
+        let key = EventType::KeyRelease(Key::KeyA);
+        let mouse = EventType::ButtonRelease(Button::Left);
+        assert_eq!(
+            capture_raw_word(&key, 90, &desktop, &desktop_cutoffs),
+            desktop.load(Ordering::SeqCst)
+        );
+        assert_eq!(capture_raw_word(&mouse, 90, &desktop, &desktop_cutoffs), 0);
+        assert_eq!(
+            capture_raw_word(&mouse, 90, &broadcast, &broadcast_cutoffs),
+            on
+        );
+        desktop_cutoffs.keyboard.store(100, Ordering::SeqCst);
+        desktop.store(
+            next_consumer_word(
+                next_consumer_word(desktop.load(Ordering::SeqCst), None),
+                Some(true),
+            ),
+            Ordering::SeqCst,
+        );
+        assert_eq!(capture_raw_word(&key, 90, &desktop, &desktop_cutoffs), 0);
+        assert_eq!(
+            capture_raw_word(&key, 90, &broadcast, &broadcast_cutoffs),
+            on
+        );
+        assert_eq!(capture_raw_word(&mouse, 100, &desktop, &desktop_cutoffs), 0);
+        assert_ne!(capture_raw_word(&mouse, 101, &desktop, &desktop_cutoffs), 0);
+        assert_ne!(
+            capture_raw_word(&key, 0x8000_0065, &desktop, &desktop_cutoffs),
+            0
+        );
+    }
+
+    #[test]
+    fn raw_clock_extension_handles_long_lifetimes_and_u32_rollover() {
+        for now in [0x8000_0065_u64, 0x1_0000_0020, 0x8_0000_0020] {
+            let fresh = input_time_at(now as u32, now);
+            assert_eq!(fresh, now);
+            assert!(fresh > 100, "fresh input remains after a long-lived cutoff");
+            assert_eq!(input_time_at(now.wrapping_sub(40) as u32, now), now - 40);
+        }
+    }
+
+    #[test]
+    fn actual_collector_lifetime_follows_independent_desktop_and_obs_leases() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let main = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let preference = tauri::WebviewWindowBuilder::new(&app, "preference", Default::default())
+            .build()
+            .unwrap();
+        require_main_input_window(main.label()).unwrap();
+        assert!(require_main_input_window(preference.label()).is_err());
+        let mut registry = ListenerRegistry {
+            listener: None,
+            consumers: Consumers::default(),
+        };
+        for consumers in [
+            Consumers {
+                desktop: Some(true),
+                broadcast: None,
+            },
+            Consumers {
+                desktop: Some(false),
+                broadcast: Some(true),
+            },
+            Consumers {
+                desktop: None,
+                broadcast: Some(true),
+            },
+            Consumers {
+                desktop: Some(false),
+                broadcast: Some(false),
+            },
+            Consumers {
+                desktop: Some(true),
+                broadcast: None,
+            },
+            Consumers::default(),
+        ] {
+            reconcile_listener(&mut registry, app.handle().clone(), consumers).unwrap();
+            assert_eq!(registry.consumers, consumers);
+            assert_eq!(registry.listener.is_some(), consumers.active());
+            if let Some(listener) = &registry.listener {
+                assert!(!listener.hooks.is_finished());
+                assert_eq!(
+                    listener.hooks.state().unwrap().mouse_enabled,
+                    consumers.mouse_enabled()
+                );
+            }
+        }
+        assert!(registry.listener.is_none());
+        reconcile_listener(
+            &mut registry,
+            app.handle().clone(),
+            Consumers {
+                desktop: None,
+                broadcast: Some(false),
+            },
+        )
+        .unwrap();
+        reconcile_listener(&mut registry, app.handle().clone(), Consumers::default()).unwrap();
+        assert!(registry.listener.is_none());
+    }
 
     #[test]
     fn pointer_observation_survives_mouse_off_without_forwarding_buttons() {
@@ -891,12 +1087,10 @@ mod tests {
         state.typing_events.push_back(Instant::now());
         state.primary_pressed = true;
         state.dragging = true;
-        state.last_pointer_emit = Some(Instant::now());
         state.reset_mouse();
         assert!(state.pressed_keys.contains(&Key::KeyF));
         assert_eq!(state.typing_events.len(), 1);
         assert!(!state.primary_pressed && !state.dragging);
-        assert!(state.last_pointer_emit.is_none());
     }
 
     #[test]
@@ -961,3 +1155,7 @@ mod tests {
         assert_eq!(scroll["deltaY"], -1);
     }
 }
+
+#[cfg(test)]
+#[path = "device/pointer_cadence_tests.rs"]
+mod native_pointer_cadence_tests;

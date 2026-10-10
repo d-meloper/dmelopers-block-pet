@@ -272,6 +272,7 @@ async function harness(
   transfer: TransferBoundary = transferBoundary(),
   subscriptionFailures: { response?: number, close?: number } = {},
   freshInstall = false,
+  runtimeGlobals: Record<string, unknown> = {},
 ) {
   setActivePinia(createPinia())
   const store = useBlockStore()
@@ -345,6 +346,7 @@ async function harness(
     queueMicrotask,
     setTimeout,
     clearTimeout,
+    ...runtimeGlobals,
     require: (id: string) => {
       if (id === '@/services/diagnostics') return { reportDiagnostic: (level: string, operation: string) => diagnostics.push({ level, operation }) }
       if (id === 'vue') return { ...vue, onMounted: (callback: () => Promise<void>) => mounted.push(callback), onBeforeUnmount: (callback: () => void) => unmounted.push(callback) }
@@ -760,6 +762,97 @@ describe('live preset manager', () => {
     }
   })
 
+  for (const fails of [false, true]) {
+    it(`keeps completed thumbnail lookup work linear for a large catalog when rendering ${fails ? 'fails' : 'succeeds'}`, async (t) => {
+      let indexBuilds = 0
+      let indexRows = 0
+      let snapshotStrings = 0
+      class MeasuredMap extends Map<any, any> {
+        constructor(values?: Iterable<readonly [any, any]> | null) {
+          super(values)
+          if (this.size && [...this.values()].every(value => value?.origin && value?.snapshot)) {
+            indexBuilds++
+            indexRows += this.size
+          }
+        }
+      }
+      const h = await harness(undefined, undefined, undefined, undefined, undefined, false, {
+        Map: MeasuredMap,
+        JSON: { parse: JSON.parse, stringify: (value: any) => {
+          if (value?.appearance && value?.preset) snapshotStrings++
+          return JSON.stringify(value)
+        } },
+      })
+      let restoreFind = () => {}
+      try {
+        const count = 256
+        const snapshot = clonePreset(userEntries(h.manager)[0].snapshot)
+        h.store.presetCollection!.entries = Array.from({ length: count }, (_, index) => ({
+          id: `catalog-${index}`,
+          name: `Preset ${index}`,
+          favorite: false,
+          snapshot: clonePreset(snapshot),
+        }))
+        assert.equal(await h.manager.retry(), true)
+        const entries = h.manager.entries.value
+        const prototype = Object.getPrototypeOf(entries) as Array<any>
+        const find = prototype.find
+        let comparisons = 0
+        prototype.find = function (this: any[], predicate: (value: any, index: number, array: any[]) => unknown, thisArg?: any) {
+          return find.call(this, (value, index, array) => {
+            if (this === entries) comparisons++
+            return predicate.call(thisArg, value, index, array)
+          })
+        }
+        restoreFind = () => {
+          prototype.find = find
+        }
+        indexBuilds = 0
+        indexRows = 0
+        snapshotStrings = 0
+        h.failThumbnail(fails)
+        h.manager.setListVisible(true)
+        await waitFor(() => Object.keys(fails ? h.manager.thumbnailErrors.value : h.manager.thumbnails.value).length === count + 4)
+        assert.equal(h.manager.entries.value, entries, 'thumbnail cache completions must not invalidate the catalog index')
+        t.diagnostic(`completed ${count + 4} previews: ${comparisons} scan comparisons, ${indexBuilds} index builds, ${indexRows} indexed rows, ${snapshotStrings} key serializations`)
+        assert.ok(comparisons + indexRows <= (count + 4) * 2, 'completed previews must not rescan or rebuild the entire catalog for each result')
+        assert.equal(indexBuilds, 1)
+        assert.equal(indexRows, count + 4)
+        assert.equal(snapshotStrings, (count + 4) * 3, 'indexing must preserve the existing snapshot validation work')
+        assert.deepEqual(h.thumbnailBatches(), { total: 1, active: 0, maxActive: 1 })
+      } finally {
+        restoreFind()
+        h.dispose()
+      }
+    })
+  }
+
+  it('invalidates the thumbnail index when a preset is deleted while its preview is preparing', async () => {
+    let prepared = 0
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const h = await harness(undefined, async (snapshot) => {
+      if (++prepared === 2) await held
+      return clonePreset(snapshot)
+    })
+    try {
+      const [first, second] = h.manager.entries.value
+      h.manager.setListVisible(true)
+      await waitFor(() => prepared === 2)
+      assert.ok(h.manager.thumbnails.value[first.id], 'the index has already validated the first result')
+      assert.equal(await h.manager.remove(second.id), true)
+      release()
+      await waitFor(() => Object.keys(h.manager.thumbnails.value).length === 5)
+      assert.equal(h.manager.thumbnails.value[second.id], undefined, 'a delayed result must consult the current catalog')
+      assert.equal(h.manager.thumbnailErrors.value[second.id], undefined)
+    } finally {
+      release()
+      h.dispose()
+    }
+  })
+
   for (const laterFailure of ['autosave', 'rename'] as const) {
     it(`keeps a later ${laterFailure} failure independent from a retained create retry`, async (t) => {
       const h = await harness()
@@ -960,6 +1053,33 @@ describe('live preset manager', () => {
       assert.equal((h.saves.at(-1)! as ReturnType<typeof useBlockStore>['$state']).customization3d.dmeloperSkinModel, 'slim')
     } finally {
       editorsLocked.value = false
+      h.dispose()
+    }
+  })
+
+  it('keeps editors active during readback while preserving preset and mutation barriers', async () => {
+    const h = await harness()
+    const releaseQuery = presetOperations.beginPresetNativeQuery(() => {})
+    let releaseEdit: (() => void) | undefined
+    try {
+      assert.equal(h.manager.busy.value, true, 'preset transactions still wait for native readback')
+      assert.equal(h.manager.editorsBusy.value, false, 'readback cannot make a focused slider inert')
+      assert.equal(await h.manager.activate(DEFAULT_PRESET_ID), false)
+      h.store.customization3d.preset.cameraZoomPercent = 156
+      releaseEdit = presetOperations.beginPresetNativeEdit()
+      assert.equal(h.manager.editorsBusy.value, true, 'actual native mutations retain the editor barrier')
+      releaseQuery()
+      assert.equal(h.manager.busy.value, true)
+      assert.equal(h.manager.editorsBusy.value, true)
+      releaseEdit()
+      assert.equal(h.manager.busy.value, false)
+      assert.equal(h.manager.editorsBusy.value, false)
+      assert.equal(presetOperations.presetNativeMutationPending.value, 0)
+      assert.equal(await h.manager.retry(), true)
+      assert.equal((h.saves.at(-1)! as ReturnType<typeof useBlockStore>['$state']).customization3d.preset.cameraZoomPercent, 156, 'edits during readback survive the save barrier')
+    } finally {
+      releaseQuery()
+      releaseEdit?.()
       h.dispose()
     }
   })

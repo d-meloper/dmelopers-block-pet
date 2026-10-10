@@ -7,6 +7,7 @@ import type { PresetManager } from '@/composables/usePresetManager'
 import type { PresetExportMode } from '@/features/presets/transfer'
 import type { PresetEntry } from '@/features/presets/types'
 
+import OptionTransition from '@/components/option-transition/index.vue'
 import { reportDiagnostic } from '@/services/diagnostics'
 import { isMinecraftUsername } from '@/services/minecraftSkin'
 
@@ -87,14 +88,25 @@ async function submit() {
       <label class="flex cursor-pointer items-start gap-2 b b-color-2 rounded-lg p-3">
         <input
           v-model="mode"
+          :aria-describedby="mode === 'image' ? 'preset-export-image-hint' : undefined"
+          aria-labelledby="preset-export-image-title"
           class="mt-1"
           name="preset-export-skin"
           type="radio"
           value="image"
         >
         <span>
-          <span class="block font-medium">{{ $t('pages.preference.presets.transfer.dialog.image') }}</span>
-          <span class="mt-1 block whitespace-pre-line text-sm text-color-3">{{ $t('pages.preference.presets.transfer.dialog.imageHint') }}</span>
+          <span
+            id="preset-export-image-title"
+            class="block font-medium"
+          >{{ $t('pages.preference.presets.transfer.dialog.image') }}</span>
+          <OptionTransition>
+            <span
+              v-show="mode === 'image'"
+              id="preset-export-image-hint"
+              class="mt-1 block whitespace-pre-line text-sm text-color-3"
+            >{{ $t('pages.preference.presets.transfer.dialog.imageHint') }}</span>
+          </OptionTransition>
         </span>
       </label>
       <label
@@ -103,7 +115,8 @@ async function submit() {
       >
         <input
           v-model="mode"
-          aria-describedby="preset-export-nickname-hint"
+          :aria-describedby="!username ? 'preset-export-nickname-hint' : mode === 'nickname' ? 'preset-export-nickname-hint preset-export-username' : undefined"
+          aria-labelledby="preset-export-nickname-title"
           class="mt-1"
           :disabled="!username"
           name="preset-export-skin"
@@ -111,33 +124,50 @@ async function submit() {
           value="nickname"
         >
         <span>
-          <span class="block font-medium">{{ $t('pages.preference.presets.transfer.dialog.nickname') }}</span>
           <span
-            id="preset-export-nickname-hint"
-            class="mt-1 block whitespace-pre-line text-sm text-color-3"
-          >{{ $t(username ? 'pages.preference.presets.transfer.dialog.nicknameHint' : 'pages.preference.presets.transfer.dialog.noNickname') }}</span>
-          <span
-            v-if="username"
-            class="mt-2 block text-sm"
-            :class="{ 'text-color-3 opacity-65': mode !== 'nickname' }"
-          >{{ $t('pages.preference.presets.transfer.dialog.username') }}: <strong>{{ username }}</strong></span>
+            id="preset-export-nickname-title"
+            class="block font-medium"
+          >{{ $t('pages.preference.presets.transfer.dialog.nickname') }}</span>
+          <OptionTransition>
+            <span
+              v-show="mode === 'nickname' || !username"
+              class="mt-1 block"
+            >
+              <span
+                id="preset-export-nickname-hint"
+                class="block whitespace-pre-line text-sm text-color-3"
+              >{{ $t(username ? 'pages.preference.presets.transfer.dialog.nicknameHint' : 'pages.preference.presets.transfer.dialog.noNickname') }}</span>
+              <span
+                v-if="username"
+                id="preset-export-username"
+                class="mt-2 block text-sm"
+              >{{ $t('pages.preference.presets.transfer.dialog.username') }}: <strong>{{ username }}</strong></span>
+            </span>
+          </OptionTransition>
         </span>
       </label>
       <label class="flex cursor-pointer items-start gap-2 b b-color-2 rounded-lg p-3">
         <input
           v-model="mode"
-          aria-describedby="preset-export-default-hint"
+          :aria-describedby="mode === 'default' ? 'preset-export-default-hint' : undefined"
+          aria-labelledby="preset-export-default-title"
           class="mt-1"
           name="preset-export-skin"
           type="radio"
           value="default"
         >
         <span>
-          <span class="block font-medium">{{ $t('pages.preference.presets.transfer.dialog.default') }}</span>
           <span
-            id="preset-export-default-hint"
-            class="mt-1 block whitespace-pre-line text-sm text-color-3"
-          >{{ $t('pages.preference.presets.transfer.dialog.defaultHint') }}</span>
+            id="preset-export-default-title"
+            class="block font-medium"
+          >{{ $t('pages.preference.presets.transfer.dialog.default') }}</span>
+          <OptionTransition>
+            <span
+              v-show="mode === 'default'"
+              id="preset-export-default-hint"
+              class="mt-1 block whitespace-pre-line text-sm text-color-3"
+            >{{ $t('pages.preference.presets.transfer.dialog.defaultHint') }}</span>
+          </OptionTransition>
         </span>
       </label>
     </fieldset>

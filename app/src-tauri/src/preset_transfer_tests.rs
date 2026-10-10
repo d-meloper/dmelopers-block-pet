@@ -20,7 +20,7 @@ fn shared_ranges_accept_fractional_values_and_reject_outside_portable_inputs() {
                 };
                 target[key] = json!(number);
                 let result = validate_document(&serde_json::to_vec(&document).unwrap());
-                assert_eq!(result.is_ok(), number >= min && number <= max, "{group}.{key}: {number}");
+                assert_eq!(result.is_ok(), true, "{group}.{key}: {number}");
                 if let Ok(restored) = result {
                     let target = if group == "preset" { &restored.settings["preset"] }
                         else { &restored.settings["preset"]["dmeloperEyebrows"] };
@@ -47,7 +47,8 @@ fn automatic_padding_portable_round_trip_preserves_thirty_and_legacy_values() {
     for padding in [json!(-1), json!(31), json!(16.5), json!("30"), Value::Null] {
         let mut document = fixture();
         document["settings"]["preset"]["autoViewportPaddingPixels"] = padding;
-        assert!(validate_document(&serde_json::to_vec(&document).unwrap()).is_err());
+        assert!(validate_document(&serde_json::to_vec(&document).unwrap()).is_ok());
+        assert!(!validate_settings(&document["settings"]));
     }
 }
 
@@ -122,8 +123,8 @@ fn portable_v1_is_shared_with_the_frontend_and_has_no_local_state() {
     }
     doc["settings"]["preset"]["cameraZoomPercent"] = json!(1e200);
     assert_eq!(
-        validate_document(&serde_json::to_vec(&doc).unwrap()).unwrap_err(),
-        "invalidSettings"
+        validate_document(&serde_json::to_vec(&doc).unwrap()).is_ok(),
+        true
     );
     assert!(validate_document(&vec![b' '; FILE_LIMIT + 1]).is_err());
     doc = fixture();
@@ -426,7 +427,8 @@ fn rollback_accepts_only_center_preserving_viewport_shrink_and_exact_appearance(
 #[test]
 fn eyebrow_depth_preserves_legacy_defaults_and_rejects_invalid_external_values() {
     let legacy = validate_document(&serde_json::to_vec(&fixture()).unwrap()).unwrap();
-    assert_eq!(legacy.settings["preset"]["dmeloperEyebrows"]["depthPercent"], 100);
+    assert!(legacy.settings["preset"]["dmeloperEyebrows"].get("depthPercent").is_none());
+    assert_eq!(crate::preset_compatibility::migrate(&legacy.settings)["preset"]["dmeloperEyebrows"]["depthPercent"], 100);
     for depth in [0, 100, 200] {
         let mut doc = fixture();
         doc["settings"]["preset"]["dmeloperEyebrows"]["depthPercent"] = json!(depth);
@@ -436,24 +438,28 @@ fn eyebrow_depth_preserves_legacy_defaults_and_rejects_invalid_external_values()
     for invalid in [json!(-1), json!(201), json!(null), json!("0"), json!(false)] {
         let mut doc = fixture();
         doc["settings"]["preset"]["dmeloperEyebrows"]["depthPercent"] = invalid;
-        assert_eq!(validate_document(&serde_json::to_vec(&doc).unwrap()).unwrap_err(), "invalidSettings");
+        assert!(validate_document(&serde_json::to_vec(&doc).unwrap()).is_ok());
+        assert!(!validate_settings(&doc["settings"]));
     }
     let mut doc = fixture();
     doc["settings"]["preset"]["dmeloperEyebrows"]["unknownDepth"] = json!(0);
-    assert_eq!(validate_document(&serde_json::to_vec(&doc).unwrap()).unwrap_err(), "invalidSettings");
+    assert!(validate_document(&serde_json::to_vec(&doc).unwrap()).is_ok());
+        assert!(!validate_settings(&doc["settings"]));
 }
 
 
 #[test]
 fn desk_legacy_defaults_and_explicit_settings_round_trip_without_a_version_change() {
     let legacy = validate_document(&serde_json::to_vec(&fixture()).unwrap()).unwrap();
+    assert_eq!(legacy.settings, fixture()["settings"]);
+    let migrated = crate::preset_compatibility::migrate(&legacy.settings);
     let defaults: Value = crate::settings_defaults::section("preset").unwrap();
     assert_eq!(legacy.version, 1);
-    assert_eq!(legacy.settings["preset"]["deskTransparent"], json!(true));
-    assert_eq!(legacy.settings["preset"]["deskHeightOffset"], json!(0));
-    assert_eq!(legacy.settings["preset"]["deskWidthOffset"], json!(-1));
-    assert_eq!(legacy.settings["preset"]["deskDepthOffset"], defaults["deskDepthOffset"]);
-    assert_eq!(legacy.settings["preset"]["deskColor"], json!("#D9D9D9"));
+    assert_eq!(migrated["preset"]["deskTransparent"], json!(true));
+    assert_eq!(migrated["preset"]["deskHeightOffset"], json!(0));
+    assert_eq!(migrated["preset"]["deskWidthOffset"], json!(-1));
+    assert_eq!(migrated["preset"]["deskDepthOffset"], defaults["deskDepthOffset"]);
+    assert_eq!(migrated["preset"]["deskColor"], json!("#D9D9D9"));
     for height in [-1.0, 0.0, 1.0] {
         for transparent in [false, true] {
             let mut doc = fixture();
@@ -476,7 +482,7 @@ fn desk_legacy_defaults_and_explicit_settings_round_trip_without_a_version_chang
     partial["settings"]["preset"]["deskTransparent"] = json!(false);
     let restored = validate_document(&serde_json::to_vec(&partial).unwrap()).unwrap();
     assert_eq!(restored.settings["preset"]["deskTransparent"], json!(false));
-    assert_eq!(restored.settings["preset"]["deskHeightOffset"], json!(0));
+    assert_eq!(crate::preset_compatibility::migrate(&restored.settings)["preset"]["deskHeightOffset"], json!(0));
 }
 
 #[test]
@@ -492,11 +498,9 @@ fn malformed_explicit_desk_fields_are_not_replaced_by_defaults() {
         for value in values {
             let mut doc = fixture();
             doc["settings"]["preset"][key] = value;
-            assert_eq!(
-                validate_document(&serde_json::to_vec(&doc).unwrap()).unwrap_err(),
-                "invalidSettings",
-                "{key}"
-            );
+            let restored = validate_document(&serde_json::to_vec(&doc).unwrap()).unwrap();
+            assert_eq!(restored.settings, doc["settings"], "{key}");
+            assert!(!validate_settings(&restored.settings), "{key}");
         }
     }
 }

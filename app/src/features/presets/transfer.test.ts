@@ -1,11 +1,12 @@
-/* eslint-disable test/no-import-node-test */
 import assert from 'node:assert/strict'
+/* eslint-disable test/no-import-node-test */
 import { readFileSync } from 'node:fs'
 import { it } from 'node:test'
 
 import { DEFAULT_DESK_SETTINGS, DESK_SETTING_KEYS, LEGACY_DESK_SETTINGS } from '@/config/desk'
 import { MinecraftSkinError } from '@/services/minecraftSkin'
 
+import { inspectPresetCompatibility } from './compatibility'
 import { clonePreset, createDefaultPresetSnapshot } from './model'
 import { installPresetSkinBrowser } from './skin.test.utils'
 import { exportPortablePreset, MAX_PET_PRESET_BYTES, parsePortablePreset, resolvePortablePreset, serializePortablePreset, validatePortablePreset } from './transfer'
@@ -22,7 +23,7 @@ it('reads the frozen native/frontend v1 fixture with exactly the preset settings
   assert.deepEqual(parsePortablePreset(new Uint8Array([0xEF, 0xBB, 0xBF, ...fixture])), doc)
 })
 
-it('round-trips automatic padding through 30 and rejects invalid portable padding', async () => {
+it('round-trips automatic padding through 30 and classifies unsupported archived padding', async () => {
   for (const padding of [0, 2, 10, 16, 17, 20, 30]) {
     const snapshot = createDefaultPresetSnapshot()
     snapshot.preset.autoViewportPaddingPixels = padding
@@ -34,7 +35,9 @@ it('round-trips automatic padding through 30 and rejects invalid portable paddin
   for (const padding of [-1, 31, 16.5, '30', null]) {
     const document = JSON.parse(fixture.toString())
     document.settings.preset.autoViewportPaddingPixels = padding
-    assert.throws(() => parsePortablePreset(new TextEncoder().encode(JSON.stringify(document))), { code: 'invalidSettings' })
+    const restored = parsePortablePreset(new TextEncoder().encode(JSON.stringify(document)))
+    assert.ok(inspectPresetCompatibility(restored.sourceSettings!).length)
+    assert.equal(restored.sourceSettings!.preset && (restored.sourceSettings!.preset as Record<string, unknown>).autoViewportPaddingPixels, padding)
   }
 })
 
@@ -65,7 +68,7 @@ it('exports immutable PNG bytes, resolved arm geometry and nickname provenance w
     const document = await exportPortablePreset('Frozen', snapshot, 'image')
     assert.deepEqual(document.skin, { mode: 'image', pngBase64: browser.dataUrl.split(',')[1], model: 'wide', nickname: 'Fixture_User' })
     assert.deepEqual(document.settings.preset, snapshot.preset)
-    assert.deepEqual(parsePortablePreset(new TextEncoder().encode(serializePortablePreset(document))), document)
+    assert.deepEqual(parsePortablePreset(new TextEncoder().encode(serializePortablePreset(document))), { ...document, sourceSettings: document.settings })
     const builtin = await exportPortablePreset('Default', createDefaultPresetSnapshot(), 'image')
     assert.equal(builtin.skin.mode, 'image')
     assert.ok(!('nickname' in builtin.skin))
@@ -112,7 +115,7 @@ it('exports the bundled default skin and only resets skin colors without reading
   }
 })
 
-it('rejects unsafe shapes, invalid ranges and version drift before any skin resolution', () => {
+it('rejects invalid file envelopes and preserves incompatible settings before skin resolution', () => {
   const mutations: Array<(doc: Record<string, any>) => void> = [
     d => d.version++,
     d => d.format = 'foreign',
@@ -135,7 +138,12 @@ it('rejects unsafe shapes, invalid ranges and version drift before any skin reso
   for (const mutate of mutations) {
     const doc = JSON.parse(fixture.toString())
     mutate(doc)
-    assert.throws(() => validatePortablePreset(doc), { name: 'PresetTransferError' }, mutate.toString())
+    if (doc.version !== 1 || doc.format !== 'dmeloper.petpreset' || !doc.name || /\n/.test(doc.name) || doc.skin.nickname === 'bad-name' || doc.skin.pngBase64 === 'private' || doc.skin.thumbnail) {
+      assert.throws(() => validatePortablePreset(doc), { name: 'PresetTransferError' }, mutate.toString())
+    } else {
+      validatePortablePreset(doc)
+      assert.ok(inspectPresetCompatibility(doc.settings).length, mutate.toString())
+    }
   }
   assert.throws(() => parsePortablePreset(new Uint8Array(MAX_PET_PRESET_BYTES + 1)), { code: 'tooLarge' })
   assert.throws(() => parsePortablePreset(new Uint8Array([0xFF])), { code: 'invalidFormat' })
@@ -164,6 +172,7 @@ it('resolves nickname exactly once, adopts current Wide/Slim and preserves color
   })
   try {
     const document = parsePortablePreset(fixture)
+    delete document.sourceSettings
     document.settings.preset.dmeloperPalmColor = '#123456'
     document.settings.preset.dmeloperEyebrows.color = '#654321'
     document.settings.preset.dmeloperEyebrows.depthPercent = 0
@@ -188,9 +197,10 @@ it('resolves nickname exactly once, adopts current Wide/Slim and preserves color
   }
 })
 
-it('round-trips all supported eyebrow depths and rejects malformed external depth values', () => {
+it('round-trips supported eyebrow depths and classifies unsupported archived depths', () => {
   for (const depthPercent of [0, 100, 200]) {
     const document = parsePortablePreset(fixture)
+    delete document.sourceSettings
     document.settings.preset.dmeloperEyebrows.depthPercent = depthPercent
     const parsed = parsePortablePreset(new TextEncoder().encode(serializePortablePreset(document)))
     assert.equal(parsed.settings.preset.dmeloperEyebrows.depthPercent, depthPercent)
@@ -198,7 +208,12 @@ it('round-trips all supported eyebrow depths and rejects malformed external dept
   for (const invalid of [-1, 201, Number.NaN, Infinity, null, '0', false]) {
     const document = JSON.parse(fixture.toString())
     document.settings.preset.dmeloperEyebrows.depthPercent = invalid
-    assert.throws(() => validatePortablePreset(document), { code: 'invalidSettings' })
+    if (typeof invalid === 'number' && !Number.isFinite(invalid)) {
+      assert.throws(() => validatePortablePreset(document), { code: 'invalidSettings' })
+    } else {
+      validatePortablePreset(document)
+      assert.ok(inspectPresetCompatibility(document.settings).length)
+    }
   }
 })
 
@@ -225,7 +240,7 @@ it('round-trips every desk setting and only supplies absent fields in partial le
   assert.equal('deskColor' in legacy.settings.preset, false)
 })
 
-it('rejects invalid desk types, colors, heights and unknown fields before importing', () => {
+it('archives incompatible desk settings while rejecting non-JSON values', () => {
   for (const changes of [
     { deskTransparent: null },
     { deskTransparent: 1 },
@@ -254,6 +269,29 @@ it('rejects invalid desk types, colors, heights and unknown fields before import
   ]) {
     const legacy = JSON.parse(fixture.toString())
     Object.assign(legacy.settings.preset, changes)
-    assert.throws(() => validatePortablePreset(legacy), { code: 'invalidSettings' })
+    if (Object.values(changes).some(value => value === undefined || (typeof value === 'number' && !Number.isFinite(value)))) {
+      assert.throws(() => validatePortablePreset(legacy), { code: 'invalidSettings' })
+    } else {
+      validatePortablePreset(legacy)
+      assert.ok(inspectPresetCompatibility(legacy.settings).length)
+    }
   }
+})
+
+it('retains incompatible original values through real parse, resolve, serialize and re-export', async () => {
+  const raw = JSON.parse(fixture.toString())
+  raw.settings.preset.autoViewportPaddingPixels = 40
+  raw.settings.preset.keyboardLegendLanguage = 'unsupported'
+  raw.settings.preset.futureOption = { enabled: true }
+  const parsed = parsePortablePreset(new TextEncoder().encode(JSON.stringify(raw)))
+  assert.deepEqual(parsed.sourceSettings, raw.settings)
+  assert.equal(parsed.settings.preset.autoViewportPaddingPixels, createDefaultPresetSnapshot().preset.autoViewportPaddingPixels)
+  const serialized = JSON.parse(serializePortablePreset(parsed))
+  assert.deepEqual(serialized.settings, raw.settings)
+  assert.equal('sourceSettings' in serialized, false)
+  const snapshot = { ...createDefaultPresetSnapshot(), ...parsed.settings }
+  snapshot.appearance.minecraftSkinUsername = 'Fixture_User'
+  const exported = await exportPortablePreset('Preserved', snapshot, 'nickname', parsed.sourceSettings)
+  assert.deepEqual(JSON.parse(serializePortablePreset(exported)).settings, raw.settings)
+  assert.deepEqual(parsed.sourceSettings, raw.settings)
 })

@@ -162,6 +162,105 @@
           "sunset": "기본 (저녁 노을)",
           "front": "정면",
           "bigHeadKeyboard": "대두 키보드"
+        },
+        "compatibility": {
+          "applyCompatible": "호환되는 설정만 적용",
+          "hint": "이 프리셋에는 현재 버전에서 사용할 수 없는 설정이 있습니다. 아래 항목은 현재 값을 유지하고, 호환되는 설정만 변경합니다. 현재 상태를 보존하려면 먼저 새 프리셋으로 저장해 주세요.",
+          "badgeHint": "호환되지 않는 설정이 있습니다. 적용할 때 상세 내용을 확인할 수 있습니다. 미리보기에서는 해당 항목에 기본값을 사용합니다.",
+          "listTitle": "호환되지 않는 설정",
+          "savedValue": "저장된 값: {value}",
+          "supported": "현재 지원: {value}",
+          "missingValue": "없음",
+          "range": "{min}~{max} {integer}",
+          "integerOnly": "(정수)",
+          "changed": "프리셋 내용이 변경되었습니다. 목록을 다시 확인한 뒤 적용해 주세요.",
+          "reasons": {
+            "missing": "설정값이 없습니다.",
+            "type": "설정값의 형식을 지원하지 않습니다.",
+            "range": "현재 허용 범위를 벗어났습니다.",
+            "integer": "정수값만 사용할 수 있습니다.",
+            "choice": "지원하지 않는 선택값입니다.",
+            "color": "올바른 색상값이 아닙니다.",
+            "unknown": "현재 버전에 없는 설정입니다.",
+            "structure": "현재 버전에서 사용할 수 없는 설정 구조입니다."
+          },
+          "types": {
+            "boolean": "켜짐 / 꺼짐",
+            "color": "#RRGGBB 색상",
+            "enum": "지원되는 선택값",
+            "structure": "현재 설정 구조"
+          },
+          "settings": {
+            "petRightArmBendPercent": "오른팔 굽힘",
+            "petLeftArmBendPercent": "왼팔 굽힘",
+            "petRightArmSpreadDegrees": "오른팔 벌림",
+            "petLeftArmSpreadDegrees": "왼팔 벌림",
+            "petHeadScalePercent": "머리 크기",
+            "petRotationDegrees": "펫 회전",
+            "petDeskOffset": "펫 위치",
+            "deskHeightOffset": "책상 높이",
+            "deskWidthOffset": "책상 너비",
+            "deskDepthOffset": "책상 깊이",
+            "deskTransparent": "책상 투명화",
+            "deskColor": "책상 색상",
+            "showDisplayArea": "표시 영역 보기",
+            "autoViewportEnabled": "자동 표시 영역",
+            "autoViewportPaddingPixels": "자동 표시 영역 여백",
+            "sceneRotationOffsetDegrees": "장면 회전",
+            "cameraHorizontalOffset": "시점 좌우 위치",
+            "cameraVerticalOffset": "시점 높이",
+            "cameraZoomPercent": "확대",
+            "mouseEnabled": "마우스 표시",
+            "mouseBaseXOffset": "마우스 좌우 위치",
+            "mouseBaseZOffset": "마우스 앞뒤 위치",
+            "mouseScalePercent": "마우스 크기",
+            "keyboardBaseXOffset": "키보드 좌우 위치",
+            "keyboardBaseZOffset": "키보드 앞뒤 위치",
+            "keyboardScalePercent": "키보드 크기",
+            "keyboardLegendLanguage": "키보드 각인 언어",
+            "keyboardColor": "키보드 색상",
+            "keyboardKeycapColor": "키캡 색상",
+            "keyboardLegendColor": "각인 색상",
+            "keyboardPressedColor": "키보드 입력 색상",
+            "mouseColor": "마우스 색상",
+            "mousePressedColor": "마우스 입력 색상",
+            "dmeloperPalmColor": "손바닥 색상",
+            "mirror": "좌우 반전",
+            "opacity": "불투명도",
+            "eyebrowAnimationEnabled": "눈썹 애니메이션",
+            "dmeloperEyebrows": {
+              "enabled": "눈썹 표시",
+              "color": "눈썹 색상",
+              "centerOffsetPixels": "눈썹 좌우 위치",
+              "heightOffsetPixels": "눈썹 높이",
+              "spacingPixels": "눈썹 간격",
+              "widthPixels": "눈썹 너비",
+              "thicknessPixels": "눈썹 두께",
+              "depthPercent": "눈썹 깊이"
+            },
+            "lighting": {
+              "key": {
+                "color": "조명 색상",
+                "azimuthDegrees": "조명 수평 각도",
+                "elevationDegrees": "조명 높이 각도",
+                "strengthPercent": "조명 밝기"
+              }
+            },
+            "manualViewportRect": {
+              "x": "수동 표시 영역 좌우 위치",
+              "y": "수동 표시 영역 상하 위치",
+              "width": "수동 표시 영역 너비",
+              "height": "수동 표시 영역 높이"
+            }
+          },
+          "groups": {
+            "preset": "펫·물체·장면 설정",
+            "preset.dmeloperEyebrows": "눈썹 설정",
+            "preset.lighting": "조명 설정",
+            "preset.lighting.key": "조명 설정",
+            "preset.manualViewportRect": "수동 표시 영역"
+          },
+          "none": "적용할 수 있는 설정이 없습니다."
         }
       },
       "block": {

@@ -16,6 +16,7 @@ mod in_app_update;
 mod minecraft_skin;
 mod performance;
 mod settings_defaults;
+mod preset_compatibility;
 mod system_language;
 #[cfg(test)]
 mod settings_float_roundtrip_tests;

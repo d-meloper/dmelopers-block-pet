@@ -1,10 +1,11 @@
-/* eslint-disable test/no-import-node-test */
 import assert from 'node:assert/strict'
+/* eslint-disable test/no-import-node-test */
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { captureBroadcastScene } from '@/features/broadcast/scene'
+import { inspectPresetCompatibility } from '@/features/presets/compatibility'
 import { applyPresetSnapshot, capturePresetSnapshot, createDefaultPresetSnapshot } from '@/features/presets/model'
 import { parsePortablePreset, serializePortablePreset, validatePortablePreset } from '@/features/presets/transfer'
 import { createDefaultPet3dPreset, useBlockStore } from '@/stores/block'
@@ -66,6 +67,7 @@ describe('shared actual preset ranges', () => {
     const store = useBlockStore()
     store.init()
     const document = parsePortablePreset(fixture)
+    delete document.sourceSettings
     document.settings.opacity = 10.9
     const preset = document.settings.preset
     Object.assign(preset, {
@@ -101,8 +103,12 @@ describe('shared actual preset ranges', () => {
           const document = parsePortablePreset(fixture)
           const target = group === 'preset' ? document.settings.preset : document.settings.preset.dmeloperEyebrows
           Object.assign(target, { [key]: value })
-          if (value === min || value === max) validatePortablePreset(document)
-          else assert.throws(() => validatePortablePreset(document), { code: 'invalidSettings' }, `${group}.${key}`)
+          if (value === min || value === max) {
+            validatePortablePreset(document)
+          } else {
+            validatePortablePreset(document)
+            assert.ok(inspectPresetCompatibility(document.settings).some(issue => issue.path.includes(key)), `${group}.${key}`)
+          }
         }
       }
     }

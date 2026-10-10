@@ -12,6 +12,7 @@ import { LEGACY_SKIN_APPEARANCE_KEYS, splitLegacySkinAppearance } from '@/stores
 
 import type { PresetCollection, PresetEntry, PresetSnapshot } from './types'
 
+import { inspectPresetCompatibility, isPresetSourceSettings, presetSettings } from './compatibility'
 import { PRESET_APPEARANCE_KEYS, PRESET_COLLECTION_VERSION, PRESET_SETTING_KEYS } from './types'
 
 export function clonePreset<T>(value: T): T {
@@ -105,6 +106,11 @@ export function createPresetCollection(): PresetCollection {
   return { schemaVersion: PRESET_COLLECTION_VERSION, activeId: null, entries: [] }
 }
 
+/** Archive compatibility never grants permission to execute the retained values. */
+export function isExecutablePresetSnapshot(value: unknown): value is PresetSnapshot {
+  return isPresetSnapshot(value) && inspectPresetCompatibility(presetSettings(value)).length === 0
+}
+
 /** Upgrade supported catalogs without letting old skin memory replace a saved appearance. */
 export function migratePresetCollection(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value
@@ -163,7 +169,8 @@ export function validatePresetCollection(value: unknown): asserts value is Prese
       || !collection.entries.some(entry => entry.id === collection.activeId)))
     || !collection.entries.every(entry => typeof entry.id === 'string' && entry.id.length > 0
       && typeof entry.name === 'string' && typeof entry.favorite === 'boolean'
-      && !('builtin' in entry) && !('origin' in entry) && !entry.id.startsWith('builtin:') && isPresetSnapshot(entry.snapshot))) {
+      && !('builtin' in entry) && !('origin' in entry) && !entry.id.startsWith('builtin:') && isPresetSnapshot(entry.snapshot)
+      && (entry.sourceSettings === undefined || isPresetSourceSettings(entry.sourceSettings)))) {
     throw new Error('pages.preference.presets.errors.load')
   }
 }

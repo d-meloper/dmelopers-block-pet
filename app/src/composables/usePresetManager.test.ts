@@ -21,6 +21,7 @@ import type { PresetApplyRequest, PresetSnapshot } from '@/features/presets/type
 import type { PresetImportJournal, PresetImportPrevious } from '@/services/presetTransfer'
 import type { SkinLibraryStoreRequest } from '@/services/skinLibrary'
 
+import { presetSettings, presetSourceKey, projectPresetSettings } from '@/features/presets/compatibility'
 import * as editIntent from '@/features/presets/editIntent'
 import { markPresetUserEdit } from '@/features/presets/editIntent'
 import * as editRequests from '@/features/presets/editRequests'
@@ -428,12 +429,13 @@ async function harness(
       if (id === '@/features/presets/transfer') {
         return {
           PresetTransferError,
-          exportPortablePreset: async (name: string, snapshot: PresetSnapshot, mode: PresetExportMode) => {
+          exportPortablePreset: async (name: string, snapshot: PresetSnapshot, mode: PresetExportMode, sourceSettings?: Record<string, unknown>) => {
             transfer.exports.push({ name, snapshot: clonePreset(snapshot), mode })
             if (mode === 'nickname' && !snapshot.appearance.minecraftSkinUsername) throw new PresetTransferError('invalidNickname')
             return {
               ...clonePreset(transfer.document),
               name,
+              ...(sourceSettings ? { sourceSettings: clonePreset(sourceSettings) } : {}),
               settings: clonePreset({ preset: snapshot.preset, mirror: snapshot.mirror, opacity: snapshot.opacity, eyebrowAnimationEnabled: snapshot.eyebrowAnimationEnabled }),
               skin: mode === 'nickname'
                 ? { mode, nickname: snapshot.appearance.minecraftSkinUsername! }
@@ -477,7 +479,8 @@ async function harness(
           readPortablePreset: async (file: File | string) => {
             transfer.reads.push(file)
             if (transfer.failure === 'read') throw new PresetTransferError('invalidFormat')
-            return clonePreset(transfer.readDocument?.(file) ?? transfer.document)
+            const doc = clonePreset(transfer.readDocument?.(file) ?? transfer.document)
+            return { ...doc, sourceSettings: clonePreset(doc.settings), settings: projectPresetSettings(doc.settings) }
           },
           writePortablePreset: async (document: PortablePetPreset) => {
             transfer.written.push(clonePreset(document))
@@ -2974,3 +2977,172 @@ for (const unselected of [false, true]) {
     })
   }
 }
+
+it('silently imports incompatible sources, retains raw data and applies only compatible values at the save barrier', async () => {
+  const h = await harness()
+  let saved!: ReturnType<typeof useBlockStore>['$state']
+  let importedId = ''
+  try {
+    h.transfer.document.settings.preset.autoViewportPaddingPixels = 40
+    h.transfer.document.settings.opacity = 37
+    Reflect.set(h.transfer.document.settings.preset, 'futureOption', { enabled: true })
+    const beforeLive = presetModel.capturePresetSnapshot(h.store)
+    const ids = await h.manager.importPresets(['first.petpreset', 'second.petpreset'])
+    assert.equal(ids.length, 2)
+    assert.deepEqual(presetSettings(presetModel.capturePresetSnapshot(h.store)), presetSettings(beforeLive))
+    assert.equal(h.applies(), 0)
+    const source = h.store.presetCollection!.entries.find(entry => entry.id === ids[0])!
+    importedId = source.id
+    assert.notEqual(h.manager.cardPending.value[source.id], 'saving', 'retained source metadata must not leave a saved card blocked')
+    assert.equal((source.sourceSettings!.preset as Record<string, unknown>).autoViewportPaddingPixels, 40)
+    assert.equal(h.manager.compatibility.value[source.id].length, 2)
+    const original = clonePreset(source)
+    assert.equal(await h.manager.activate(source.id), false)
+    h.store.activePet3dPreset.autoViewportPaddingPixels = 12
+    const preservedSkin = clonePreset(h.store.customization3d)
+    assert.equal(await h.manager.activate(source.id, { applySkin: false, compatibleOnly: true, expectedSourceKey: presetSourceKey(source) }), true)
+    assert.equal(h.store.activePet3dPreset.autoViewportPaddingPixels, 12)
+    assert.equal(h.store.window.opacity, 37)
+    assert.equal(h.store.customization3d.dmeloperSkinDataUrl, preservedSkin.dmeloperSkinDataUrl)
+    assert.deepEqual(clonePreset(source), original)
+    assert.equal(await h.manager.duplicate(source.id), true)
+    assert.deepEqual(clonePreset(h.store.presetCollection!.entries.at(-1)!.sourceSettings), original.sourceSettings)
+    assert.equal(await h.manager.exportPreset(source.id, 'image'), 'saved')
+    assert.deepEqual(clonePreset(h.transfer.written.at(-1)!.sourceSettings), original.sourceSettings)
+    await h.manager.retry()
+    assert.deepEqual(clonePreset(h.store.presetCollection!.entries.find(entry => entry.id === source.id)!.sourceSettings), original.sourceSettings)
+    saved = clonePreset(h.saves.at(-1) as typeof saved)
+  } finally {
+    h.dispose()
+  }
+  const restarted = await harness(saved)
+  try {
+    const entry = restarted.store.presetCollection!.entries.find(entry => entry.id === importedId)!
+    assert.equal((entry.sourceSettings!.preset as Record<string, unknown>).autoViewportPaddingPixels, 40)
+    assert.equal(restarted.manager.compatibility.value[importedId].length, 2)
+    assert.equal(restarted.store.activePet3dPreset.autoViewportPaddingPixels, 12)
+  } finally {
+    restarted.dispose()
+  }
+})
+
+it('rejects a stale compatibility confirmation after the save barrier and preserves source data on apply failure', async () => {
+  const h = await harness()
+  try {
+    const entry = h.store.presetCollection!.entries[0]
+    entry.sourceSettings = clonePreset(presetModel.capturePresetSnapshot(h.store)) as unknown as Record<string, unknown>
+    delete entry.sourceSettings.appearance
+    ;(entry.sourceSettings.preset as Record<string, unknown>).autoViewportPaddingPixels = 40
+    const key = presetSourceKey(entry)
+    ;(entry.sourceSettings.preset as Record<string, unknown>).autoViewportPaddingPixels = 50
+    const before = clonePreset(h.store.presetCollection)
+    const applies = h.applies()
+    assert.equal(await h.manager.activate(entry.id, { compatibleOnly: true, expectedSourceKey: key }), false)
+    assert.equal(h.applies(), applies)
+    assert.deepEqual(h.store.presetCollection, before)
+    h.failSaveAfter(1)
+    assert.equal(await h.manager.activate(entry.id, { compatibleOnly: true, applySkin: false }), false)
+    assert.deepEqual(h.store.presetCollection, before)
+  } finally {
+    h.dispose()
+  }
+})
+
+it('audit: rejects source changes while asynchronous skin restoration is pending', async () => {
+  let held = false
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const h = await harness(undefined, async (snapshot) => {
+    if (held) await pending
+    const next = clonePreset(snapshot)
+    next.appearance.dmeloperSkinDataUrl ??= 'data:image/png;base64,YQ=='
+    return next
+  })
+  try {
+    const entry = h.store.presetCollection!.entries[0]
+    entry.sourceSettings = projectPresetSettings({}) as unknown as Record<string, unknown>
+    ;(entry.sourceSettings.preset as Record<string, unknown>).autoViewportPaddingPixels = 40
+    const key = presetSourceKey(entry)
+    held = true
+    const beforeApplies = h.applies()
+    const applying = h.manager.activate(entry.id, { compatibleOnly: true, expectedSourceKey: key })
+    await waitFor(() => h.restoredSkins() === 1)
+    ;(entry.sourceSettings.preset as Record<string, unknown>).autoViewportPaddingPixels = 50
+    release()
+    assert.equal(await applying, false, 'changed sources must receive another confirmation')
+    assert.equal(h.applies(), beforeApplies, 'obsolete confirmed data must not reach execution')
+    assert.equal((h.store.presetCollection!.entries[0].sourceSettings!.preset as Record<string, unknown>).autoViewportPaddingPixels, 50)
+    assert.equal(((h.saves.at(-1) as ReturnType<typeof useBlockStore>['$state']).presetCollection!.entries[0].sourceSettings!.preset as Record<string, unknown>).autoViewportPaddingPixels, 50)
+  } finally {
+    release()
+    h.dispose()
+  }
+})
+
+it('retains the latest current values for incompatible fields after asynchronous skin restoration', async () => {
+  let held = false
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const h = await harness(undefined, async (snapshot) => {
+    if (held) await pending
+    const next = clonePreset(snapshot)
+    next.appearance.dmeloperSkinDataUrl ??= 'data:image/png;base64,YQ=='
+    return next
+  })
+  try {
+    const entry = h.store.presetCollection!.entries[0]
+    entry.sourceSettings = projectPresetSettings({}) as unknown as Record<string, unknown>
+    ;(entry.sourceSettings.preset as Record<string, unknown>).autoViewportPaddingPixels = 40
+    h.store.activePet3dPreset.autoViewportPaddingPixels = 12
+    held = true
+    const applying = h.manager.activate(entry.id, { compatibleOnly: true, expectedSourceKey: presetSourceKey(entry) })
+    await waitFor(() => h.restoredSkins() === 1)
+    h.store.activePet3dPreset.autoViewportPaddingPixels = 16
+    release()
+    assert.equal(await applying, true)
+    assert.equal(h.store.activePet3dPreset.autoViewportPaddingPixels, 16)
+    assert.equal((entry.sourceSettings.preset as Record<string, unknown>).autoViewportPaddingPixels, 40)
+  } finally {
+    release()
+    h.dispose()
+  }
+})
+
+it('audit: preserves the specific compatibility reconfirmation reason', async () => {
+  const h = await harness()
+  try {
+    const entry = h.store.presetCollection!.entries[0]
+    entry.sourceSettings = projectPresetSettings({}) as unknown as Record<string, unknown>
+    ;(entry.sourceSettings.preset as Record<string, unknown>).autoViewportPaddingPixels = 40
+    const key = presetSourceKey(entry)
+    ;(entry.sourceSettings.preset as Record<string, unknown>).autoViewportPaddingPixels = 50
+    assert.equal(await h.manager.activate(entry.id, { compatibleOnly: true, expectedSourceKey: key }), false)
+    assert.equal(h.manager.error.value, 'pages.preference.presets.compatibility.changed')
+    assert.equal((h.store.presetCollection!.entries[0].sourceSettings!.preset as Record<string, unknown>).autoViewportPaddingPixels, 50)
+  } finally {
+    h.dispose()
+  }
+})
+
+it('preserves future root settings from legacy snapshots through safe partial apply, copy and export', async () => {
+  const h = await harness()
+  try {
+    const entry = h.store.presetCollection!.entries[0]
+    Reflect.set(entry.snapshot, 'futureOption', { enabled: true })
+    assert.equal(h.manager.compatibility.value[entry.id][0].reason, 'unknown')
+    assert.equal(await h.manager.activate(entry.id, { compatibleOnly: true, applySkin: false }), true)
+    assert.equal(await h.manager.duplicate(entry.id), true)
+    const copy = h.store.presetCollection!.entries.at(-1)!
+    assert.deepEqual(clonePreset(copy.sourceSettings!.futureOption), { enabled: true })
+    assert.equal('futureOption' in copy.snapshot, false)
+    assert.equal(await h.manager.exportPreset(entry.id, 'image'), 'saved')
+    assert.deepEqual(clonePreset(h.transfer.written.at(-1)!.sourceSettings!.futureOption), { enabled: true })
+    assert.deepEqual(Reflect.get(entry.snapshot, 'futureOption'), { enabled: true })
+  } finally {
+    h.dispose()
+  }
+})

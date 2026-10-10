@@ -2,16 +2,18 @@
 import type { DragDropEvent } from '@tauri-apps/api/window'
 
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { Button, Checkbox, Dropdown, Menu, message, Modal } from 'ant-design-vue'
+import { Button, Checkbox, Dropdown, Menu, message, Modal, Tooltip } from 'ant-design-vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { PresetManager } from '@/composables/usePresetManager'
+import type { PresetCompatibilityIssue } from '@/features/presets/compatibility'
 import type { PresetListEntry } from '@/features/presets/types'
 
 import FileDropSurface from '@/components/file-drop-surface/index.vue'
 import PreferenceInfo from '@/components/preference-info/index.vue'
 import PreferenceSections from '@/components/preference-sections/index.vue'
+import { compatiblePresetFields, fieldBounds, presetSource, presetSourceKey } from '@/features/presets/compatibility'
 import { reportDiagnostic } from '@/services/diagnostics'
 import { useGeneralStore } from '@/stores/general'
 
@@ -19,7 +21,7 @@ import ExportDialog from './export-dialog.vue'
 import NameDialog from './name-dialog.vue'
 
 const props = defineProps<{ manager: PresetManager }>()
-const { t, te } = useI18n()
+const { t, te, tm } = useI18n()
 const generalStore = useGeneralStore()
 const { entries, busy, ready, error, hasIndependentError, thumbnails, thumbnailErrors, cardPending } = props.manager
 const { transferError, transferPhase } = props.manager
@@ -30,6 +32,7 @@ const nameDialogMode = ref<'new' | 'rename'>('new')
 const retryingCreate = ref(false)
 const editingEntry = ref<PresetListEntry>()
 const applyingId = ref<string>()
+const applyingSourceKey = ref<string>()
 const applying = ref(false)
 const applyError = ref<string>()
 const deletingId = ref<string>()
@@ -65,9 +68,13 @@ let scrollFrame: number | undefined
 const disabled = computed(() => busy.value || !ready.value)
 const exportingEntry = computed(() => entries.value.find(entry => entry.id === exportingId.value))
 const applyingEntry = computed(() => entries.value.find(entry => entry.id === applyingId.value))
+const compatibilityIssues = computed(() => applyingId.value ? props.manager.compatibility?.value[applyingId.value] ?? [] : [])
 const dialogOpen = computed(() => nameDialogOpen.value || Boolean(deletingId.value) || Boolean(exportingEntry.value) || Boolean(applyingId.value))
 const importDisabled = computed(() => disabled.value || dialogOpen.value)
-const applyDisabled = computed(() => disabled.value || applying.value || Boolean(applyingEntry.value && cardPending.value[applyingEntry.value.id]))
+const noCompatibleSettings = computed(() => Boolean(applyingEntry.value && !generalStore.app.applyPresetSkin
+  && compatiblePresetFields(presetSource(applyingEntry.value)).filter(field => !['preset.dmeloperPalmColor', 'preset.dmeloperEyebrows.color'].includes(field.path.join('.'))).length === 0))
+const applyOperationDisabled = computed(() => disabled.value || applying.value || Boolean(applyingEntry.value && cardPending.value[applyingEntry.value.id]))
+const applyDisabled = computed(() => noCompatibleSettings.value || applyOperationDisabled.value)
 const importErrorText = computed(() => showImportError.value
   ? fileInputError.value ?? (!isBatchImport.value && !exportingEntry.value
     ? importResults.value.find(result => result.status === 'failed')?.error ?? transferError.value
@@ -129,6 +136,7 @@ function selectEntry(entry: PresetListEntry) {
 function openApplyDialog(id: string) {
   if (!mounted || disabled.value || dialogOpen.value || !entries.value.some(entry => entry.id === id)) return
   applyingId.value = id
+  applyingSourceKey.value = presetSourceKey(entries.value.find(entry => entry.id === id)!)
   applyError.value = undefined
 }
 
@@ -144,12 +152,24 @@ async function applyEntry() {
   applying.value = true
   applyError.value = undefined
   try {
-    const accepted = await props.manager.activate(id, { applySkin: generalStore.app.applyPresetSkin })
+    const sourceKey = presetSourceKey(applyingEntry.value!)
+    if (applyingSourceKey.value !== sourceKey) {
+      applyingSourceKey.value = sourceKey
+      applyError.value = t('pages.preference.presets.compatibility.changed')
+      return
+    }
+    const accepted = await props.manager.activate(id, {
+      applySkin: generalStore.app.applyPresetSkin,
+      ...(props.manager.compatibility ? { compatibleOnly: compatibilityIssues.value.length > 0, expectedSourceKey: sourceKey } : {}),
+    })
     if (!mounted || applyingId.value !== id) return
     if (accepted) {
       applyingId.value = undefined
     } else {
       const error = props.manager.error.value
+      if (error === 'pages.preference.presets.compatibility.changed' && applyingEntry.value) {
+        applyingSourceKey.value = presetSourceKey(applyingEntry.value)
+      }
       applyError.value = error && te(error) ? t(error) : error ?? t('pages.preference.presets.errors.apply')
     }
   } catch (error) {
@@ -160,6 +180,31 @@ async function applyEntry() {
   } finally {
     applying.value = false
   }
+}
+
+function compatibilityValue(issue: PresetCompatibilityIssue) {
+  if (issue.value === undefined) return t('pages.preference.presets.compatibility.missingValue')
+  const text = typeof issue.value === 'object' ? JSON.stringify(issue.value) : String(issue.value)
+  return text.length > 160 ? `${text.slice(0, 160)}…` : text
+}
+
+function compatibilityLabel(issue: PresetCompatibilityIssue) {
+  const path = issue.path.map((part, index) => /^[A-Z_$][\w$]*$/i.test(part) ? `${index ? '.' : ''}${part}` : `[${JSON.stringify(part)}]`).join('')
+  if (issue.reason === 'unknown') return path
+  const label = issue.field?.label ?? issue.path.join('.')
+  if (!issue.field && issue.reason !== 'unknown') {
+    const groups = tm('pages.preference.presets.compatibility.groups') as Record<string, string>
+    return groups[label] ?? issue.path.join('.')
+  }
+  const key = `pages.preference.presets.compatibility.settings.${label}`
+  return te(key) ? t(key) : path
+}
+
+function compatibilitySupport(issue: PresetCompatibilityIssue) {
+  const field = issue.field
+  if (field?.type === 'number') return t('pages.preference.presets.compatibility.range', { ...fieldBounds(field), integer: field.integer ? t('pages.preference.presets.compatibility.integerOnly') : '' })
+  if (field?.values) return field.values.join(' / ')
+  return t(`pages.preference.presets.compatibility.types.${field?.type ?? 'structure'}`)
 }
 
 function openNewDialog() {
@@ -242,7 +287,6 @@ async function onFileInputChange(event: Event) {
 function completeImport(id: string | undefined) {
   if (!mounted || !id) return
   message.success(t('pages.preference.presets.transfer.success.import'))
-  openApplyDialog(id)
 }
 
 function updateFileDropRegion() {
@@ -706,6 +750,22 @@ function cancelPointerDrag(event: PointerEvent) {
               type="button"
             >
               <span class="preset-thumbnail">
+                <Tooltip
+                  v-if="manager.compatibility?.value[entry.id]?.length"
+                  :title="$t('pages.preference.presets.compatibility.badgeHint')"
+                  :trigger="['hover', 'focus']"
+                >
+                  <span
+                    :aria-label="$t('pages.preference.presets.compatibility.badgeHint')"
+                    class="preset-compatibility-warning"
+                    role="img"
+                    tabindex="0"
+                    @keydown.stop
+                  ><span
+                    aria-hidden="true"
+                    class="i-lucide:triangle-alert size-4"
+                  /></span>
+                </Tooltip>
                 <img
                   v-if="previewSource(entry)"
                   alt=""
@@ -874,26 +934,62 @@ function cancelPointerDrag(event: PointerEvent) {
       @close="exportingId = undefined"
     />
     <Modal
+      :body-style="compatibilityIssues.length ? { maxHeight: 'calc(100vh - 180px)', overflowY: 'auto' } : undefined"
       :cancel-button-props="{ disabled: applying }"
       :cancel-text="$t('pages.preference.presets.buttons.cancel')"
+      centered
       :closable="!applying"
       :confirm-loading="applying"
       :keyboard="!applying"
       :mask-closable="false"
       :ok-button-props="{ disabled: applyDisabled }"
-      :ok-text="$t('pages.preference.presets.buttons.apply')"
+      :ok-text="$t(compatibilityIssues.length ? 'pages.preference.presets.compatibility.applyCompatible' : 'pages.preference.presets.buttons.apply')"
       :open="Boolean(applyingEntry)"
       :title="$t('pages.preference.presets.dialog.applyTitle', { name: applyingEntry?.name ?? '' })"
       @cancel="closeApplyDialog"
       @ok="applyEntry"
     >
       <p class="text-primary-7">
-        {{ $t('pages.preference.presets.dialog.applyWarning') }}
+        {{ $t(compatibilityIssues.length ? 'pages.preference.presets.compatibility.hint' : 'pages.preference.presets.dialog.applyWarning') }}
+      </p>
+      <div
+        v-if="compatibilityIssues.length"
+        :aria-label="$t('pages.preference.presets.compatibility.listTitle')"
+        class="preset-compatibility-list"
+        role="region"
+      >
+        <ul class="m-0 list-none p-0">
+          <li
+            v-for="issue in compatibilityIssues"
+            :key="JSON.stringify(issue.path)"
+            class="py-2"
+          >
+            <strong>{{ compatibilityLabel(issue) }}</strong>
+            <div class="text-sm text-color-2">
+              {{ $t('pages.preference.presets.compatibility.savedValue', { value: compatibilityValue(issue) }) }}
+            </div>
+            <div class="text-sm text-color-3">
+              {{ $t(`pages.preference.presets.compatibility.reasons.${issue.reason}`) }}
+            </div>
+            <div
+              v-if="issue.field"
+              class="text-sm text-color-3"
+            >
+              {{ $t('pages.preference.presets.compatibility.supported', { value: compatibilitySupport(issue) }) }}
+            </div>
+          </li>
+        </ul>
+      </div>
+      <p
+        v-if="noCompatibleSettings"
+        class="text-sm text-color-3"
+      >
+        {{ $t('pages.preference.presets.compatibility.none') }}
       </p>
       <div class="my-4 flex items-center">
         <Checkbox
           v-model:checked="generalStore.app.applyPresetSkin"
-          :disabled="applyDisabled"
+          :disabled="applyOperationDisabled"
         >
           {{ $t('pages.preference.presets.dialog.applySkin') }}
         </Checkbox>
@@ -938,6 +1034,29 @@ function cancelPointerDrag(event: PointerEvent) {
 </template>
 
 <style scoped>
+.preset-compatibility-warning {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 4px;
+  color: var(--ant-orange-6, #fa8c16);
+  background: var(--ant-color-bg-elevated);
+}
+.preset-compatibility-warning:focus-visible {
+  outline: 2px solid currentColor;
+}
+.preset-compatibility-list {
+  max-height: min(28vh, 280px);
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.preset-compatibility-list li + li {
+  border-top: 1px solid var(--ant-color-border-secondary);
+}
+
 .preset-import-button,
 .preset-new-button {
   display: inline-flex;
@@ -1030,6 +1149,7 @@ function cancelPointerDrag(event: PointerEvent) {
 }
 
 .preset-thumbnail {
+  position: relative;
   display: flex;
   width: 100%;
   aspect-ratio: 16 / 10;

@@ -162,6 +162,105 @@
           "sunset": "Default (Sunset)",
           "front": "Front",
           "bigHeadKeyboard": "Big Head Keyboard"
+        },
+        "compatibility": {
+          "applyCompatible": "Apply compatible settings only",
+          "hint": "Some settings in this preset cannot be used in this version. The items below will keep their current values; compatible settings will be changed. Save your current setup as a new preset first if you want to keep it.",
+          "badgeHint": "This preset has incompatible settings. See details when applying it. The preview uses defaults for those settings.",
+          "listTitle": "Incompatible settings",
+          "savedValue": "Saved value: {value}",
+          "supported": "Currently supported: {value}",
+          "missingValue": "Missing",
+          "range": "{min}–{max} {integer}",
+          "integerOnly": "(integers)",
+          "changed": "The preset has changed. Review the updated list before applying it.",
+          "reasons": {
+            "missing": "The setting value is missing.",
+            "type": "This value type is not supported.",
+            "range": "The value is outside the supported range.",
+            "integer": "Only integer values are supported.",
+            "choice": "This choice is not supported.",
+            "color": "This is not a valid color.",
+            "unknown": "This setting is unavailable in this version.",
+            "structure": "This setting structure is not supported in this version."
+          },
+          "types": {
+            "boolean": "On / Off",
+            "color": "#RRGGBB color",
+            "enum": "Supported choices",
+            "structure": "Current setting structure"
+          },
+          "settings": {
+            "petRightArmBendPercent": "Right arm bend",
+            "petLeftArmBendPercent": "Left arm bend",
+            "petRightArmSpreadDegrees": "Right arm spread",
+            "petLeftArmSpreadDegrees": "Left arm spread",
+            "petHeadScalePercent": "Head size",
+            "petRotationDegrees": "Pet rotation",
+            "petDeskOffset": "Pet position",
+            "deskHeightOffset": "Desk height",
+            "deskWidthOffset": "Desk width",
+            "deskDepthOffset": "Desk depth",
+            "deskTransparent": "Transparent desk",
+            "deskColor": "Desk color",
+            "showDisplayArea": "Show display area",
+            "autoViewportEnabled": "Automatic display area",
+            "autoViewportPaddingPixels": "Automatic display area padding",
+            "sceneRotationOffsetDegrees": "Scene rotation",
+            "cameraHorizontalOffset": "Horizontal camera position",
+            "cameraVerticalOffset": "Camera height",
+            "cameraZoomPercent": "Zoom",
+            "mouseEnabled": "Show mouse",
+            "mouseBaseXOffset": "Horizontal mouse position",
+            "mouseBaseZOffset": "Mouse depth position",
+            "mouseScalePercent": "Mouse size",
+            "keyboardBaseXOffset": "Horizontal keyboard position",
+            "keyboardBaseZOffset": "Keyboard depth position",
+            "keyboardScalePercent": "Keyboard size",
+            "keyboardLegendLanguage": "Keyboard legend language",
+            "keyboardColor": "Keyboard color",
+            "keyboardKeycapColor": "Keycap color",
+            "keyboardLegendColor": "Legend color",
+            "keyboardPressedColor": "Pressed key color",
+            "mouseColor": "Mouse color",
+            "mousePressedColor": "Pressed mouse color",
+            "dmeloperPalmColor": "Palm color",
+            "mirror": "Mirror",
+            "opacity": "Opacity",
+            "eyebrowAnimationEnabled": "Eyebrow animation",
+            "dmeloperEyebrows": {
+              "enabled": "Show eyebrows",
+              "color": "Eyebrow color",
+              "centerOffsetPixels": "Horizontal eyebrow position",
+              "heightOffsetPixels": "Eyebrow height",
+              "spacingPixels": "Eyebrow spacing",
+              "widthPixels": "Eyebrow width",
+              "thicknessPixels": "Eyebrow thickness",
+              "depthPercent": "Eyebrow depth"
+            },
+            "lighting": {
+              "key": {
+                "color": "Light color",
+                "azimuthDegrees": "Light azimuth",
+                "elevationDegrees": "Light elevation",
+                "strengthPercent": "Light strength"
+              }
+            },
+            "manualViewportRect": {
+              "x": "Manual display area horizontal position",
+              "y": "Manual display area vertical position",
+              "width": "Manual display area width",
+              "height": "Manual display area height"
+            }
+          },
+          "groups": {
+            "preset": "Pet, object and scene settings",
+            "preset.dmeloperEyebrows": "Eyebrow settings",
+            "preset.lighting": "Lighting settings",
+            "preset.lighting.key": "Light settings",
+            "preset.manualViewportRect": "Manual display area"
+          },
+          "none": "There are no compatible settings to apply."
         }
       },
       "block": {

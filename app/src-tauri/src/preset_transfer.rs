@@ -1,7 +1,7 @@
 //! Portable preset I/O and the operation-owned skin-library import journal.
 //! Nested under skin_library so its existing validators and atomic writer remain authoritative.
 use super::*;
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 const FORMAT: &str = "dmeloper.petpreset";
 const FILE_LIMIT: usize = 4 * 1024 * 1024;
@@ -48,127 +48,8 @@ fn library_error(_: impl std::fmt::Debug) -> String {
     "library".into()
 }
 
-fn keys(value: &Value, expected: &[&str]) -> bool {
-    value.as_object().is_some_and(|map| {
-        map.len() == expected.len() && expected.iter().all(|key| map.contains_key(*key))
-    })
-}
-fn number(value: &Value, min: f64, max: f64) -> bool {
-    value
-        .as_f64()
-        .is_some_and(|n| n.is_finite() && n >= min && n <= max)
-}
-fn color(value: &Value) -> bool {
-    value.as_str().is_some_and(|s| {
-        s.len() == 7 && s.starts_with('#') && s[1..].bytes().all(|b| b.is_ascii_hexdigit())
-    })
-}
-
 fn validate_settings(s: &Value) -> bool {
-    if !keys(
-        s,
-        &["preset", "mirror", "opacity", "eyebrowAnimationEnabled"],
-    ) || !s["mirror"].is_boolean()
-        || !s["eyebrowAnimationEnabled"].is_boolean()
-        || !number(&s["opacity"], 0.0, 100.0)
-    {
-        return false;
-    }
-    let p = &s["preset"];
-    let ranges = [
-        ("petRightArmBendPercent", 0.0, 400.0),
-        ("petLeftArmBendPercent", 0.0, 400.0),
-        ("petRightArmSpreadDegrees", -45.0, 45.0),
-        ("petLeftArmSpreadDegrees", -45.0, 45.0),
-        ("petHeadScalePercent", 25.0, 200.0),
-        crate::settings_defaults::numeric_range("preset", "petRotationDegrees"),
-        crate::settings_defaults::numeric_range("preset", "petDeskOffset"),
-        ("deskHeightOffset", -1.0, 1.0),
-        ("deskWidthOffset", -1.0, 1.0),
-        ("deskDepthOffset", -1.0, 1.0),
-        ("sceneRotationOffsetDegrees", -360.0, 360.0),
-        ("cameraHorizontalOffset", -1.5, 1.5),
-        ("cameraVerticalOffset", -1.5, 1.5),
-        ("cameraZoomPercent", 25.0, 200.0),
-        crate::settings_defaults::numeric_range("preset", "mouseBaseXOffset"),
-        crate::settings_defaults::numeric_range("preset", "mouseBaseZOffset"),
-        ("mouseScalePercent", 50.0, 200.0),
-        crate::settings_defaults::numeric_range("preset", "keyboardBaseXOffset"),
-        crate::settings_defaults::numeric_range("preset", "keyboardBaseZOffset"),
-        ("keyboardScalePercent", 50.0, 200.0),
-        ("autoViewportPaddingPixels", 0.0, 30.0),
-    ];
-    let colors = [
-        "deskColor",
-        "keyboardColor",
-        "keyboardKeycapColor",
-        "keyboardLegendColor",
-        "keyboardPressedColor",
-        "mouseColor",
-        "mousePressedColor",
-        "dmeloperPalmColor",
-    ];
-    let booleans = ["showDisplayArea", "autoViewportEnabled", "mouseEnabled", "deskTransparent"];
-    let expected: Vec<_> = ranges
-        .iter()
-        .map(|(key, _, _)| *key)
-        .chain(colors)
-        .chain(booleans)
-        .chain([
-            "lighting",
-            "manualViewportRect",
-            "dmeloperEyebrows",
-            "keyboardLegendLanguage",
-        ])
-        .collect();
-    if !crate::lighting_settings::is_valid(&p["lighting"])
-        || !keys(p, &expected)
-        || !ranges
-            .iter()
-            .all(|(key, min, max)| number(&p[key], *min, *max))
-        || !colors.iter().all(|key| color(&p[key]))
-        || !booleans.iter().all(|key| p[key].is_boolean())
-        || !matches!(p["keyboardLegendLanguage"].as_str(), Some("en" | "ko"))
-        || p["autoViewportPaddingPixels"].as_f64().unwrap().fract() != 0.0
-    {
-        return false;
-    }
-    let rect = &p["manualViewportRect"];
-    let limit = 9_007_199_254_740_991.0;
-    if !keys(rect, &["x", "y", "width", "height"])
-        || !number(&rect["x"], -limit, limit)
-        || !number(&rect["y"], -limit, limit)
-        || !["width", "height"].iter().all(|key| {
-            number(&rect[key], 100.0, limit) && rect[key].as_f64().unwrap().fract() == 0.0
-        })
-    {
-        return false;
-    }
-    let brows = &p["dmeloperEyebrows"];
-    keys(
-        brows,
-        &[
-            "enabled",
-            "color",
-            "centerOffsetPixels",
-            "heightOffsetPixels",
-            "spacingPixels",
-            "widthPixels",
-            "thicknessPixels",
-            "depthPercent",
-        ],
-    ) && brows["enabled"].is_boolean()
-        && color(&brows["color"])
-        && [
-            ("centerOffsetPixels", -1.5, 1.5),
-            ("heightOffsetPixels", -3.0, 3.0),
-            crate::settings_defaults::numeric_range("eyebrows", "spacingPixels"),
-            crate::settings_defaults::numeric_range("eyebrows", "widthPixels"),
-            crate::settings_defaults::numeric_range("eyebrows", "thicknessPixels"),
-            ("depthPercent", 0.0, 200.0),
-        ]
-        .iter()
-        .all(|(key, min, max)| number(&brows[key], *min, *max))
+    crate::preset_compatibility::valid_executable(s)
 }
 
 fn validate_document(bytes: &[u8]) -> TransferResult<PortablePreset> {
@@ -176,7 +57,7 @@ fn validate_document(bytes: &[u8]) -> TransferResult<PortablePreset> {
         return Err("tooLarge".into());
     }
     let bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes);
-    let mut preset: PortablePreset = serde_json::from_slice(bytes).map_err(|_| "invalidFormat")?;
+    let preset: PortablePreset = serde_json::from_slice(bytes).map_err(|_| "invalidFormat")?;
     if preset.format != FORMAT {
         return Err("invalidFormat".into());
     }
@@ -184,26 +65,7 @@ fn validate_document(bytes: &[u8]) -> TransferResult<PortablePreset> {
         return Err("unsupportedVersion".into());
     }
     validate_display_name(&preset.name).map_err(|_| "invalidFormat")?;
-    if let Some(brows) = preset.settings.pointer_mut("/preset/dmeloperEyebrows").and_then(Value::as_object_mut) {
-        brows.entry("depthPercent").or_insert(Value::from(100));
-    }
-    if let Some(settings) = preset.settings.get_mut("preset").and_then(Value::as_object_mut) {
-        let defaults: Map<String, Value> = crate::settings_defaults::section("preset")
-            .map_err(|_| "invalidSettings")?;
-        for key in ["deskTransparent", "deskHeightOffset", "deskWidthOffset", "deskDepthOffset", "deskColor"] {
-            // Missing width belongs to an older desk; factory/reset now uses 0.
-            let value = if key == "deskWidthOffset" {
-                Value::from(-1)
-            } else {
-                defaults.get(key).ok_or("invalidSettings")?.clone()
-            };
-            settings.entry(key).or_insert(value);
-        }
-    }
-    if let Some(settings) = preset.settings.get_mut("preset") {
-        crate::lighting_settings::migrate_preset(settings);
-    }
-    if !validate_settings(&preset.settings) {
+    if !crate::preset_compatibility::valid_source(&preset.settings) {
         return Err("invalidSettings".into());
     }
     let nickname = match &preset.skin {
@@ -754,7 +616,8 @@ impl SkinLibraryService {
             let skin = self.read(&record.skin_entry_id).map_err(library_error)?;
             let mut settings = target["snapshot"].clone();
             settings.as_object_mut().ok_or("recovery")?.remove("appearance");
-            if !validate_settings(&settings)
+            if target.get("sourceSettings").is_some_and(|s| !crate::preset_compatibility::valid_source(s))
+                || !validate_settings(&settings)
                 || target["snapshot"]["appearance"]["dmeloperSkinDataUrl"]
                     != format!("data:image/png;base64,{}", skin.png_base64)
             {

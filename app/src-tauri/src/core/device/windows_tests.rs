@@ -469,7 +469,12 @@ struct ExclusiveInput {
 }
 impl ExclusiveInput {
     unsafe fn method(object: *mut std::ffi::c_void, index: usize) -> *const std::ffi::c_void {
-        unsafe { *(*(object as *const *const *const std::ffi::c_void)).add(index) }
+        assert!(!object.is_null(), "DirectInput test object is null");
+        let table = unsafe { *(object as *const *const *const std::ffi::c_void) };
+        assert!(!table.is_null(), "DirectInput test vtable is null");
+        let method = unsafe { *table.add(index) };
+        assert!(!method.is_null(), "DirectInput test method is null");
+        method
     }
     fn acquire(hwnd: HWND) -> Self {
         use std::ffi::c_void;
@@ -536,6 +541,18 @@ impl ExclusiveInput {
         println!("owned DirectInput exclusive keyboard/mouse acquire=0/0");
         input
     }
+}
+#[test]
+fn exclusive_com_method_rejects_null_boundaries_before_dereference() {
+    use std::ffi::c_void;
+    assert!(std::panic::catch_unwind(|| unsafe { ExclusiveInput::method(null_mut(), 2) }).is_err());
+    let mut absent_table: *const *const c_void = std::ptr::null();
+    let object = (&mut absent_table as *mut *const *const c_void).cast::<c_void>();
+    assert!(std::panic::catch_unwind(|| unsafe { ExclusiveInput::method(object, 2) }).is_err());
+    let methods: [*const c_void; 3] = [std::ptr::null(); 3];
+    let mut table = methods.as_ptr();
+    let object = (&mut table as *mut *const *const c_void).cast::<c_void>();
+    assert!(std::panic::catch_unwind(|| unsafe { ExclusiveInput::method(object, 2) }).is_err());
 }
 impl Drop for ExclusiveInput {
     fn drop(&mut self) {

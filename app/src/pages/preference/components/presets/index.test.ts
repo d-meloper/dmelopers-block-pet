@@ -1,6 +1,6 @@
-/* eslint-disable test/no-import-node-test */
 import type { DragDropEvent } from '@tauri-apps/api/window'
 
+/* eslint-disable test/no-import-node-test */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
@@ -13,6 +13,8 @@ import type { PresetManager } from '@/composables/usePresetManager'
 import type { PresetExportMode } from '@/features/presets/transfer'
 import type { PresetListEntry } from '@/features/presets/types'
 
+import * as presetCompatibility from '@/features/presets/compatibility'
+import { createDefaultPresetSnapshot } from '@/features/presets/model'
 import { isMinecraftUsername } from '@/services/minecraftSkin'
 import { isValidSkinLibraryDisplayName } from '@/services/skinLibrary'
 
@@ -118,7 +120,7 @@ function manager() {
 
 function renderListState(manager: PresetManager, general = vue.reactive({ app: { applyPresetSkin: true } }), runtime: UiTestRuntime = {}) {
   const source = readFileSync(new URL('./index.vue', import.meta.url), 'utf8')
-    .replace('</script>', '\ndefineExpose({ importSources, openDeleteDialog, closeDeleteDialog, selectEntry, closeApplyDialog, applyEntry })\n</script>')
+    .replace('</script>', '\ndefineExpose({ importSources, openDeleteDialog, closeDeleteDialog, selectEntry, closeApplyDialog, applyEntry, applyError })\n</script>')
   const { descriptor } = parse(source)
   const component = compileScript(descriptor, { id: 'preset-list-render-test', inlineTemplate: true })
   type Render = (context: { $t: (key: string) => string }, cache: unknown[]) => vue.VNode
@@ -131,15 +133,16 @@ function renderListState(manager: PresetManager, general = vue.reactive({ app: {
     setTimeout: runtime.timers?.setTimeout ?? setTimeout,
     clearTimeout: runtime.timers?.clearTimeout ?? clearTimeout,
     require: (name: string) => {
+      if (name === '@/features/presets/compatibility') return presetCompatibility
       if (name === '@/services/diagnostics') return { reportDiagnostic: () => {} }
       if (name === '@/stores/general') return { useGeneralStore: () => general }
       if (name === 'vue') return { ...vue, onMounted: () => {}, onBeforeUnmount: () => {} }
-      if (name === 'vue-i18n') return { useI18n: () => ({ t: translate, te: () => true }) }
-      if (name === 'ant-design-vue') return { Button: 'button', Checkbox: 'checkbox', Dropdown: 'dropdown', Menu: { Item: 'menu-item' }, Modal: 'modal', Tag: 'tag', message: { success: () => {} } }
+      if (name === 'vue-i18n') return { useI18n: () => ({ t: translate, te: () => true, tm: () => ({}) }) }
+      if (name === 'ant-design-vue') return { Button: 'button', Checkbox: 'checkbox', Dropdown: 'dropdown', Menu: { Item: 'menu-item' }, Modal: 'modal', Tooltip: 'tooltip', Tag: 'tag', message: { success: () => {} } }
       return { default: 'name-dialog' }
     },
   })
-  let controls: Pick<ListControls, 'importSources' | 'openDeleteDialog' | 'closeDeleteDialog' | 'selectEntry' | 'closeApplyDialog' | 'applyEntry'> | undefined
+  let controls: Pick<ListControls, 'importSources' | 'openDeleteDialog' | 'closeDeleteDialog' | 'selectEntry' | 'closeApplyDialog' | 'applyEntry' | 'applyError'> | undefined
   const render = exports.default.setup({ manager }, {
     expose: (value: typeof controls) => {
       controls = value
@@ -198,6 +201,7 @@ function loadSetup<T>(filename: string, props: object, exposed: string, emitted:
     requestAnimationFrame: (callback: FrameRequestCallback) => runtime.requestAnimationFrame?.(callback) ?? 1,
     cancelAnimationFrame: (id: number) => runtime.cancelAnimationFrame?.(id),
     require: (name: string) => {
+      if (name === '@/features/presets/compatibility') return presetCompatibility
       if (name === '@/services/diagnostics') return { reportDiagnostic: () => {} }
       if (name === '@/stores/general') return { useGeneralStore: () => runtime.general ?? vue.reactive({ app: { applyPresetSkin: true } }) }
       if (name === 'vue') {
@@ -211,6 +215,7 @@ function loadSetup<T>(filename: string, props: object, exposed: string, emitted:
         return { useI18n: () => ({
           t: (key: string) => key,
           te: () => true,
+          tm: () => ({}),
         }) }
       }
       if (name === '@/services/skinLibrary') return { isValidSkinLibraryDisplayName }
@@ -616,6 +621,7 @@ describe('preset list interactions', () => {
     assert.deepEqual(calls, [])
     const reopened = renderListState(value, view.general)
     await reopened.controls.importSources(['preset.petpreset'])
+    reopened.controls.selectEntry(value.entries.value.find(entry => entry.id === 'last')!)
     const savedChoice = reopened.nodes().find(node => node.type === 'checkbox')!
     assert.equal(savedChoice.props?.checked, false)
     await reopened.controls.applyEntry()
@@ -1375,7 +1381,7 @@ describe('preset file import controls', () => {
     assert.equal(control.importErrorText.value, undefined)
     assert.deepEqual(calls.map(call => call.action), ['import', 'import'])
     assert.deepEqual(success, ['pages.preference.presets.transfer.success.import'])
-    assert.equal(control.applyingId.value, 'last')
+    assert.equal(control.applyingId.value, undefined)
     success.length = 0
     control.closeApplyDialog()
     let finish: ((value: string | undefined) => void) | undefined
@@ -1387,7 +1393,7 @@ describe('preset file import controls', () => {
     finish!('other')
     await pending
     assert.deepEqual(success, ['pages.preference.presets.transfer.success.import'])
-    assert.equal(control.applyingId.value, 'other')
+    assert.equal(control.applyingId.value, undefined)
   })
 
   it('keeps the imported entry without applying it on confirmation cancellation', async () => {
@@ -1399,7 +1405,8 @@ describe('preset file import controls', () => {
     }
     const control = listControls(value)
     await control.importSources(['scene.petpreset'])
-    assert.equal(control.applyingId.value, 'imported')
+    assert.equal(control.applyingId.value, undefined)
+    control.selectEntry(entries.value.at(-1)!)
     assert.deepEqual(calls, [{ action: 'import', args: ['scene.petpreset'] }])
     control.closeApplyDialog()
     assert.equal(control.applyingId.value, undefined)
@@ -1415,6 +1422,10 @@ describe('preset file import controls', () => {
     const view = renderListState(value)
     await view.controls.importSources(['scene.petpreset'])
     const modal = () => view.nodes().find(node => node.props?.title === 'pages.preference.presets.dialog.applyTitle')!
+    assert.equal(modal().props?.open, false)
+    cardPending.value = {}
+    view.controls.selectEntry(value.entries.value.find(entry => entry.id === 'last')!)
+    cardPending.value = { last: 'thumbnail' }
     assert.equal(modal().props?.open, true)
     assert.equal(modal().props?.['ok-button-props'].disabled, true)
     await modal().props!.onOk()
@@ -1564,4 +1575,61 @@ describe('preset export dialog', () => {
     assert.equal(control.operationError.value, undefined)
     assert.deepEqual(events, ['close'])
   })
+})
+
+it('shows a preview badge and compatible-only modal, keeps Cancel inert and rechecks changed preset sources', async () => {
+  const { value, calls, entries } = manager()
+  const snapshot = createDefaultPresetSnapshot()
+  const sourceSettings = presetCompatibility.defaultPresetSettings()
+  sourceSettings.preset.autoViewportPaddingPixels = 40
+  entries.value = [entry('unsupported', { snapshot, sourceSettings })]
+  value.compatibility = vue.computed(() => Object.fromEntries(entries.value.map(item => [item.id, presetCompatibility.inspectPresetCompatibility(presetCompatibility.presetSource(item))])))
+  const view = renderListState(value)
+  assert.ok(view.nodes().some(node => node.props?.role === 'img' && node.props?.tabindex === '0'))
+  view.controls.selectEntry(entries.value[0])
+  const modal = () => view.nodes().find(node => node.props?.title === 'pages.preference.presets.dialog.applyTitle')!
+  assert.equal(modal().props?.['ok-text'], 'pages.preference.presets.compatibility.applyCompatible')
+  assert.ok(view.nodes().some(node => node.props?.role === 'region'))
+  view.controls.closeApplyDialog()
+  assert.equal(calls.length, 0)
+  view.controls.selectEntry(entries.value[0])
+  ;(entries.value[0].sourceSettings!.preset as Record<string, unknown>).autoViewportPaddingPixels = 50
+  await view.controls.applyEntry()
+  assert.equal(calls.length, 0)
+  assert.equal(view.controls.applyError.value, 'pages.preference.presets.compatibility.changed')
+  await view.controls.applyEntry()
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].action, 'activate')
+  assert.equal((calls[0].args[1] as { compatibleOnly: boolean }).compatibleOnly, true)
+  const activate = value.activate
+  let rejected = false
+  value.activate = async (...args) => {
+    if (!rejected) {
+      rejected = true
+      ;(entries.value[0].sourceSettings!.preset as Record<string, unknown>).autoViewportPaddingPixels = 60
+      value.error.value = 'pages.preference.presets.compatibility.changed'
+      return false
+    }
+    return activate(...args)
+  }
+  view.controls.selectEntry(entries.value[0])
+  await view.controls.applyEntry()
+  assert.equal(calls.length, 1)
+  assert.equal(view.controls.applyError.value, 'pages.preference.presets.compatibility.changed')
+  await view.controls.applyEntry()
+  assert.equal(calls.length, 2, 'one renewed confirmation must suffice after asynchronous rejection')
+})
+
+it('keeps the skin checkbox usable when every saved setting is incompatible', () => {
+  const { value, entries } = manager()
+  entries.value = [entry('unsupported', { snapshot: createDefaultPresetSnapshot(), sourceSettings: {} })]
+  value.compatibility = vue.computed(() => ({ unsupported: presetCompatibility.inspectPresetCompatibility({}) }))
+  const general = vue.reactive({ app: { applyPresetSkin: false } })
+  const view = renderListState(value, general)
+  view.controls.selectEntry(entries.value[0])
+  const modal = () => view.nodes().find(node => node.props?.title === 'pages.preference.presets.dialog.applyTitle')!
+  assert.equal(modal().props?.['ok-button-props'].disabled, true)
+  assert.ok(view.nodes().some(node => node.type === 'checkbox' && node.props?.disabled === false))
+  general.app.applyPresetSkin = true
+  assert.equal(modal().props?.['ok-button-props'].disabled, false)
 })

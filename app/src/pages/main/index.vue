@@ -42,7 +42,7 @@ import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
 import { isDesktopPetVisible } from '@/features/broadcast/visibility'
 import { isMouseSettingRequest, isSemanticInputEvent } from '@/features/input/types'
 import { isPetSkinChangeRequest, PET_RUNTIME_RECOVERED, PET_RUNTIME_RECOVERY_QUERY, PET_RUNTIME_RESTART_REQUIRED, PET_RUNTIME_SHOW, PET_SKIN_CHANGE } from '@/features/petRuntime/types'
-import { applyPresetSnapshot, capturePresetSnapshot, isPresetSnapshot } from '@/features/presets/model'
+import { applyPresetSnapshot, capturePresetSnapshot, isExecutablePresetSnapshot } from '@/features/presets/model'
 import { PRESET_APPLY_CANCEL, PRESET_APPLY_REQUEST, PRESET_APPLY_RESPONSE, PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import { applyPresetVisualSettings } from '@/features/presets/visualSettings'
 import { isSceneViewportRequest, SCENE_VIEWPORT_REQUEST, SCENE_VIEWPORT_RESPONSE, SCENE_VIEWPORT_STATE } from '@/features/scene/types'
@@ -1935,7 +1935,7 @@ useTauriListen<{ requestId?: string }>(PRESET_APPLY_CANCEL, ({ payload }) => {
 })
 
 useTauriListen<PresetApplyRequest>(PRESET_APPLY_REQUEST, ({ payload }) => {
-  if (!payload || typeof payload.requestId !== 'string' || !isPresetSnapshot(payload.snapshot)) return
+  if (!payload || typeof payload.requestId !== 'string' || !isExecutablePresetSnapshot(payload.snapshot)) return
   if (payload.restoreVisibility !== undefined && typeof payload.restoreVisibility !== 'boolean') return
   skinPreparation = undefined
   presetApplyQueue = presetApplyQueue.catch(() => undefined).then(async () => {

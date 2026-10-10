@@ -256,7 +256,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
       }) }
     }
     if (id === '@vueuse/core') {
-      return { useEventListener: (target: unknown, events: string | string[], handler: (event?: { target: object }) => void) => {
+      return { useEventListener: (_target: unknown, events: string | string[], handler: (event?: { target: object }) => void) => {
         for (const event of typeof events === 'string' ? [events] : events) {
           const handlers = domListeners.get(event) ?? []
           handlers.push(handler)

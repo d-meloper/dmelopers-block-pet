@@ -3,7 +3,7 @@
 use super::*;
 use rdev::Key;
 use std::{
-    process::Command,
+    process::{Command, Stdio},
     time::{Duration, Instant},
 };
 use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
@@ -14,8 +14,10 @@ use windows_sys::Win32::UI::{
         MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEINPUT, SendInput,
     },
     WindowsAndMessaging::{
-        GetClientRect, GetForegroundWindow, GetSystemMetrics, PM_REMOVE, SM_CXSCREEN, SM_CYSCREEN,
-        SendMessageW, SetCursorPos, SetForegroundWindow, WS_POPUP, WS_VISIBLE, WindowFromPoint,
+        AllowSetForegroundWindow, GetClientRect, GetForegroundWindow, GetSystemMetrics,
+        HWND_TOPMOST, PM_REMOVE, SM_CXSCREEN, SM_CYSCREEN, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        SendMessageW, SetCursorPos, SetForegroundWindow, SetWindowPos, WS_POPUP, WS_VISIBLE,
+        WindowFromPoint,
     },
 };
 
@@ -411,16 +413,23 @@ fn known_tao_target_recovers_hidden_devnotify_but_unknown_targets_do_not() {
 #[test]
 fn retired_prior_window_and_invalid_raw_handles_leave_no_receiver_or_input() {
     let mut prior = RawReceiver::start().unwrap();
-    let (sender, events) = mpsc::channel();
+    let (sender, _events) = mpsc::channel();
     let (mut listener, _) = HookListener::start(true, sender).unwrap();
     let retired = inspect_raw(&listener).0 as HWND;
     assert_ne!(unsafe { DestroyWindow(prior.hwnd) }, 0);
     prior.hwnd = null_mut();
+    // Isolate these invalid native handles from unrelated desktop input that
+    // can arrive on the live listener's worker thread during this test.
+    let (invalid_sender, invalid_events) = mpsc::channel();
+    let mut invalid_state = CallbackState::new(invalid_sender, 7);
+    invalid_state.mouse_enabled = true;
+    let previous_callback = CALLBACK.replace(Some(invalid_state));
     unsafe {
-        SendMessageW(retired, WM_INPUT, 0, 0);
-        SendMessageW(retired, WM_INPUT, 0, 1);
+        raw_window_proc(retired, WM_INPUT, 0, 0);
+        raw_window_proc(retired, WM_INPUT, 0, 1);
     }
-    assert!(received(&events).is_empty());
+    CALLBACK.set(previous_callback);
+    assert!(received(&invalid_events).is_empty());
     listener.stop().unwrap();
     assert_eq!(
         unsafe { windows_sys::Win32::UI::WindowsAndMessaging::IsWindow(retired) },
@@ -439,142 +448,102 @@ const SNAPSHOT: u32 = WM_APP + 1;
 const TOGGLE: u32 = WM_APP + 2;
 const FINISH: u32 = WM_APP + 3;
 
-// Test-only DirectInput COM boundary. Match the original reproduction's real
-// foreground exclusive acquire without introducing a product dependency.
-#[repr(C)]
-struct DeviceFormat {
-    size: u32,
-    object_size: u32,
-    flags: u32,
-    data_size: u32,
-    object_count: u32,
-    objects: *const std::ffi::c_void,
-}
+// Test-only DirectInput COM boundary. Typed bindings own interface references;
+// preserve the reproduction's real foreground-exclusive acquisition.
+use windows::{
+    Win32::{
+        Devices::HumanInterfaceDevice::{
+            DIDATAFORMAT, DISCL_EXCLUSIVE, DISCL_FOREGROUND, DirectInput8Create, IDirectInput8W,
+            IDirectInputDevice8W,
+        },
+        Foundation::{HINSTANCE, HWND as ComHwnd},
+    },
+    core::{GUID, IUnknown, Interface},
+};
+
 #[link(name = "dinput8", kind = "static")]
 #[link(name = "dxguid", kind = "static")]
 unsafe extern "system" {
-    fn DirectInput8Create(
-        instance: *mut std::ffi::c_void,
-        version: u32,
-        iid: *const windows_sys::core::GUID,
-        output: *mut *mut std::ffi::c_void,
-        outer: *mut std::ffi::c_void,
-    ) -> i32;
-    static c_dfDIKeyboard: DeviceFormat;
-    static c_dfDIMouse2: DeviceFormat;
+    static c_dfDIKeyboard: DIDATAFORMAT;
+    static c_dfDIMouse2: DIDATAFORMAT;
 }
 struct ExclusiveInput {
-    direct: *mut std::ffi::c_void,
-    devices: [*mut std::ffi::c_void; 2],
+    devices: Vec<IDirectInputDevice8W>,
+    _direct: IDirectInput8W,
 }
 impl ExclusiveInput {
-    unsafe fn method(object: *mut std::ffi::c_void, index: usize) -> *const std::ffi::c_void {
-        assert!(!object.is_null(), "DirectInput test object is null");
-        let table = unsafe { *(object as *const *const *const std::ffi::c_void) };
-        assert!(!table.is_null(), "DirectInput test vtable is null");
-        let method = unsafe { *table.add(index) };
-        assert!(!method.is_null(), "DirectInput test method is null");
-        method
-    }
-    fn acquire(hwnd: HWND) -> Self {
-        use std::ffi::c_void;
-        let mut input = Self {
-            direct: null_mut(),
-            devices: [null_mut(); 2],
-        };
+    fn create(hwnd: HWND) -> Self {
+        let mut direct: Option<IDirectInput8W> = None;
         unsafe {
-            let iid = windows_sys::core::GUID::from_u128(0xbf798031_483a_4da2_aa99_5d64ed369700);
-            assert_eq!(
-                DirectInput8Create(
-                    GetModuleHandleW(null_mut()),
-                    0x800,
-                    &iid,
-                    &mut input.direct,
-                    null_mut()
-                ),
-                0
-            );
-            let create: unsafe extern "system" fn(
-                *mut c_void,
-                *const windows_sys::core::GUID,
-                *mut *mut c_void,
-                *mut c_void,
-            ) -> i32 = std::mem::transmute(Self::method(input.direct, 3));
-            for (index, guid) in [
-                0x6f1d2b61_d5a0_11cf_bfc7_444553540000,
-                0x6f1d2b60_d5a0_11cf_bfc7_444553540000,
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                assert_eq!(
-                    create(
-                        input.direct,
-                        &windows_sys::core::GUID::from_u128(guid),
-                        &mut input.devices[index],
-                        null_mut()
-                    ),
-                    0
-                );
-                let device = input.devices[index];
-                let format: unsafe extern "system" fn(*mut c_void, *const DeviceFormat) -> i32 =
-                    std::mem::transmute(Self::method(device, 11));
-                let cooperative: unsafe extern "system" fn(*mut c_void, HWND, u32) -> i32 =
-                    std::mem::transmute(Self::method(device, 13));
-                let acquire: unsafe extern "system" fn(*mut c_void) -> i32 =
-                    std::mem::transmute(Self::method(device, 7));
-                assert_eq!(
-                    format(
-                        device,
-                        if index == 0 {
-                            &c_dfDIKeyboard
-                        } else {
-                            &c_dfDIMouse2
-                        }
-                    ),
-                    0
-                );
-                assert_eq!(cooperative(device, hwnd, 1 | 4), 0); // EXCLUSIVE | FOREGROUND
-                assert_eq!(acquire(device), 0);
+            DirectInput8Create(
+                HINSTANCE(GetModuleHandleW(null_mut())),
+                0x800,
+                &IDirectInput8W::IID,
+                std::ptr::from_mut(&mut direct).cast(),
+                None::<&IUnknown>,
+            )
+            .expect("DirectInput test interface creation");
+        }
+        let mut input = Self {
+            devices: Vec::new(),
+            _direct: direct.expect("DirectInput returned no test interface"),
+        };
+        for (index, guid) in [
+            0x6f1d2b61_d5a0_11cf_bfc7_444553540000,
+            0x6f1d2b60_d5a0_11cf_bfc7_444553540000,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut device = None;
+            unsafe {
+                input
+                    ._direct
+                    .CreateDevice(&GUID::from_u128(guid), &mut device, None::<&IUnknown>)
+                    .expect("DirectInput test device creation");
+            }
+            input
+                .devices
+                .push(device.expect("DirectInput returned no test device"));
+            let device = input.devices.last().unwrap();
+            unsafe {
+                let mut format = if index == 0 {
+                    c_dfDIKeyboard
+                } else {
+                    c_dfDIMouse2
+                };
+                device
+                    .SetDataFormat(&mut format)
+                    .expect("DirectInput test data format");
+                device
+                    .SetCooperativeLevel(ComHwnd(hwnd), DISCL_EXCLUSIVE | DISCL_FOREGROUND)
+                    .expect("DirectInput test exclusive foreground level");
             }
         }
-        println!("owned DirectInput exclusive keyboard/mouse acquire=0/0");
+        input
+    }
+    fn acquire(hwnd: HWND) -> Self {
+        let input = Self::create(hwnd);
+        for device in &input.devices {
+            unsafe { device.Acquire() }.expect("DirectInput test exclusive acquire");
+        }
+        println!("typed DirectInput exclusive keyboard/mouse acquired");
         input
     }
 }
 #[test]
-fn exclusive_com_method_rejects_null_boundaries_before_dereference() {
-    use std::ffi::c_void;
-    assert!(std::panic::catch_unwind(|| unsafe { ExclusiveInput::method(null_mut(), 2) }).is_err());
-    let mut absent_table: *const *const c_void = std::ptr::null();
-    let object = (&mut absent_table as *mut *const *const c_void).cast::<c_void>();
-    assert!(std::panic::catch_unwind(|| unsafe { ExclusiveInput::method(object, 2) }).is_err());
-    let methods: [*const c_void; 3] = [std::ptr::null(); 3];
-    let mut table = methods.as_ptr();
-    let object = (&mut table as *mut *const *const c_void).cast::<c_void>();
-    assert!(std::panic::catch_unwind(|| unsafe { ExclusiveInput::method(object, 2) }).is_err());
+fn typed_directinput_creates_and_configures_owned_devices() {
+    let owner = OwnedWindow::new(DefWindowProcW, true);
+    let input = ExclusiveInput::create(owner.hwnd);
+    assert_eq!(input.devices.len(), 2);
 }
 impl Drop for ExclusiveInput {
     fn drop(&mut self) {
-        for device in self.devices {
-            if !device.is_null() {
-                unsafe {
-                    let unacquire: unsafe extern "system" fn(*mut std::ffi::c_void) -> i32 =
-                        std::mem::transmute(Self::method(device, 8));
-                    let release: unsafe extern "system" fn(*mut std::ffi::c_void) -> u32 =
-                        std::mem::transmute(Self::method(device, 2));
-                    unacquire(device);
-                    release(device);
-                }
-            }
+        for device in &self.devices {
+            let _ = unsafe { device.Unacquire() };
         }
-        if !self.direct.is_null() {
-            unsafe {
-                let release: unsafe extern "system" fn(*mut std::ffi::c_void) -> u32 =
-                    std::mem::transmute(Self::method(self.direct, 2));
-                release(self.direct);
-            }
-        }
+        // Release devices before the parent interface, including partial setup.
+        self.devices.clear();
     }
 }
 thread_local! {
@@ -755,9 +724,20 @@ impl OwnedWindow {
 
     fn position_pointer(&mut self) {
         assert_eq!(unsafe { GetForegroundWindow() }, self.hwnd);
-        let mut point = POINT { x: 80, y: 80 };
-        assert_ne!(unsafe { ClientToScreen(self.hwnd, &mut point) }, 0);
-        assert_eq!(unsafe { WindowFromPoint(point) }, self.hwnd);
+        let mut rect = windows_sys::Win32::Foundation::RECT::default();
+        assert_ne!(unsafe { GetClientRect(self.hwnd, &mut rect) }, 0);
+        let point = [1, 2, 3]
+            .into_iter()
+            .flat_map(|x| [1, 2, 3].map(|y| (x, y)))
+            .find_map(|(x, y)| {
+                let mut point = POINT {
+                    x: rect.right * x / 4,
+                    y: rect.bottom * y / 4,
+                };
+                assert_ne!(unsafe { ClientToScreen(self.hwnd, &mut point) }, 0);
+                (unsafe { WindowFromPoint(point) } == self.hwnd).then_some(point)
+            })
+            .expect("an unobstructed owned client point is required");
         assert_ne!(unsafe { SetCursorPos(point.x, point.y) }, 0);
         self.moved_cursor = Some(point);
         let observed = self.guard_pointer();
@@ -880,13 +860,32 @@ impl Drop for OwnedWindow {
 #[test]
 #[ignore = "child process helper, invoked only by the owned foreground regression"]
 fn owned_foreground_child() {
+    use std::io::Read;
+    // Parent grants foreground permission to this exact process before startup.
+    std::io::stdin().read_exact(&mut [0_u8]).unwrap();
     let parent: usize = std::env::var("BLOCK_PET_INPUT_PROBE_PARENT")
         .unwrap()
         .parse()
         .unwrap();
     let mut owned = OwnedWindow::new(DefWindowProcW, true);
     unsafe {
-        SetForegroundWindow(owned.hwnd);
+        assert_ne!(
+            SetWindowPos(
+                owned.hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+            ),
+            0
+        );
+        assert_ne!(
+            SetForegroundWindow(owned.hwnd),
+            0,
+            "owned foreground activation required"
+        );
     }
     pump(Duration::from_millis(180));
     owned.position_pointer();
@@ -980,19 +979,28 @@ fn actual_win32_raw_sink_survives_foreground_consumption_without_duplicates() {
     let (listener, initial) = HookListener::start(true, sender).unwrap();
     PROBE.set(Some((listener, events)));
     PHASES.set(Vec::new());
+    let child_test = format!(
+        "{}::owned_foreground_child",
+        module_path!().split_once("::").unwrap().1
+    );
     let mut child = Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            "device::windows::raw_tests::owned_foreground_child",
-            "--ignored",
-            "--nocapture",
-        ])
+        .args(["--exact", &child_test, "--ignored", "--nocapture"])
         .env(
             "BLOCK_PET_INPUT_PROBE_PARENT",
             (owner.hwnd as usize).to_string(),
         )
+        .stdin(Stdio::piped())
         .spawn()
         .unwrap();
+    let granted = unsafe { AllowSetForegroundWindow(child.id()) };
+    if granted == 0 {
+        let _ = child.kill();
+        let mut listener = PROBE.take().unwrap().0;
+        listener.stop().unwrap();
+        panic!("controlled desktop foreground permission required");
+    }
+    use std::io::Write;
+    child.stdin.take().unwrap().write_all(&[1]).unwrap();
     let deadline = Instant::now() + Duration::from_secs(20);
     let status = loop {
         pump(Duration::from_millis(5));

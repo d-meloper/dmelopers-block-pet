@@ -8,6 +8,7 @@ import { describe, it } from 'node:test'
 import { Euler, Group, MathUtils, Matrix4, PerspectiveCamera, Quaternion, Scene, Vector3 } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 
+import { createDefaultDmeloperEyebrowPreset } from '@/config/dmeloperEyebrows'
 import { MODEL_3D_CONFIG } from '@/config/model3d'
 import { DEFAULT_PET_ARM_POSE_SETTINGS } from '@/config/petArmPose'
 
@@ -215,6 +216,38 @@ describe('live pose before broadcast auto crop', () => {
 })
 
 describe('renderer input suspension', () => {
+  it('discards retired eyebrow focus history before accepting a fresh session', async (t) => {
+    let now = 1000
+    t.mock.method(performance, 'now', () => now)
+    const rig = await fixture()
+    const { renderer, mouse } = stillFrameFixture(rig)
+    const eyebrows = createDmeloperEyebrowController(rig.root, { random: () => 0.5 })!
+    Object.assign(renderer, { dmeloperEyebrowController: eyebrows })
+    t.after(rig.dispose)
+    t.after(mouse.dispose)
+    t.after(() => eyebrows.dispose())
+    renderer.setDmeloperEyebrows({ ...createDefaultDmeloperEyebrowPreset(), enabled: true })
+    const brow = rig.root.getObjectByName('LeftEyebrow')!
+    const neutral = brow.quaternion.clone()
+    const contact = { row: 2, column: 3 }
+    const press = (timestamp: number) => {
+      now = timestamp
+      renderer.handleSemanticInput({ kind: 'typing', active: true, intensity: 1, contact: { ...contact, pressed: true } })
+      now++
+      renderer.handleSemanticInput({ kind: 'typing', active: false, intensity: 0, contact: { ...contact, pressed: false } })
+    }
+    for (let index = 0; index < 15; index++) press(1001 + index * 40)
+    now = 1570
+    renderer.setInputActive(false)
+    now = 1580
+    renderer.setInputActive(true)
+    // Old focus is silent for 400 ms, but its 1500 ms press window is still recent.
+    press(2061)
+    now = 2281
+    renderer.renderStillFrame(now)
+    assert.ok(neutral.angleTo(brow.quaternion) < 0.00001, 'one fresh press must not qualify using retired history')
+  })
+
   it('releases every held keyboard contact when key-up arrives during a skin load', async (t) => {
     let now = 1000
     t.mock.method(performance, 'now', () => now)

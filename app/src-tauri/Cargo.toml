@@ -1,6 +1,6 @@
 [package]
 name = "dmelopers-block-pet"
-version = "1.1.1"
+version = "1.1.2"
 description = "DMeloper's Block Pet desktop companion"
 license = "MIT"
 authors = [ "DMeloper" ]
@@ -83,7 +83,7 @@ tauri = { workspace = true, features = ["test"] }
 tempfile = "3"
 tokio-tungstenite = "0.29"
 
-[target.'cfg(target_os = "windows")'.dev-dependencies]
+[target."cfg(target_os = \"windows\")".dev-dependencies]
 windows = { version = "0.61", features = ["Win32_Devices_HumanInterfaceDevice", "Win32_Foundation"] }
 
 [features]

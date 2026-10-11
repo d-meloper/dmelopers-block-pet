@@ -34,7 +34,8 @@ function harness() {
     retried++
   } }
   const exports = {} as { default: { setup: (props: object, context: object) => (ctx: object, cache: unknown[]) => VNode } }
-  runInNewContext(source, { exports, require: (id: string) => {
+  runInNewContext(source, { exports, window: {}, document: {}, require: (id: string) => {
+    if (id === '@vueuse/core') return { useEventListener: () => {} }
     if (id === '@/services/diagnostics') return { reportDiagnostic: () => {} }
     if (id === 'vue') {
       return { ...Vue, inject: () => controller, withDirectives: (node: VNode, bindings: Array<[unknown, boolean]>) => {
@@ -43,7 +44,7 @@ function harness() {
       } }
     }
     if (id === 'vue-i18n') return { useI18n: () => ({ t: (key: string) => key }) }
-    if (id === 'ant-design-vue') return { Switch, Button, Flex: {}, Input: {} }
+    if (id === 'ant-design-vue') return { Switch, Button, Flex: {}, Input: {}, Tooltip: {} }
     if (id === '@/stores/block') return { useBlockStore: () => block }
     if (id === '@/stores/general') return { useGeneralStore: () => general }
     return { default: {} }

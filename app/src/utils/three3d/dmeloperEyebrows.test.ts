@@ -395,13 +395,82 @@ describe('Dmeloper eyebrow controller', () => {
     assert.equal(left.position.y, idleY)
   })
 
-  it('retains the mouse gate across preset resets and ignores input controls after dispose', () => {
+  it('clears held inputs, qualification history and pulses on full input reset', () => {
+    const { root, left, right } = eyebrowModel()
+    const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
+    const baseY = left.position.y
+    for (let index = 0; index < 13; index++) controller.setKeyPressed(`held-${index}`, true, index * 50)
+    controller.setMouseButtonPressed('Left', true, 650)
+    controller.update(660)
+    assert.ok(left.position.y > baseY, 'the old keyboard pulse is active')
+    controller.resetInput(660)
+    assert.equal(left.position.y, baseY, 'reset applies neutral immediately')
+    assert.equal(left.quaternion.z, 0)
+    controller.setKeyPressed('held-0', true, 700)
+    controller.update(760)
+    assert.ok(left.position.y > baseY + 0.07, 'a formerly held key starts a fresh pulse')
+    controller.setMouseButtonPressed('Left', true, 780)
+    for (let index = 0; index < 12; index++) pressKey(controller, `fresh-${index}`, 800 + index * 20)
+    controller.setMouseButtonPressed('Left', true, 1050)
+    controller.update(1050)
+    assert.equal(left.quaternion.z, 0, 'fourteen fresh presses and a held repeat do not qualify')
+    controller.setMouseButtonPressed('Left', false, 1051)
+    controller.setMouseButtonPressed('Left', true, 1060)
+    controller.update(1280)
+    assert.ok(left.quaternion.z > 0, 'the reset also lets the formerly held mouse count anew')
+    controller.resetInput(1300)
+    controller.update(5299)
+    assert.equal(left.position.y, baseY, 'a full neutral idle interval starts at reset')
+    controller.update(5300)
+    controller.update(5520)
+    assert.ok(left.position.y > right.position.y)
+  })
+
+  it('preserves animation OFF and custom appearance through full input reset', () => {
+    const { root, left, right } = eyebrowModel()
+    const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
+    const preset = {
+      ...createDefaultDmeloperEyebrowPreset(),
+      color: '#ABCDEF',
+      centerOffsetPixels: 0.25,
+      heightOffsetPixels: 0.5,
+      spacingPixels: 2,
+      widthPixels: 1,
+      thicknessPixels: 1,
+    }
+    controller.setPreset(preset)
+    controller.setAnimationEnabled(false)
+    controller.resetInput(1000)
+    for (let index = 0; index < 15; index++) {
+      pressKey(controller, `key-${index}`, 1010 + index * 20)
+      click(controller, 'Left', 1010 + index * 20)
+    }
+    controller.update(9000)
+    assert.equal(left.visible, true)
+    assert.equal(left.position.x, 2.25)
+    assert.equal(right.position.x, -1.75)
+    assert.equal(left.position.y, 29)
+    assert.equal(right.position.y, 29)
+    assert.equal(left.scale.x, 0.5)
+    assert.equal(left.scale.y, 2)
+    assert.equal(left.quaternion.z, 0)
+    assert.equal(right.quaternion.z, 0)
+    assert.equal((left.material as MeshStandardMaterial).color.getHexString(), 'abcdef')
+    controller.setPreset({ ...preset, enabled: false })
+    controller.resetInput(10000)
+    controller.update(15000)
+    assert.equal(left.visible, false)
+    assert.equal(right.visible, false)
+  })
+
+  it('retains the mouse gate across preset and full input resets and ignores controls after dispose', () => {
     const { root, left, right } = eyebrowModel()
     const controller = createDmeloperEyebrowController(root, { now: () => 0, random: () => 0 })!
     const baseY = left.position.y
     controller.setMouseEnabled(false)
     controller.setPreset({ ...createDefaultDmeloperEyebrowPreset(), enabled: false })
     controller.setPreset(createDefaultDmeloperEyebrowPreset())
+    controller.resetInput()
     for (let timestamp = 0; timestamp < 400; timestamp += 20) {
       controller.setMouseButtonPressed('Left', true, timestamp)
       controller.setMouseButtonPressed('Left', false, timestamp + 1)
@@ -409,6 +478,7 @@ describe('Dmeloper eyebrow controller', () => {
     controller.update(500)
     assert.equal(left.position.y, baseY)
     controller.dispose()
+    controller.resetInput()
     controller.resetMouseInput()
     controller.setMouseEnabled(true)
     controller.setMouseButtonPressed('Left', true)

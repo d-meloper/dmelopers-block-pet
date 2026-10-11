@@ -260,48 +260,6 @@ it('keeps startup state accessible without hover, focus or native title tooltips
   }
 })
 
-it('hides hover delay while OFF, rejects stale edits and retains its value', () => {
-  const { descriptor } = parse(readFileSync(new URL('./index.vue', import.meta.url), 'utf8'))
-  const script = compileScript(descriptor, { id: 'hover-delay-visibility', inlineTemplate: true })
-  type Render = (context: { $t: (key: string) => string }, cache: unknown[]) => Vue.VNode
-  const exports = {} as { default: { setup: (props: object, context: object) => Render } }
-  const block = Vue.reactive({ window: { hideOnHover: true, hideOnHoverDelay: 2.5 } })
-  const visibility = new Map<Vue.VNode, boolean>()
-  const translate = (key: string) => key
-  const mocks: Record<string, unknown> = {
-    'vue': { ...Vue, onMounted: () => {}, onBeforeUnmount: () => {}, withDirectives: (node: Vue.VNode, bindings: Array<[unknown, boolean]>) => {
-      visibility.set(node, bindings[0][1])
-      return node
-    } },
-    'vue-i18n': { useI18n: () => ({ t: translate }) },
-    'ant-design-vue': { Button: 'button', Divider: 'divider', Flex: 'flex', InputNumber: 'input', Select: { Option: 'option' }, Switch: 'switch', Tooltip: 'tooltip' },
-    '@/stores/general': { useGeneralStore: () => ({ app: {}, appearance: {} }) },
-    '@/stores/block': { useBlockStore: () => block },
-  }
-  runInNewContext(ts.transpileModule(script.content, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, { exports, require: (name: string) => mocks[name] ?? { default: 'section' } })
-  const render = exports.default.setup({}, { expose: () => {} })
-  const flatten = (node: Vue.VNode): Vue.VNode[] => [node, ...Array.isArray(node.children)
-    ? node.children.flatMap(child => Vue.isVNode(child) ? flatten(child) : [])
-    : []]
-  let staleDelay: Vue.VNode | undefined
-  for (const enabled of [true, false, true]) {
-    block.window.hideOnHover = enabled
-    visibility.clear()
-    const nodes = flatten(render({ $t: translate }, []))
-    const delay = nodes.find(node => node.type === 'input' && node.props?.['addon-after'] === 's')!
-    const group = [...visibility.keys()].find(node => flatten(node).includes(delay))!
-    assert.equal(visibility.get(group), enabled)
-    assert.equal(delay.props!.value, 2.5)
-    if (!enabled) staleDelay!.props!['onUpdate:value'](9)
-    assert.equal(block.window.hideOnHoverDelay, 2.5)
-    staleDelay = delay
-  }
-  staleDelay!.props!['onUpdate:value'](3.5)
-  assert.equal(block.window.hideOnHoverDelay, 3.5, 'visible delay remains editable while ON')
-})
-
 it('offers System settings, Korean and English in order and persists the selected preference', () => {
   const general = Vue.reactive({ app: {}, appearance: { language: 'system' } })
   const { descriptor } = parse(readFileSync(new URL('./index.vue', import.meta.url), 'utf8'))

@@ -17,7 +17,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 use windows_sys::Win32::{
-    Foundation::{HWND, POINT},
+    Foundation::{ERROR_INVALID_HOOK_HANDLE, HWND, POINT},
     System::{
         LibraryLoader::GetModuleHandleW,
         SystemInformation::GetTickCount64,
@@ -60,8 +60,8 @@ struct CallbackState {
     generation: u64,
     mouse_enabled: bool,
     pointer: PendingPointer,
-    pairs: VecDeque<(EventType, u32, bool)>,
-    motion_pairs: VecDeque<(u32, bool)>,
+    pairs: VecDeque<(EventType, u64, bool)>,
+    motion_pairs: VecDeque<(u64, bool)>,
     mouse_since: Option<u64>,
 }
 
@@ -79,7 +79,15 @@ impl CallbackState {
     }
 
     fn publish(&mut self, event: EventType, time: u32, raw: bool) {
+        self.publish_at(event, time, raw, unsafe { GetTickCount64() });
+    }
+
+    fn publish_at(&mut self, event: EventType, time: u32, raw: bool, now: u64) {
+        let event_time = input_time_at(time, now);
         // Pair opposite sources one-for-one using Windows' input timestamp.
+        // Extend its 32-bit clock so inactivity across a full cycle cannot make
+        // a fresh event match an old unpaired event. Match before pruning to
+        // preserve delayed pairs, and keep future pairs on out-of-order input.
         // Do not collapse same-source repeats or retain keys/text as a history.
         // Motion has its own bounded ledger so high-rate movement cannot evict
         // an unpaired release. Keep pairs through mouse/consumer epoch changes:
@@ -88,41 +96,39 @@ impl CallbackState {
             if let Some(index) = self
                 .motion_pairs
                 .iter()
-                .position(|(t, r)| *t == time && *r != raw)
+                .position(|(t, r)| *t == event_time && *r != raw)
             {
                 self.motion_pairs.remove(index);
                 true
             } else {
                 self.motion_pairs
-                    .retain(|(t, _)| time.wrapping_sub(*t) as i32 <= 1000);
+                    .retain(|(t, _)| event_time.saturating_sub(*t) <= 1000);
                 if self.motion_pairs.len() == 256 {
                     self.motion_pairs.pop_front();
                 }
-                self.motion_pairs.push_back((time, raw));
+                self.motion_pairs.push_back((event_time, raw));
                 false
             }
         } else if let Some(index) = self
             .pairs
             .iter()
-            .position(|(e, t, r)| *e == event && *t == time && *r != raw)
+            .position(|(e, t, r)| *e == event && *t == event_time && *r != raw)
         {
             self.pairs.remove(index);
             true
         } else {
             self.pairs
-                .retain(|(_, t, _)| time.wrapping_sub(*t) as i32 <= 1000);
+                .retain(|(_, t, _)| event_time.saturating_sub(*t) <= 1000);
             if self.pairs.len() == 256 {
                 self.pairs.pop_front();
             }
-            self.pairs.push_back((event, time, raw));
+            self.pairs.push_back((event, event_time, raw));
             false
         };
         if duplicate
             || (raw
                 && !matches!(event, EventType::KeyPress(_) | EventType::KeyRelease(_))
-                && self.mouse_since.is_some_and(|cutoff| {
-                    input_time_at(time, unsafe { GetTickCount64() }) <= cutoff
-                }))
+                && self.mouse_since.is_some_and(|cutoff| event_time <= cutoff))
             || (!self.mouse_enabled
                 && !matches!(
                     event,
@@ -691,9 +697,11 @@ impl Hooks {
             },
             |mouse| {
                 // This is executed on the callback thread, after any earlier callback
-                // returned. Keep the handle and prior state if Win32 rejects removal.
-                if unsafe { UnhookWindowsHookEx(mouse) } == 0 {
-                    let error = std::io::Error::last_os_error();
+                // returned. Keep ownership on failures other than an absent hook.
+                if let Some(error) = unhook_error(
+                    unsafe { UnhookWindowsHookEx(mouse) },
+                    std::io::Error::last_os_error,
+                ) {
                     crate::diagnostics::warn(
                         "input.mouse_hook_stop",
                         &format!("WIN32_{}", error.raw_os_error().unwrap_or(0)),
@@ -730,8 +738,10 @@ impl Hooks {
         self.raw.stop()?;
         self.set_mouse_hook(false)?;
         if !self.keyboard.is_null() {
-            if unsafe { UnhookWindowsHookEx(self.keyboard) } == 0 {
-                let error = std::io::Error::last_os_error();
+            if let Some(error) = unhook_error(
+                unsafe { UnhookWindowsHookEx(self.keyboard) },
+                std::io::Error::last_os_error,
+            ) {
                 crate::diagnostics::warn(
                     "input.keyboard_hook_stop",
                     &format!("WIN32_{}", error.raw_os_error().unwrap_or(0)),
@@ -754,6 +764,19 @@ impl Drop for Hooks {
     }
 }
 
+fn unhook_error(
+    result: i32,
+    last_error: impl FnOnce() -> std::io::Error,
+) -> Option<std::io::Error> {
+    if result != 0 {
+        return None;
+    }
+    let error = last_error();
+    // An invalid hook handle is already absent. Other failures still retain
+    // ownership so teardown cannot acknowledge an uncompleted removal.
+    (error.raw_os_error() != Some(ERROR_INVALID_HOOK_HANDLE as i32)).then_some(error)
+}
+
 type RequestQueue = Arc<Mutex<Option<VecDeque<Request>>>>;
 
 struct CloseQueue(RequestQueue);
@@ -762,9 +785,11 @@ impl Drop for CloseQueue {
     fn drop(&mut self) {
         // Drop queued replies on every exit, including startup failure or panic,
         // so callers receive an error instead of waiting on an abandoned request.
-        if let Ok(mut queue) = self.0.lock() {
-            *queue = None;
-        }
+        let mut queue = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *queue = None;
     }
 }
 

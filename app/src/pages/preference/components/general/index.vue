@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { Button, Divider, Flex, InputNumber, message, Modal, Select, Switch } from 'ant-design-vue'
+import { Button, message, Modal, Select, Switch } from 'ant-design-vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { AutostartStatus } from '@/services/autostart'
 
-import OptionTransition from '@/components/option-transition/index.vue'
 import PreferenceSections from '@/components/preference-sections/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
@@ -20,13 +19,6 @@ import ThemeMode from './components/theme-mode/index.vue'
 const blockStore = useBlockStore()
 const generalStore = useGeneralStore()
 const { t } = useI18n()
-const hideOnHoverDelay = computed({
-  get: () => blockStore.window.hideOnHoverDelay,
-  set: (delay: number) => {
-    if (!blockStore.window.hideOnHover) return
-    blockStore.window.hideOnHoverDelay = delay
-  },
-})
 
 const autostart = ref<AutostartStatus>()
 const autostartBusy = ref(false)
@@ -110,56 +102,6 @@ function confirmGeneralReset() {
 
 <template>
   <PreferenceSections>
-    <ProList
-      :title="$t('pages.preference.general.labels.petSettings')"
-    >
-      <ProListItem
-        :description="$t('pages.preference.general.hints.keepInScreen')"
-        :title="$t('pages.preference.general.labels.keepInScreen')"
-      >
-        <Switch v-model:checked="blockStore.window.keepInScreen" />
-      </ProListItem>
-
-      <ProListItem
-        :description="$t('pages.preference.general.hints.alwaysOnTop')"
-        :title="$t('pages.preference.general.labels.alwaysOnTop')"
-      >
-        <Switch v-model:checked="blockStore.window.alwaysOnTop" />
-      </ProListItem>
-
-      <ProListItem
-        :description="$t('pages.preference.general.hints.hideOnHover')"
-        :title="$t('pages.preference.general.labels.hideOnHover')"
-      >
-        <Flex align="center">
-          <Switch v-model:checked="blockStore.window.hideOnHover" />
-
-          <OptionTransition>
-            <Flex
-              v-show="blockStore.window.hideOnHover"
-              align="center"
-              class="w-28"
-            >
-              <Divider type="vertical" />
-              <InputNumber
-                v-model:value="hideOnHoverDelay"
-                addon-after="s"
-                class="w-24"
-                :min="0"
-              />
-            </Flex>
-          </OptionTransition>
-        </Flex>
-      </ProListItem>
-
-      <ProListItem
-        :description="$t('pages.preference.general.hints.passThrough')"
-        :title="$t('pages.preference.general.labels.passThrough')"
-      >
-        <Switch v-model:checked="blockStore.window.passThrough" />
-      </ProListItem>
-    </ProList>
-
     <BroadcastSettings />
 
     <ProList

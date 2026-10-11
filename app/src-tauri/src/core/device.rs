@@ -567,10 +567,19 @@ fn process_input_event(
             let now = Instant::now();
             state.pressed_keys.remove(key);
             prune_typing_events(&mut state.typing_events, now);
+            let contact = keyboard_contact(*key, false).map(|mut contact| {
+                // Distinct physical keys can share one model contact.
+                contact.pressed = state.pressed_keys.iter().any(|held| {
+                    keyboard_contact(*held, true).is_some_and(|held_contact| {
+                        held_contact.row == contact.row && held_contact.column == contact.column
+                    })
+                });
+                contact
+            });
             emit(SemanticInputEvent::Typing {
                 active: !state.pressed_keys.is_empty(),
                 intensity: typing_intensity(&state.typing_events),
-                contact: keyboard_contact(*key, false),
+                contact,
             });
         }
         EventType::ButtonPress(Button::Left) => {
@@ -1049,6 +1058,75 @@ mod tests {
         refresh_aggregate(&mut state, &mut epoch, restarted);
         assert!(state.pressed_keys.is_empty());
         assert!(state.typing_events.is_empty());
+    }
+
+    fn typing_payload(state: &mut AggregateState, event: EventType) -> serde_json::Value {
+        let mut events = Vec::new();
+        process_input_event(state, &event, |event| events.push(event));
+        assert_eq!(events.len(), 1);
+        serde_json::to_value(events.pop().unwrap()).unwrap()
+    }
+
+    fn assert_alias_contact_release(first: Key, second: Key, row: u8, column: u8) {
+        for (first, second) in [(first, second), (second, first)] {
+            let mut state = AggregateState::default();
+            let held_contact = serde_json::json!({ "row": row, "column": column, "pressed": true });
+            for key in [first, second, first] {
+                let payload = typing_payload(&mut state, EventType::KeyPress(key));
+                assert_eq!(payload["active"], true);
+                assert_eq!(payload["contact"], held_contact);
+            }
+            assert_eq!(state.pressed_keys.len(), 2, "auto-repeat adds no holder");
+            state.reset_mouse();
+            let payload = typing_payload(&mut state, EventType::KeyRelease(first));
+            assert!(state.pressed_keys.contains(&second));
+            assert_eq!(payload["active"], true);
+            assert_eq!(payload["contact"], held_contact);
+            assert!(payload.get("key").is_none());
+            assert!(payload.get("code").is_none());
+
+            let payload = typing_payload(&mut state, EventType::KeyRelease(second));
+            assert!(state.pressed_keys.is_empty());
+            assert_eq!(payload["active"], false);
+            assert_eq!(
+                payload["contact"],
+                serde_json::json!({ "row": row, "column": column, "pressed": false })
+            );
+        }
+    }
+
+    #[test]
+    fn aliased_backslash_contact_releases_only_after_the_last_key() {
+        assert_alias_contact_release(Key::BackSlash, Key::IntlBackslash, 1, 13);
+    }
+
+    #[test]
+    fn aliased_return_contact_releases_only_after_the_last_key() {
+        assert_alias_contact_release(Key::Return, Key::KpReturn, 2, 12);
+    }
+
+    #[test]
+    fn distinct_keyboard_contacts_release_independently() {
+        let mut state = AggregateState::default();
+        for key in [Key::KeyA, Key::KeyS, Key::F1] {
+            typing_payload(&mut state, EventType::KeyPress(key));
+        }
+        let payload = typing_payload(&mut state, EventType::KeyRelease(Key::KeyA));
+        assert_eq!(payload["active"], true);
+        assert_eq!(
+            payload["contact"],
+            serde_json::json!({ "row": 2, "column": 1, "pressed": false })
+        );
+        assert!(state.pressed_keys.contains(&Key::KeyS));
+        let payload = typing_payload(&mut state, EventType::KeyRelease(Key::KeyS));
+        assert_eq!(
+            payload["active"], true,
+            "unmapped held input still owns typing activity"
+        );
+        assert_eq!(payload["contact"]["pressed"], false);
+        let payload = typing_payload(&mut state, EventType::KeyRelease(Key::F1));
+        assert_eq!(payload["active"], false);
+        assert!(payload.get("contact").is_none());
     }
 
     #[test]

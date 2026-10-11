@@ -212,6 +212,7 @@ describe('native mouse confirmation and input lifecycle', () => {
     })
     await assert.rejects(h.session.setActive(false), /suspension failed/)
     assert.equal(h.session.accepts(typing), false)
+    await assert.rejects(h.session.setActive(false), /suspension failed/)
     await assert.rejects(h.session.setActive(false, true), /suspension failed/)
     assert.deepEqual(h.saves, [true])
   })
@@ -570,6 +571,7 @@ function createComposableHarness(passThrough = false) {
   const dispatched: SemanticInputEvent[] = []
   const nativeCalls: string[] = []
   const listenerStops: string[] = []
+  const listenerHandlers: Array<(event: { payload: unknown }) => void> = []
   const cursorIgnores: boolean[] = []
   const styles = new Map<string, string>()
   const timers = new Map<number, { due: number, fn: () => void }>()
@@ -581,6 +583,8 @@ function createComposableHarness(passThrough = false) {
   let nextFrame = 0
   let epoch = 0
   let commandWait = async (_command: string) => {}
+  let listenerWait = async () => {}
+  let listenerAttempts = 0
   let monitor = async (_point: { x: number, y: number }) => ({ position: { x: 0, y: 0 }, size: { width: 200, height: 100 } })
   const store = { activePet3dPreset: { mouseEnabled: true }, window: { passThrough, visible: true, hideOnHover: false, hideOnHoverDelay: 0 } }
   const exports = loadDevice({
@@ -603,6 +607,9 @@ function createComposableHarness(passThrough = false) {
     },
     '@tauri-apps/api/event': {
       listen: async (name: string, fn: typeof events[string]) => {
+        listenerAttempts++
+        listenerHandlers.push(fn)
+        await listenerWait()
         events[name] = fn
         return () => {
           listenerStops.push(name)
@@ -638,6 +645,7 @@ function createComposableHarness(passThrough = false) {
     dispatched,
     nativeCalls,
     listenerStops,
+    listenerHandlers,
     cursorIgnores,
     store,
     opacity: () => styles.get('opacity'),
@@ -670,6 +678,10 @@ function createComposableHarness(passThrough = false) {
     setCommandWait: (fn: typeof commandWait) => {
       commandWait = fn
     },
+    listenerAttempts: () => listenerAttempts,
+    setListenerWait: (fn: typeof listenerWait) => {
+      listenerWait = fn
+    },
     createDevice: () => exports.useDevice(),
     async mount(currentDevice = device) {
       await Promise.all(mounted.splice(0).map(fn => fn()))
@@ -687,6 +699,185 @@ function createComposableHarness(passThrough = false) {
   }
 }
 describe('actual useDevice pointer dispatch', () => {
+  for (const mouseEnabled of [true, false]) {
+    it(`retries failed startup on ordinary resume with saved mouse input ${mouseEnabled}`, async () => {
+      const h = createComposableHarness()
+      h.store.activePet3dPreset.mouseEnabled = mouseEnabled
+      h.setCommandWait(async () => {
+        throw new Error('Native input acquisition failed.')
+      })
+      await assert.rejects(h.mount(), /acquisition failed/)
+      h.event(typing)
+      assert.deepEqual(h.dispatched, [])
+
+      h.setCommandWait(async () => {})
+      await h.device.setInputActive(true)
+      assert.equal(h.nativeCalls.length, 2)
+      h.event(typing)
+      h.event(click(1))
+      assert.deepEqual(h.dispatched, mouseEnabled ? [typing, click(1)] : [typing])
+      assert.equal(h.store.activePet3dPreset.mouseEnabled, mouseEnabled)
+      await h.device.setInputActive(true)
+      assert.equal(h.nativeCalls.length, 2, 'acknowledged activity remains a no-op')
+      h.unmount()
+      await flush()
+    })
+
+    it(`retries failed ordinary resume with saved mouse input ${mouseEnabled}`, async () => {
+      const h = createComposableHarness()
+      h.store.activePet3dPreset.mouseEnabled = mouseEnabled
+      await h.mount()
+      await h.device.setInputActive(false)
+      h.setCommandWait(async () => {
+        throw new Error('Native input resume failed.')
+      })
+      await assert.rejects(h.device.setInputActive(true), /resume failed/)
+      h.event(typing)
+      assert.deepEqual(h.dispatched, [])
+
+      h.setCommandWait(async () => {})
+      await h.device.setInputActive(true)
+      assert.equal(h.nativeCalls.length, 4)
+      h.event(typing)
+      h.event(click(3))
+      assert.deepEqual(h.dispatched, mouseEnabled ? [typing, click(3)] : [typing])
+      assert.equal(h.store.activePet3dPreset.mouseEnabled, mouseEnabled)
+      await h.device.setInputActive(true)
+      assert.equal(h.nativeCalls.length, 4, 'acknowledged activity remains a no-op')
+      h.unmount()
+      await flush()
+    })
+  }
+
+  for (const mouseEnabled of [true, false]) {
+    it(`reacquires a rejected input subscription with saved mouse input ${mouseEnabled}`, async () => {
+      const h = createComposableHarness()
+      h.store.activePet3dPreset.mouseEnabled = mouseEnabled
+      h.setListenerWait(async () => {
+        throw new Error('Transient input subscription failure.')
+      })
+      try {
+        await assert.rejects(h.mount(), /subscription failure/)
+        await h.device.setInputActive(true)
+        await assert.rejects(h.device.startListening(), /subscription failure/)
+        assert.equal(h.nativeCalls.length, 0, 'native acquisition requires a working subscription')
+        const attempts = h.listenerAttempts()
+        h.setListenerWait(async () => {})
+        await h.device.setInputActive(true)
+        assert.equal(h.listenerAttempts(), attempts + 1)
+        h.event(typing)
+        h.event(click(1))
+        assert.deepEqual(h.dispatched, mouseEnabled ? [typing, click(1)] : [typing])
+        assert.equal(h.store.activePet3dPreset.mouseEnabled, mouseEnabled)
+        await h.device.setInputActive(true)
+        assert.equal(h.listenerAttempts(), attempts + 1, 'successful subscription is retained')
+      } finally {
+        h.unmount()
+        await flush()
+      }
+    })
+  }
+
+  it('ignores a failed subscription callback after a replacement subscription succeeds', async () => {
+    const h = createComposableHarness()
+    h.setListenerWait(async () => {
+      throw new Error('Transient input subscription failure.')
+    })
+    try {
+      await assert.rejects(h.mount(), /subscription failure/)
+      await h.device.setInputActive(true)
+      await assert.rejects(h.device.startListening(), /subscription failure/)
+      const failedHandlers = [...h.listenerHandlers]
+      h.setListenerWait(async () => {})
+      await h.device.setInputActive(true)
+      for (const handler of failedHandlers) handler({ payload: typing })
+      assert.deepEqual(h.dispatched, [], 'failed native registration has no active callback lease')
+      h.event(typing)
+      assert.deepEqual(h.dispatched, [typing])
+    } finally {
+      h.unmount()
+      await flush()
+    }
+  })
+
+  it('shares a pending input subscription across mounting and strict activation', async () => {
+    const h = createComposableHarness()
+    const registration = deferred<void>()
+    h.setListenerWait(() => registration.promise)
+    try {
+      const mounting = h.mount()
+      const activation = h.device.setInputActive(true, true)
+      await flush()
+      assert.equal(h.listenerAttempts(), 1)
+      assert.equal(h.nativeCalls.length, 0)
+      registration.resolve()
+      await Promise.all([mounting, activation])
+      assert.equal(h.listenerAttempts(), 1)
+      h.event(typing)
+      assert.deepEqual(h.dispatched, [typing])
+    } finally {
+      registration.resolve()
+      h.unmount()
+      await flush()
+    }
+  })
+
+  it('retires an input subscription reacquisition before its delayed reply', async () => {
+    const h = createComposableHarness()
+    h.setListenerWait(async () => {
+      throw new Error('Transient input subscription failure.')
+    })
+    const registration = deferred<void>()
+    try {
+      await assert.rejects(h.mount(), /subscription failure/)
+      await h.device.setInputActive(true)
+      await assert.rejects(h.device.startListening(), /subscription failure/)
+      h.setListenerWait(() => registration.promise)
+      const activation = h.device.setInputActive(true)
+      const ended = assert.rejects(activation, /session has ended/)
+      await flush()
+      h.unmount()
+      registration.resolve()
+      await ended
+      await flush()
+      assert.equal(h.listenerStops.length, 1)
+      assert.equal(h.nativeCalls.length, 0)
+      h.event(typing)
+      assert.deepEqual(h.dispatched, [])
+      const attempts = h.listenerAttempts()
+      await assert.rejects(h.device.setInputActive(true, true), /session has ended/)
+      assert.equal(h.listenerAttempts(), attempts)
+    } finally {
+      registration.resolve()
+      h.unmount()
+      await flush()
+    }
+  })
+
+  it('retries failed suspension even when saved mouse OFF makes the mouse acknowledgement unchanged', async () => {
+    const h = createComposableHarness()
+    h.store.activePet3dPreset.mouseEnabled = false
+    await h.mount()
+    h.setCommandWait(async () => {
+      throw new Error('Native input suspension failed.')
+    })
+    await assert.rejects(h.device.setInputActive(false), /suspension failed/)
+    h.event(typing)
+    assert.deepEqual(h.dispatched, [])
+
+    h.setCommandWait(async () => {})
+    await h.device.setInputActive(false)
+    assert.equal(h.nativeCalls.length, 3)
+    h.event(typing)
+    assert.deepEqual(h.dispatched, [])
+    await h.device.setInputActive(true)
+    h.event(typing)
+    assert.deepEqual(h.dispatched, [typing])
+    assert.equal(h.store.activePet3dPreset.mouseEnabled, false)
+    h.unmount()
+    await flush()
+  })
+
   it('hides and restores on hover with pet mouse input OFF without enabling mouse buttons', async () => {
     const h = createComposableHarness()
     h.store.activePet3dPreset.mouseEnabled = false

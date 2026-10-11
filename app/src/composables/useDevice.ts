@@ -47,6 +47,7 @@ export function createDeviceInputSession(deps: DeviceSessionDependencies) {
   let confirmed: boolean | undefined
   let active = false
   let nativeActive = false
+  let startAttempted = false
   let disposed = false
   let pending = 0
   let generation = 0
@@ -105,7 +106,8 @@ export function createDeviceInputSession(deps: DeviceSessionDependencies) {
     return state
   }
   const ensureStarted = async () => {
-    if (nativeState) return
+    if (nativeState && confirmed !== undefined) return
+    startAttempted = true
     const requested = deps.readSetting()
     if (deps.activity) {
       const state = await applyActivity(active, requested)
@@ -135,6 +137,9 @@ export function createDeviceInputSession(deps: DeviceSessionDependencies) {
     if (!nativeState || confirmed === undefined) throw new Error('Input listening is unavailable.')
     return { mouseEnabled: confirmed, mouseGeneration: nativeState.mouseGeneration }
   }
+  const activityApplied = () => nativeState && confirmed !== undefined
+    && (!deps.activity || nativeActive === active)
+    && nativeState.mouseEnabled === (active && confirmed === true)
 
   return {
     generation: () => generation,
@@ -157,16 +162,16 @@ export function createDeviceInputSession(deps: DeviceSessionDependencies) {
       await reconcile()
       return status()
     }, enabled !== undefined || !nativeState),
-    // Managed preset application must retry an earlier failed resume/suspend,
-    // even when the requested activity flag has already changed in memory.
+    // A requested flag is not an acknowledgement. Ordinary lifecycle recovery
+    // must retry failed acquisition/resume while first startup stays deferred.
     setActive(value: boolean, confirmNative = false): Promise<void> {
       if (disposed) return confirmNative ? Promise.reject(new Error('The input session has ended.')) : Promise.resolve()
-      if (value === active && !confirmNative) return Promise.resolve()
+      if (value === active && !confirmNative && (!startAttempted || activityApplied())) return Promise.resolve()
       active = value
       invalidate()
-      if (!nativeState && !confirmNative) return Promise.resolve()
+      if (!startAttempted && !confirmNative) return Promise.resolve()
       return enqueue(async () => {
-        if (confirmNative) await ensureStarted()
+        await ensureStarted()
         await reconcile()
         if (confirmNative && (active !== value || nativeState?.mouseEnabled !== (value && confirmed === true))) {
           throw new Error('The native input activity was not applied.')
@@ -206,6 +211,7 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
   let hoverPollRunning = false
   let stopInputListener: (() => void) | undefined
   let listenerRegistration: Promise<void> | undefined
+  let inputListenerOwner: symbol | undefined
 
   const reportCursorEventsFailure = () => {
     if (!disposed) console.warn('Failed to apply hover click-through.')
@@ -302,7 +308,7 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
   const session = createDeviceInputSession({
     readSetting: () => blockStore.activePet3dPreset.mouseEnabled,
     start: async (enabled) => {
-      await listenerRegistration
+      await ensureInputListener()
       if (disposed) throw new Error('The input session has ended.')
       return runNativeCommand(() => {
         if (disposed) throw new Error('The input session has ended.')
@@ -316,7 +322,7 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
       return invoke(INVOKE_KEY.SET_DEVICE_MOUSE_ENABLED, { enabled })
     }),
     activity: async (active, mouseEnabled) => {
-      await listenerRegistration
+      await ensureInputListener()
       return runNativeCommand(async () => {
         if (disposed || (nativeClaimed && nativeSessionOwner !== nativeOwner)) throw new Error('The input session has ended.')
         nativeSessionOwner = nativeOwner
@@ -352,8 +358,13 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
   )
 
   const registerListeners = async () => {
+    const owner = Symbol('input-subscription')
+    inputListenerOwner = owner
     const stop = await listen<unknown>(LISTEN_KEY.SEMANTIC_INPUT, ({ payload }) => {
-      if (!isSemanticInputEvent(payload) || !session.accepts(payload)) return
+      if (disposed || inputListenerOwner !== owner
+        || !isSemanticInputEvent(payload) || !session.accepts(payload)) {
+        return
+      }
       if (payload.kind === 'pointer_activity') {
         latestCursorPoint = payload
         pointerSequence += 1
@@ -368,10 +379,26 @@ export function useDevice(options: { onMouseReset?: () => void } = {}) {
     else stopInputListener = stop
   }
 
-  onMounted(() => {
-    listenerRegistration = registerListeners()
-    void listenerRegistration.catch(error => console.error('Failed to subscribe to global input.', error))
+  const ensureInputListener = () => {
+    if (disposed) {
+      return Promise.reject(new Error('The input session has ended.'))
+    }
+    if (!listenerRegistration) {
+      // Retain a pending/successful subscription, but let an existing lifecycle
+      // request retry a failed registration before acquiring native input.
+      listenerRegistration = registerListeners().catch((error) => {
+        inputListenerOwner = undefined
+        listenerRegistration = undefined
+        throw error
+      })
+    }
     return listenerRegistration
+  }
+
+  onMounted(() => {
+    const registration = ensureInputListener()
+    void registration.catch(error => console.error('Failed to subscribe to global input.', error))
+    return registration
   })
 
   const updateMousePosition = async () => {

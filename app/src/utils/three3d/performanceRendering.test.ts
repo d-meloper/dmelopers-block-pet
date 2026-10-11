@@ -41,7 +41,7 @@ describe('performance options in the renderer', () => {
       state.keyboard = { update: () => counts.keyboard++ }
       state.mouse = { update: () => counts.mouse++, setMousePosition: () => {}, resetInput: () => {} }
       state.petAnimator = { update: () => counts.pet++, setMousePosition: () => {}, setMouseEnabled: () => {}, resetMouseInput: () => {}, resetInput: () => {} }
-      state.dmeloperEyebrowController = { update: () => counts.eyebrows++, resetMouseInput: () => {} }
+      state.dmeloperEyebrowController = { update: () => counts.eyebrows++, resetInput: () => {}, resetMouseInput: () => {} }
       const run = (start: number, seconds: number) => {
         for (let i = 0; i < 60 * seconds; i++) {
           now = start + i * 1000 / 60

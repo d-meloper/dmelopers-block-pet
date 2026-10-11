@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
-import { Button, Flex, Input, Switch } from 'ant-design-vue'
-import { computed, inject, ref } from 'vue'
+import { useEventListener } from '@vueuse/core'
+import { Button, Flex, Input, Switch, Tooltip } from 'ant-design-vue'
+import { computed, inject, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import OptionTransition from '@/components/option-transition/index.vue'
-import PreferenceInfo from '@/components/preference-info/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
 import { BROADCAST_CONTROLLER } from '@/composables/useBroadcast'
@@ -37,6 +37,40 @@ const errorHint = computed(() => {
 const copied = ref(false)
 const copyError = ref(false)
 const state = computed(() => controller?.status.value)
+const addressRevealed = ref(false)
+const displayedAddress = computed(() => {
+  if (!state.value?.url) return ''
+  return addressRevealed.value ? state.value.url : '••••••••••••••••'
+})
+
+function hideAddress() {
+  addressRevealed.value = false
+}
+
+function revealAddressWhilePressed(event: PointerEvent) {
+  if (!state.value?.url || !event.isPrimary || event.button !== 0) return
+  const button = event.currentTarget as HTMLElement
+  button.setPointerCapture(event.pointerId)
+  addressRevealed.value = true
+}
+
+function revealAddressWithKeyboard(event: KeyboardEvent) {
+  if (event.key !== ' ' && event.key !== 'Enter') return
+  event.preventDefault()
+  if (!event.repeat && state.value?.url) addressRevealed.value = true
+}
+
+function hideAddressWithKeyboard(event: KeyboardEvent) {
+  if (event.key !== ' ' && event.key !== 'Enter') return
+  event.preventDefault()
+  hideAddress()
+}
+
+useEventListener(window, ['pointerup', 'pointercancel'], hideAddress, { capture: true })
+useEventListener(window, 'blur', hideAddress)
+useEventListener(document, 'visibilitychange', hideAddress)
+watch([() => state.value?.url, () => general.broadcast.enabled], hideAddress)
+
 const statusLabel = computed(() => {
   if (state.value?.error) return 'error'
   if (controller?.pending.value) return 'updating'
@@ -61,10 +95,46 @@ async function copyAddress() {
 <template>
   <ProList :title="t('pages.preference.broadcast.title')">
     <template #title-extra>
-      <PreferenceInfo
-        :label="t('pages.preference.broadcast.setupInfoLabel')"
-        :text="t('pages.preference.broadcast.setupInfo')"
-      />
+      <Flex
+        align="center"
+        gap="small"
+      >
+        <Tooltip
+          :overlay-inner-style="{ whiteSpace: 'pre-line', overflowWrap: 'anywhere' }"
+          :overlay-style="{ maxWidth: 'min(500px, calc(100vw - 32px))' }"
+          placement="bottomLeft"
+          :title="t('pages.preference.broadcast.setupInfo')"
+          :trigger="['hover', 'focus']"
+        >
+          <Button
+            :aria-label="t('pages.preference.broadcast.setupInfoLabel')"
+            size="small"
+          >
+            {{ t('pages.preference.broadcast.setupButtonLabel') }}
+          </Button>
+        </Tooltip>
+        <Tooltip
+          :overlay-inner-style="{ overflowWrap: 'anywhere', lineHeight: '1.6' }"
+          :overlay-style="{ maxWidth: 'min(500px, calc(100vw - 32px))' }"
+          placement="bottomLeft"
+          :trigger="['hover', 'focus']"
+        >
+          <template #title>
+            <h4 class="m-0 mb-2 text-sm font-semibold">
+              {{ t('pages.preference.broadcast.usageInfoQuestion') }}
+            </h4>
+            <p class="m-0">
+              {{ t('pages.preference.broadcast.usageInfoAnswer') }}
+            </p>
+          </template>
+          <Button
+            :aria-label="t('pages.preference.broadcast.usageInfoLabel')"
+            size="small"
+          >
+            FAQ
+          </Button>
+        </Tooltip>
+      </Flex>
     </template>
     <div class="broadcast-panel">
       <ProListItem
@@ -103,10 +173,34 @@ async function copyAddress() {
         >
           <Input
             :aria-label="t('pages.preference.broadcast.connection')"
+            class="broadcast-address-input"
             :placeholder="t('pages.preference.broadcast.addressPlaceholder')"
             readonly
-            :value="state?.url ?? ''"
-          />
+            :value="displayedAddress"
+          >
+            <template #suffix>
+              <button
+                :aria-label="t('pages.preference.broadcast.holdToShowAddress')"
+                :aria-pressed="addressRevealed"
+                class="broadcast-reveal"
+                :disabled="!state?.url"
+                :title="t('pages.preference.broadcast.holdToShowAddress')"
+                type="button"
+                @blur="hideAddress"
+                @keydown="revealAddressWithKeyboard"
+                @keyup="hideAddressWithKeyboard"
+                @lostpointercapture="hideAddress"
+                @mousedown.stop
+                @pointerdown="revealAddressWhilePressed"
+              >
+                <span
+                  aria-hidden="true"
+                  class="size-4"
+                  :class="addressRevealed ? 'i-lucide:eye' : 'i-lucide:eye-off'"
+                />
+              </button>
+            </template>
+          </Input>
           <Button
             class="broadcast-copy"
             :disabled="!state?.url"
@@ -218,6 +312,11 @@ async function copyAddress() {
   width: 100%;
 }
 
+.broadcast-address-input {
+  min-width: 0;
+  flex: 1;
+}
+
 .broadcast-address :deep(.ant-input) {
   min-width: 0;
   font-size: 12px;
@@ -225,6 +324,36 @@ async function copyAddress() {
 
 .broadcast-copy {
   flex-shrink: 0;
+}
+
+.broadcast-reveal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ant-color-text-secondary);
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+
+.broadcast-reveal:hover:not(:disabled) {
+  color: var(--ant-color-text);
+}
+
+.broadcast-reveal:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ant-color-primary);
+}
+
+.broadcast-reveal:disabled {
+  color: var(--ant-color-text-disabled);
+  cursor: not-allowed;
 }
 
 .broadcast-status {

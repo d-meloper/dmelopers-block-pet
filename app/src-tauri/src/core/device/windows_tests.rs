@@ -161,8 +161,8 @@ fn source_pairing_retains_repeats_releases_and_does_not_revive_old_generations()
             EventType::ButtonPress(Button::Left),
             EventType::ButtonRelease(Button::Left),
         ] {
-            state.publish(event, 12, raw_first);
-            state.publish(event, 12, !raw_first);
+            state.publish_at(event, 12, raw_first, 12);
+            state.publish_at(event, 12, !raw_first, 12);
             assert_eq!(
                 received(&events)
                     .iter()
@@ -173,16 +173,16 @@ fn source_pairing_retains_repeats_releases_and_does_not_revive_old_generations()
         }
     }
     let release = EventType::ButtonRelease(Button::Left);
-    state.publish(release, 20, false);
+    state.publish_at(release, 20, false, 20);
     state.generation = 8;
-    state.publish(release, 20, true);
+    state.publish_at(release, 20, true, 20);
     let captured = received(&events);
     assert_eq!(captured.len(), 1);
     assert_eq!(captured[0].1, 7);
     state.mouse_enabled = false;
-    state.publish(release, 21, false);
+    state.publish_at(release, 21, false, 21);
     state.mouse_enabled = true;
-    state.publish(release, 21, true);
+    state.publish_at(release, 21, true, 21);
     assert!(received(&events).is_empty());
 }
 
@@ -192,19 +192,20 @@ fn pointer_mailbox_is_bounded_and_cannot_cross_a_release_boundary() {
     let mut state = CallbackState::new(sender, 7);
     state.mouse_enabled = true;
     for time in 0..20_000 {
-        state.publish(
+        state.publish_at(
             EventType::MouseMove {
                 x: f64::from(time),
                 y: 3.0,
             },
             time,
             true,
+            u64::from(time),
         );
     }
     let pending = events.try_recv().unwrap();
     assert!(events.try_recv().is_err(), "one pending motion wake");
     assert!(state.motion_pairs.len() <= 256);
-    state.publish(EventType::ButtonRelease(Button::Left), 20_001, true);
+    state.publish_at(EventType::ButtonRelease(Button::Left), 20_001, true, 20_001);
     let mut sealed = match pending {
         InputMessage::Pointer(slot) => vec![slot.lock().unwrap().take().unwrap()],
         _ => unreachable!(),
@@ -220,7 +221,12 @@ fn pointer_mailbox_is_bounded_and_cannot_cross_a_release_boundary() {
     );
     assert_eq!(sealed[1].0, EventType::ButtonRelease(Button::Left));
     state.mouse_enabled = false;
-    state.publish(EventType::MouseMove { x: 4.0, y: 5.0 }, 20_002, true);
+    state.publish_at(
+        EventType::MouseMove { x: 4.0, y: 5.0 },
+        20_002,
+        true,
+        20_002,
+    );
     assert_eq!(received(&events).len(), 1);
 }
 
@@ -237,7 +243,7 @@ fn delayed_pointer_wakes_preserve_press_move_release_move_order() {
         EventType::MouseMove { x: 3.0, y: 3.0 },
     ];
     for (time, event) in expected.into_iter().enumerate() {
-        state.publish(event, time as u32, true);
+        state.publish_at(event, time as u32, true, time as u64);
     }
     assert_eq!(
         received(&events)
@@ -251,6 +257,7 @@ fn delayed_pointer_wakes_preserve_press_move_release_move_order() {
 #[test]
 fn partial_consumption_and_out_of_order_raw_do_not_expire_future_pairs() {
     for base in [100_u32, u32::MAX - 1] {
+        let now = u64::from(base) + 2;
         let (sender, events) = mpsc::channel();
         let mut state = CallbackState::new(sender, 7);
         state.mouse_enabled = true;
@@ -259,9 +266,14 @@ fn partial_consumption_and_out_of_order_raw_do_not_expire_future_pairs() {
             EventType::ButtonRelease(Button::Left),
             EventType::MouseMove { x: 1.0, y: 2.0 },
         ] {
-            state.publish(event, base.wrapping_add(2), false);
-            state.publish(EventType::KeyPress(Key::KeyB), base.wrapping_add(1), true);
-            state.publish(event, base.wrapping_add(2), true);
+            state.publish_at(event, base.wrapping_add(2), false, now);
+            state.publish_at(
+                EventType::KeyPress(Key::KeyB),
+                base.wrapping_add(1),
+                true,
+                now,
+            );
+            state.publish_at(event, base.wrapping_add(2), true, now);
             let captured = received(&events);
             assert_eq!(captured.iter().filter(|input| input.0 == event).count(), 1);
         }
@@ -271,15 +283,74 @@ fn partial_consumption_and_out_of_order_raw_do_not_expire_future_pairs() {
 #[test]
 fn out_of_order_motion_pairing_is_verified_after_each_mailbox_drain() {
     for base in [100_u32, u32::MAX - 1] {
+        let now = u64::from(base) + 2;
         let (sender, events) = mpsc::channel();
         let mut state = CallbackState::new(sender, 7);
         let pointer = EventType::MouseMove { x: 1.0, y: 2.0 };
-        state.publish(pointer, base.wrapping_add(2), false);
+        state.publish_at(pointer, base.wrapping_add(2), false, now);
         assert_eq!(received(&events).len(), 1);
-        state.publish(pointer, base.wrapping_add(1), true);
+        state.publish_at(pointer, base.wrapping_add(1), true, now);
         assert_eq!(received(&events).len(), 1);
-        state.publish(pointer, base.wrapping_add(2), true);
+        state.publish_at(pointer, base.wrapping_add(2), true, now);
         assert!(received(&events).is_empty());
+    }
+}
+
+#[test]
+fn full_tick_cycles_do_not_drop_fresh_opposite_source_input() {
+    let cycle = 1_u64 << 32;
+    for cycles in [1, 2] {
+        for raw_first in [false, true] {
+            for event in [
+                EventType::KeyPress(Key::KeyA),
+                EventType::KeyRelease(Key::KeyA),
+                EventType::ButtonRelease(Button::Left),
+                EventType::Wheel {
+                    delta_x: 0,
+                    delta_y: 1,
+                },
+                EventType::MouseMove { x: 1.0, y: 2.0 },
+            ] {
+                let (sender, events) = mpsc::channel();
+                let mut state = CallbackState::new(sender, 7);
+                state.mouse_enabled = true;
+                state.publish_at(event, 100, raw_first, 100);
+                assert_eq!(received(&events).len(), 1);
+
+                // The same low 32 bits now belong to a distinct physical event.
+                let now = cycles * cycle + 100;
+                state.publish_at(event, 100, !raw_first, now);
+                assert_eq!(received(&events).len(), 1, "fresh event: {event:?}");
+                state.publish_at(event, 100, raw_first, now);
+                assert!(received(&events).is_empty(), "fresh pair: {event:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn delayed_pairs_cross_a_small_clock_wrap_and_preserve_same_source_repeats() {
+    let cycle = 1_u64 << 32;
+    for raw_first in [false, true] {
+        for event in [
+            EventType::KeyRelease(Key::KeyA),
+            EventType::ButtonRelease(Button::Left),
+            EventType::MouseMove { x: 1.0, y: 2.0 },
+        ] {
+            let (sender, events) = mpsc::channel();
+            let mut state = CallbackState::new(sender, 7);
+            state.mouse_enabled = true;
+            // Matching must precede the one-second stale-entry pruning.
+            let time = u32::MAX - 5;
+            for _ in 0..2 {
+                state.publish_at(event, time, raw_first, cycle - 1);
+                assert_eq!(received(&events).len(), 1);
+            }
+            for _ in 0..2 {
+                state.publish_at(event, time, !raw_first, cycle + 5_000);
+                assert!(received(&events).is_empty(), "delayed pair: {event:?}");
+            }
+        }
     }
 }
 
@@ -314,6 +385,93 @@ fn delayed_raw_mouse_is_excluded_after_a_generation_boundary_but_key_release_sur
         true,
     );
     assert_eq!(received(&events).len(), 1);
+}
+
+#[test]
+fn only_invalid_hook_handles_retire_after_failed_removal() {
+    assert!(unhook_error(1, || panic!("successful unhook must not read last error")).is_none());
+    for code in [
+        0,
+        5,
+        6,
+        87,
+        1400,
+        1403,
+        1419,
+        ERROR_INVALID_HOOK_HANDLE as i32,
+    ] {
+        let mut handle = 7_u32;
+        let result = change_mouse_hook(
+            &mut handle,
+            false,
+            || unreachable!(),
+            |_| match unhook_error(0, || std::io::Error::from_raw_os_error(code)) {
+                Some(error) => Err(error.to_string()),
+                None => Ok(()),
+            },
+        );
+        if code == ERROR_INVALID_HOOK_HANDLE as i32 {
+            assert!(result.is_ok());
+            assert_eq!(handle, 0);
+        } else {
+            assert!(result.is_err(), "preserve failure {code}");
+            assert_eq!(handle, 7, "preserve handle on failure {code}");
+        }
+    }
+    assert!(unhook_error(0, || std::io::Error::other("unknown removal failure")).is_some());
+}
+
+#[test]
+fn retired_owned_hooks_do_not_block_raw_receiver_shutdown() {
+    let (sender, _events) = mpsc::channel();
+    let mut hooks = Hooks::start(true, sender).unwrap();
+    let hwnd = hooks.raw.hwnd;
+    // Retire only this test's own hooks; no input is generated or observed.
+    assert_ne!(unsafe { UnhookWindowsHookEx(hooks.mouse) }, 0);
+    assert_ne!(unsafe { UnhookWindowsHookEx(hooks.keyboard) }, 0);
+    hooks.stop().unwrap();
+    assert!(hooks.mouse.is_null());
+    assert!(hooks.keyboard.is_null());
+    assert!(hooks.raw.hwnd.is_null());
+    assert_eq!(unsafe { IsWindow(hwnd) }, 0);
+    assert!(CALLBACK.with_borrow(|state| state.is_none()));
+}
+
+#[test]
+fn poisoned_queue_shutdown_disconnects_every_pending_reply() {
+    let (configure, configured) = mpsc::channel();
+    let (state, inspected) = mpsc::channel();
+    let (stop, stopped) = mpsc::channel();
+    let queue = Arc::new(Mutex::new(Some(VecDeque::from([
+        Request::Configure(false, configure),
+        Request::State(state),
+        Request::Stop(stop),
+    ]))));
+    let poisoned = std::panic::catch_unwind(|| {
+        let _guard = queue.lock().unwrap();
+        panic!("controlled queued-reply poison");
+    });
+    assert!(poisoned.is_err());
+    assert!(queue.is_poisoned());
+    drop(CloseQueue(Arc::clone(&queue)));
+    assert!(matches!(
+        configured.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Disconnected)
+    ));
+    assert!(matches!(
+        inspected.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Disconnected)
+    ));
+    assert!(matches!(
+        stopped.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Disconnected)
+    ));
+    assert!(
+        queue
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_none()
+    );
 }
 
 fn register(devices: &[RAWINPUTDEVICE]) {

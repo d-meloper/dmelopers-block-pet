@@ -644,7 +644,7 @@ describe('renderer input wiring', () => {
     Object.assign(three3d, {
       mouse: { setMouseEnabled: (value: boolean) => modes.push(value), resetInput: mouseReset, setMouseButtonPressed: mouseButton, pulseWheelScroll: scroll, setMousePosition: mock.fn() },
       petAnimator: { setMouseEnabled: mock.fn(), setMousePosition: petPointer, setMouseButtonPressed: petButton, setKeyPressed: petKey, resetMouseInput: mock.fn(), resetInput: mock.fn(), dispose: mock.fn() },
-      dmeloperEyebrowController: { setMouseEnabled: mock.fn(), resetMouseInput: mock.fn(), setKeyPressed: eyebrowKey, setMouseButtonPressed: eyebrowButton, dispose: mock.fn() },
+      dmeloperEyebrowController: { setMouseEnabled: mock.fn(), resetInput: mock.fn(), resetMouseInput: mock.fn(), setKeyPressed: eyebrowKey, setMouseButtonPressed: eyebrowButton, dispose: mock.fn() },
       keyboard: { getContactTarget: () => undefined, setContactPressed: mock.fn() },
     })
     try {

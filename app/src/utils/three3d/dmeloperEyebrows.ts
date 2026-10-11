@@ -20,6 +20,7 @@ export type DmeloperEyebrowIdleState = 'neutral' | 'curious' | 'alert' | 'skepti
 export interface DmeloperEyebrowController {
   setAnimationEnabled: (enabled: boolean, timestamp?: number) => void
   setMouseEnabled: (enabled: boolean, timestamp?: number) => void
+  resetInput: (timestamp?: number) => void
   resetMouseInput: (timestamp?: number) => void
   setPreset: (preset: DmeloperEyebrowPreset) => void
   setSuggestedColor: (color?: string) => void
@@ -415,6 +416,11 @@ export function createDmeloperEyebrowController(
     recordPress(recentMousePresses, timestamp)
     refreshFocus(timestamp)
   }
+  const resetInput: DmeloperEyebrowController['resetInput'] = (timestamp = now()) => {
+    if (disposed) return
+    resetAnimation(timestamp)
+    apply(timestamp)
+  }
   const resetMouseInput: DmeloperEyebrowController['resetMouseInput'] = (timestamp = now()) => {
     if (disposed) return
     heldMouseButtons.clear()
@@ -464,6 +470,7 @@ export function createDmeloperEyebrowController(
   return {
     setAnimationEnabled,
     setMouseEnabled,
+    resetInput,
     resetMouseInput,
     setPreset,
     setSuggestedColor,

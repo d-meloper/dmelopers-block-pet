@@ -360,3 +360,52 @@ it('shows the confirmed mode controls while retaining hidden values and native e
   preset.autoViewportEnabled = true
   assertMode(true)
 })
+
+it('hides hover delay while OFF, rejects stale edits and retains its value', () => {
+  const script = compiledScene
+  type Render = (context: { $t: (key: string) => string }, cache: unknown[]) => Vue.VNode
+  const exports = {} as { default: { setup: (props: object, context: object) => Render } }
+  setActivePinia(createPinia())
+  const block = useBlockStore()
+  block.window.hideOnHover = true
+  block.window.hideOnHoverDelay = 2.5
+  const visibility = new Map<Vue.VNode, boolean>()
+  const translate = (key: string) => key
+  const mocks: Record<string, unknown> = {
+    'vue': { ...Vue, onMounted: () => {}, onBeforeUnmount: () => {}, withDirectives: (node: Vue.VNode, bindings: Array<[unknown, boolean]>) => {
+      visibility.set(node, bindings[0][1])
+      return node
+    } },
+    'vue-i18n': { useI18n: () => ({ t: translate }) },
+    'ant-design-vue': { Button: 'button', Divider: 'divider', Flex: 'flex', InputNumber: 'input', Select: { Option: 'option' }, Switch: 'switch', Tooltip: 'tooltip', Tabs: 'tabs', TabPane: 'tab-pane' },
+    '@/stores/general': { useGeneralStore: () => ({ app: {}, appearance: {} }) },
+    '@/stores/block': { useBlockStore: () => block, createDefaultPet3dPreset },
+    '@/features/scene/viewportSettings': viewportSettings,
+    '@/features/stateSafety/bridge': { editorsLocked },
+  }
+  runInNewContext(ts.transpileModule(script.content, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, { exports, require: (name: string) => mocks[name] ?? { default: 'section' } })
+  const render = exports.default.setup({}, { expose: () => {} })
+  const flatten = (node: Vue.VNode): Vue.VNode[] => {
+    const children = Array.isArray(node.children)
+      ? node.children
+      : typeof node.children === 'object' && typeof node.children?.default === 'function' ? node.children.default() : []
+    return [node, ...children.flatMap((child: unknown) => Vue.isVNode(child) ? flatten(child) : [])]
+  }
+  let staleDelay: Vue.VNode | undefined
+  for (const enabled of [true, false, true]) {
+    block.window.hideOnHover = enabled
+    visibility.clear()
+    const nodes = flatten(render({ $t: translate }, []))
+    const delay = nodes.find(node => node.type === 'input' && node.props?.['addon-after'] === 's')!
+    const group = [...visibility.keys()].find(node => flatten(node).includes(delay))!
+    assert.equal(visibility.get(group), enabled)
+    assert.equal(delay.props!.value, 2.5)
+    if (!enabled) staleDelay!.props!['onUpdate:value'](9)
+    assert.equal(block.window.hideOnHoverDelay, 2.5)
+    staleDelay = delay
+  }
+  staleDelay!.props!['onUpdate:value'](3.5)
+  assert.equal(block.window.hideOnHoverDelay, 3.5, 'visible delay remains editable while ON')
+})

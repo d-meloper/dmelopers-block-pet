@@ -990,6 +990,7 @@ export class Three3DRenderer {
       }
       this.heldKeyboardContacts.clear()
       this.petAnimator?.resetInput()
+      this.dmeloperEyebrowController?.resetInput()
     }
     if (this.inputActive !== active) this.renderCadence.reset(performance.now())
     this.inputActive = active

@@ -295,3 +295,27 @@ it('retains incompatible original values through real parse, resolve, serialize 
   assert.deepEqual(JSON.parse(serializePortablePreset(exported)).settings, raw.settings)
   assert.deepEqual(parsed.sourceSettings, raw.settings)
 })
+
+it('round-trips supported animation modes through portable v1 and preserves invalid imported source during re-export', async () => {
+  assert.equal(parsePortablePreset(fixture).settings.preset.petAnimationMode, 'default')
+  for (const mode of ['default', 'headbutt'] as const) {
+    const snapshot = createDefaultPresetSnapshot()
+    snapshot.preset.petAnimationMode = mode
+    snapshot.appearance.minecraftSkinUsername = 'Fixture_User'
+    const exported = await exportPortablePreset('Animation', snapshot, 'nickname')
+    const imported = parsePortablePreset(new TextEncoder().encode(serializePortablePreset(exported)))
+    assert.equal(imported.version, 1)
+    assert.equal(imported.settings.preset.petAnimationMode, mode)
+    assert.equal(inspectPresetCompatibility(imported.sourceSettings!).length, 0)
+  }
+  for (const mode of ['future-mode', null, 1, { value: 'headbutt' }]) {
+    const document = JSON.parse(fixture.toString())
+    document.settings.preset.petAnimationMode = mode
+    document.settings.futureOption = { preserved: true }
+    const imported = parsePortablePreset(new TextEncoder().encode(JSON.stringify(document)))
+    assert.equal(imported.settings.preset.petAnimationMode, 'default')
+    assert.deepEqual(imported.sourceSettings, document.settings)
+    assert.ok(inspectPresetCompatibility(imported.sourceSettings!).some(issue => issue.path.join('.') === 'preset.petAnimationMode'))
+    assert.deepEqual(JSON.parse(serializePortablePreset(imported)).settings, document.settings)
+  }
+})

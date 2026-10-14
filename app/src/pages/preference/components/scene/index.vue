@@ -8,9 +8,11 @@ import type { SceneViewportState } from '@/features/scene/types'
 import DefaultSnapSlider from '@/components/default-snap-slider/index.vue'
 import OptionTransition from '@/components/option-transition/index.vue'
 import { vStableDetailHeight } from '@/components/preference-detail-tabs/height'
+import PreferenceOptionGroup from '@/components/preference-option-group/index.vue'
 import PreferenceSections from '@/components/preference-sections/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
+import { commitArmControlOrderRotation } from '@/features/scene/armControlOrder'
 import { AUTO_VIEWPORT_PADDING_LIMITS, normalizeAutoViewportPadding } from '@/features/scene/viewportSettings'
 import { editorsLocked } from '@/features/stateSafety/bridge'
 import { createDefaultPet3dPreset, useBlockStore } from '@/stores/block'
@@ -37,7 +39,7 @@ const blockStore = useBlockStore()
 const hideOnHoverDelay = computed({
   get: () => blockStore.window.hideOnHoverDelay,
   set: (delay: number) => {
-    if (!blockStore.window.hideOnHover) return
+    if (editorsLocked.value || !blockStore.window.hideOnHover) return
     blockStore.window.hideOnHoverDelay = delay
   },
 })
@@ -48,8 +50,8 @@ const activeSceneTab = ref<SceneTab>('view')
 const sceneResetLabel = computed(() => t(resetKeys[activeSceneTab.value].label))
 const sceneResetDisabled = computed(() => editorsLocked.value || (activeSceneTab.value === 'viewport' && props.viewportPending))
 const automatic = computed(() => preset.value.autoViewportEnabled)
-const manualDisabled = computed(() => automatic.value || props.viewportPending || !props.viewportState)
-const automaticPaddingDisabled = computed(() => !automatic.value || props.viewportPending || !props.viewportState)
+const manualDisabled = computed(() => editorsLocked.value || automatic.value || props.viewportPending || !props.viewportState)
+const automaticPaddingDisabled = computed(() => editorsLocked.value || !automatic.value || props.viewportPending || !props.viewportState)
 const dimensions = ['width', 'height'] as const
 const automaticPaddingLimits = AUTO_VIEWPORT_PADDING_LIMITS
 
@@ -87,6 +89,11 @@ function updateDimension(dimension: 'width' | 'height', value: number | string |
   }
 }
 
+function updateCameraOffset(key: 'cameraHorizontalOffset' | 'cameraVerticalOffset', value: number) {
+  if (manualDisabled.value || !Number.isFinite(value)) return
+  preset.value[key] = Math.min(1.5, Math.max(-1.5, value))
+}
+
 function confirmSceneReset(scene: SceneTab) {
   if (editorsLocked.value || (scene === 'viewport' && props.viewportPending)) return
   Modal.confirm({
@@ -94,9 +101,14 @@ function confirmSceneReset(scene: SceneTab) {
     okType: 'danger',
     onOk: () => {
       if (editorsLocked.value || (scene === 'viewport' && props.viewportPending)) return
-      if (scene === 'view') blockStore.resetSceneView3d()
-      else if (scene === 'viewport') blockStore.resetSceneViewport3d()
-      else blockStore.resetLighting()
+      if (scene === 'view') {
+        blockStore.resetSceneView3d()
+        commitArmControlOrderRotation(preset.value.sceneRotationOffsetDegrees)
+      } else if (scene === 'viewport') {
+        blockStore.resetSceneViewport3d()
+      } else {
+        blockStore.resetLighting()
+      }
     },
   })
 }
@@ -143,6 +155,7 @@ function confirmSceneReset(scene: SceneTab) {
                   :default-value="defaults.sceneRotationOffsetDegrees"
                   :max="360"
                   :min="-360"
+                  @after-change="commitArmControlOrderRotation(preset.sceneRotationOffsetDegrees)"
                 />
               </ProListItem>
             </div>
@@ -235,61 +248,65 @@ function confirmSceneReset(scene: SceneTab) {
               />
             </ProListItem>
 
-            <ProListItem
-              :description="$t('pages.preference.scene.hints.automatic')"
-              :title="$t('pages.preference.scene.labels.automatic')"
-            >
-              <Switch
-                :aria-label="$t('pages.preference.scene.labels.automatic')"
-                :checked="automatic"
-                :disabled="viewportPending || !viewportState"
-                :loading="viewportPending"
-                @update:checked="requestViewportMode($event)"
-              />
-            </ProListItem>
-
-            <OptionTransition>
+            <PreferenceOptionGroup :grouped="automatic">
               <ProListItem
-                v-show="automatic"
-                data-detail-height-option
-                data-detail-height-variant="automatic"
-                :description="$t('pages.preference.scene.hints.automaticPadding')"
-                :title="$t('pages.preference.scene.labels.automaticPadding')"
-                vertical
+                :description="$t('pages.preference.scene.hints.automatic')"
+                :plain="automatic"
+                :title="$t('pages.preference.scene.labels.automatic')"
               >
-                <Flex
-                  align="center"
-                  gap="middle"
+                <Switch
+                  :aria-label="$t('pages.preference.scene.labels.automatic')"
+                  :checked="automatic"
+                  :disabled="viewportPending || !viewportState"
+                  :loading="viewportPending"
+                  @update:checked="requestViewportMode($event)"
+                />
+              </ProListItem>
+
+              <OptionTransition>
+                <ProListItem
+                  v-show="automatic"
+                  data-detail-height-option
+                  data-detail-height-variant="automatic"
+                  :description="$t('pages.preference.scene.hints.automaticPadding')"
+                  plain
+                  :title="$t('pages.preference.scene.labels.automaticPadding')"
+                  vertical
                 >
-                  <div class="min-w-0 flex-1">
-                    <DefaultSnapSlider
+                  <Flex
+                    align="center"
+                    gap="middle"
+                  >
+                    <div class="min-w-0 flex-1">
+                      <DefaultSnapSlider
+                        :aria-label="$t('pages.preference.scene.labels.automaticPadding')"
+                        class="m-[0]!"
+                        :default-value="defaults.autoViewportPaddingPixels"
+                        :disabled="automaticPaddingDisabled"
+                        display-mode="raw"
+                        :max="automaticPaddingLimits.max"
+                        :min="automaticPaddingLimits.min"
+                        :step="1"
+                        :tip-formatter="formatPixels"
+                        :value="preset.autoViewportPaddingPixels"
+                        @update:value="updateAutomaticPadding"
+                      />
+                    </div>
+                    <InputNumber
                       :aria-label="$t('pages.preference.scene.labels.automaticPadding')"
-                      class="m-[0]!"
-                      :default-value="defaults.autoViewportPaddingPixels"
+                      class="w-28"
                       :disabled="automaticPaddingDisabled"
-                      display-mode="raw"
                       :max="automaticPaddingLimits.max"
                       :min="automaticPaddingLimits.min"
+                      :precision="0"
                       :step="1"
-                      :tip-formatter="formatPixels"
                       :value="preset.autoViewportPaddingPixels"
                       @update:value="updateAutomaticPadding"
                     />
-                  </div>
-                  <InputNumber
-                    :aria-label="$t('pages.preference.scene.labels.automaticPadding')"
-                    class="w-28"
-                    :disabled="automaticPaddingDisabled"
-                    :max="automaticPaddingLimits.max"
-                    :min="automaticPaddingLimits.min"
-                    :precision="0"
-                    :step="1"
-                    :value="preset.autoViewportPaddingPixels"
-                    @update:value="updateAutomaticPadding"
-                  />
-                </Flex>
-              </ProListItem>
-            </OptionTransition>
+                  </Flex>
+                </ProListItem>
+              </OptionTransition>
+            </PreferenceOptionGroup>
 
             <div
               v-if="viewportError"
@@ -359,34 +376,40 @@ function confirmSceneReset(scene: SceneTab) {
                     </Flex>
                   </div>
                 </ProListItem>
-                <div class="grid grid-cols-2 gap-4">
-                  <ProListItem
-                    :title="$t('pages.preference.scene.labels.cameraHorizontal')"
-                    vertical
-                  >
-                    <DefaultSnapSlider
-                      v-model:value="preset.cameraHorizontalOffset"
-                      class="m-[0]!"
-                      :default-value="defaults.cameraHorizontalOffset"
-                      :disabled="manualDisabled"
-                      :max="1.5"
-                      :min="-1.5"
-                    />
-                  </ProListItem>
-                  <ProListItem
-                    :title="$t('pages.preference.scene.labels.cameraVertical')"
-                    vertical
-                  >
-                    <DefaultSnapSlider
-                      v-model:value="preset.cameraVerticalOffset"
-                      class="m-[0]!"
-                      :default-value="defaults.cameraVerticalOffset"
-                      :disabled="manualDisabled"
-                      :max="1.5"
-                      :min="-1.5"
-                    />
-                  </ProListItem>
-                </div>
+                <PreferenceOptionGroup>
+                  <div class="grid grid-cols-2 gap-4">
+                    <ProListItem
+                      plain
+                      :title="$t('pages.preference.scene.labels.cameraHorizontal')"
+                      vertical
+                    >
+                      <DefaultSnapSlider
+                        class="m-[0]!"
+                        :default-value="defaults.cameraHorizontalOffset"
+                        :disabled="manualDisabled"
+                        :max="1.5"
+                        :min="-1.5"
+                        :value="preset.cameraHorizontalOffset"
+                        @update:value="updateCameraOffset('cameraHorizontalOffset', $event)"
+                      />
+                    </ProListItem>
+                    <ProListItem
+                      plain
+                      :title="$t('pages.preference.scene.labels.cameraVertical')"
+                      vertical
+                    >
+                      <DefaultSnapSlider
+                        class="m-[0]!"
+                        :default-value="defaults.cameraVerticalOffset"
+                        :disabled="manualDisabled"
+                        :max="1.5"
+                        :min="-1.5"
+                        :value="preset.cameraVerticalOffset"
+                        @update:value="updateCameraOffset('cameraVerticalOffset', $event)"
+                      />
+                    </ProListItem>
+                  </div>
+                </PreferenceOptionGroup>
               </Flex>
             </OptionTransition>
           </Flex>

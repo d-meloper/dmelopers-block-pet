@@ -34,20 +34,26 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import type { DeskSettings } from '@/config/desk'
 import type { DeviceColorSettings } from '@/config/deviceColors'
 import type { DmeloperEyebrowPreset } from '@/config/dmeloperEyebrows'
+import type { HeadbuttRecoilSettings } from '@/config/headbuttRecoil'
 import type { LightingSettings } from '@/config/lighting'
 import type { PetModelId } from '@/config/model3d'
 import type { ShadowQuality } from '@/config/performance'
+import type { PetAnimationMode } from '@/config/petAnimation'
 import type { PetArmPoseSettings } from '@/config/petArmPose'
+import type { TypingMotionSettings } from '@/config/typingMotion'
 import type { KeyboardContact, SemanticInputEvent } from '@/features/input/types'
 
 import { DEFAULT_DESK_SETTINGS, normalizeDeskSettings } from '@/config/desk'
 import { DEFAULT_DEVICE_COLORS, DEVICE_COLOR_KEYS, normalizeDeviceColors } from '@/config/deviceColors'
 import { createDefaultDmeloperEyebrowPreset } from '@/config/dmeloperEyebrows'
 import { DMELOPER_PALM_FALLBACK_COLOR } from '@/config/dmeloperPalms'
+import { DEFAULT_HEADBUTT_MAX_RADIUS_OFFSET, normalizeHeadbuttMaxRadiusOffset } from '@/config/headbuttRadius'
+import { DEFAULT_HEADBUTT_RECOIL_SETTINGS, normalizeHeadbuttRecoilSettings } from '@/config/headbuttRecoil'
 import { createDefaultLightingSettings, normalizeLightingSettings } from '@/config/lighting'
 import { MODEL_3D_CONFIG } from '@/config/model3d'
 import { DEFAULT_PERFORMANCE_SETTINGS, MAX_FPS, MIN_FPS, normalizeShadowQuality } from '@/config/performance'
 import { DEFAULT_PET_ARM_POSE_SETTINGS, normalizePetArmPoseSettings } from '@/config/petArmPose'
+import { DEFAULT_TYPING_MOTION_SETTINGS, normalizeTypingMotionSettings } from '@/config/typingMotion'
 import { getScaledAutoViewportPadding, normalizeAutoViewportPadding } from '@/features/scene/viewportSettings'
 
 import type {
@@ -78,6 +84,7 @@ import {
   scanAlphaContentMeasurement,
 } from './three3d/contentBounds'
 import { createDmeloperEyebrowController } from './three3d/dmeloperEyebrows'
+import { getHeadbuttRearViewWeight } from './three3d/headbuttViewport'
 import { createKeyboardGroup } from './three3d/keyboard'
 import { forEachMeshWorldBounds } from './three3d/meshBounds'
 import { createMouseGroup } from './three3d/mouse'
@@ -140,6 +147,13 @@ export class Three3DRenderer {
   private keyboard?: KeyboardGroupResult
   private mouse?: MouseGroupResult
   private petAnimator?: PetAnimator
+  private petAnimationMode: PetAnimationMode = 'default'
+  private headbuttMaxRadiusOffset = DEFAULT_HEADBUTT_MAX_RADIUS_OFFSET
+  private headbuttRecoilSettings = { ...DEFAULT_HEADBUTT_RECOIL_SETTINGS }
+  private typingMotionSettings = { ...DEFAULT_TYPING_MOTION_SETTINGS }
+  private petShoulderTorsoConnected = false
+  private petRightArmDisabled = false
+  private petLeftArmDisabled = false
   private dmeloperEyebrowController?: DmeloperEyebrowController
   private petModel?: Object3D
   private appliedVoxelSkin?: AppliedVoxelSkin
@@ -528,13 +542,31 @@ export class Three3DRenderer {
     const bounds = this.sceneRoot && this.camera
       ? projectVisibleSceneBounds(this.sceneRoot, this.camera, this.compositionWidth, this.compositionHeight)
       : undefined
-    return padContentRect(unionContentRects(bounds ?? createFullContentRect(this.compositionWidth, this.compositionHeight), this.getMouseMotionContentRect()), this.getContentPadding())
+    return padContentRect(this.includeMotionContentRects(bounds ?? createFullContentRect(this.compositionWidth, this.compositionHeight)), this.getContentPadding())
+  }
+
+  private includeMotionContentRects(rect: VisibleContentRect): VisibleContentRect {
+    const withMouse = unionContentRects(rect, this.getMouseMotionContentRect())
+    const topMargin = this.getHeadbuttRearTopMargin()
+    return topMargin > 0
+      ? { ...withMouse, y: withMouse.y - topMargin, height: withMouse.height + topMargin }
+      : withMouse
+  }
+
+  private getHeadbuttRearTopMargin(): number {
+    if (this.petAnimationMode !== 'headbutt') return 0
+    const weight = getHeadbuttRearViewWeight(this.rotationDegrees, this.petRotationYDegrees)
+    return Math.ceil(MODEL_3D_CONFIG.pet.animation.headbuttViewport.maxTopMarginPixels * weight
+      * this.petHeadScalePercent / 100 * this.compositionHeight / MODEL_3D_CONFIG.baseWindow.height
+      * MODEL_3D_CONFIG.camera.distancePercent / this.cameraDistancePercent)
   }
 
   private getMouseMotionContentRect(): VisibleContentRect | undefined {
     const group = this.mouse?.group
     const device = group?.getObjectByName('mouseDevice')
-    if (!group?.visible || !device || !this.camera) return undefined
+    if (!group || !device || !this.camera) return undefined
+    const reserveHiddenMouse = !group.visible && this.petAnimationMode === 'headbutt'
+    if (!group.visible && !reserveHiddenMouse) return undefined
     group.updateWorldMatrix(true, true)
     const origin = group.getWorldPosition(new Vector3())
     const { xRange, zRange, curveDepth } = MODEL_3D_CONFIG.mouse.interaction
@@ -546,7 +578,17 @@ export class Three3DRenderer {
     }
     // Include the full cursor travel once per composition change. Input never
     // resizes the native window, even with extreme device placement/scale.
-    return projectVisibleSceneBounds(device, this.camera, this.compositionWidth, this.compositionHeight, offsets)
+    const motion = projectVisibleSceneBounds(device, this.camera, this.compositionWidth, this.compositionHeight, offsets)
+    if (!reserveHiddenMouse) return motion
+    // Bounds-only reservation; the mouse remains disabled and is never drawn.
+    const wasVisible = group.visible
+    try {
+      group.visible = true
+      const layout = projectVisibleSceneBounds(group, this.camera, this.compositionWidth, this.compositionHeight)
+      return layout ? unionContentRects(layout, motion) : motion
+    } finally {
+      group.visible = wasVisible
+    }
   }
 
   setEyebrowAnimationEnabled(enabled: boolean): void {
@@ -701,12 +743,12 @@ export class Three3DRenderer {
       const scaleX = measurementRect.width / measurementWidth
       const scaleY = measurementRect.height / measurementHeight
       const measured = measurement.rect
-      return { status: 'success', rect: padContentRect(unionContentRects(normalizeVisibleContentRect({
+      return { status: 'success', rect: padContentRect(this.includeMotionContentRects(normalizeVisibleContentRect({
         x: measurementRect.x + measured.x * scaleX,
         y: measurementRect.y + measured.y * scaleY,
         width: measured.width * scaleX,
         height: measured.height * scaleY,
-      }, this.compositionWidth, this.compositionHeight), this.getMouseMotionContentRect()), this.getContentPadding()) }
+      }, this.compositionWidth, this.compositionHeight)), this.getContentPadding()) }
     } catch (error) {
       if (renderer !== this.renderer || measurementGeneration !== this.contentMeasurementGeneration) {
         return { status: 'stale' }
@@ -958,6 +1000,61 @@ export class Three3DRenderer {
         )
       }
     }
+  }
+
+  setAnimationMode(mode: PetAnimationMode): void {
+    const next = mode === 'headbutt' ? 'headbutt' : 'default'
+    if (next === this.petAnimationMode) return
+    const previousTopMargin = this.getHeadbuttRearTopMargin()
+    this.petAnimationMode = next
+    this.petAnimator?.setAnimationMode(next)
+    if (!this.mouseEnabled || previousTopMargin !== this.getHeadbuttRearTopMargin()) this.invalidateContentMeasurement()
+    this.noteActivity()
+  }
+
+  setHeadbuttRecoilSettings(settings: Partial<HeadbuttRecoilSettings>): void {
+    const next = normalizeHeadbuttRecoilSettings(settings, this.headbuttRecoilSettings)
+    if ((Object.keys(next) as (keyof HeadbuttRecoilSettings)[]).every(key => next[key] === this.headbuttRecoilSettings[key])) return
+    this.headbuttRecoilSettings = next
+    this.petAnimator?.setHeadbuttRecoilSettings(next)
+    this.noteActivity()
+  }
+
+  setHeadbuttMaxRadiusOffset(offset: number): void {
+    const next = normalizeHeadbuttMaxRadiusOffset(offset, this.headbuttMaxRadiusOffset)
+    if (next === this.headbuttMaxRadiusOffset) return
+    this.headbuttMaxRadiusOffset = next
+    this.petAnimator?.setHeadbuttMaxRadiusOffset(next)
+    this.noteActivity()
+  }
+
+  setTypingMotionSettings(settings: Partial<TypingMotionSettings>): void {
+    const next = normalizeTypingMotionSettings(settings, this.typingMotionSettings)
+    if ((Object.keys(next) as (keyof TypingMotionSettings)[]).every(key => next[key] === this.typingMotionSettings[key])) return
+    this.typingMotionSettings = next
+    this.petAnimator?.setTypingMotionSettings(next)
+    this.noteActivity()
+  }
+
+  setShoulderTorsoConnected(enabled: boolean): void {
+    const next = enabled === true
+    if (next === this.petShoulderTorsoConnected) return
+    this.petShoulderTorsoConnected = next
+    this.petAnimator?.setShoulderTorsoConnected(next)
+    this.invalidateContentMeasurement()
+    this.noteActivity()
+  }
+
+  setPetArmsDisabled(right: boolean, left: boolean): void {
+    const nextRight = right === true
+    const nextLeft = left === true
+    if (nextRight === this.petRightArmDisabled && nextLeft === this.petLeftArmDisabled) return
+    this.petRightArmDisabled = nextRight
+    this.petLeftArmDisabled = nextLeft
+    this.voxelSkinGeometryController?.setArmsDisabled(nextRight, nextLeft)
+    this.petAnimator?.setArmsDisabled(nextRight, nextLeft)
+    this.invalidateContentMeasurement()
+    this.noteActivity()
   }
 
   setMouseEnabled(enabled: boolean): void {
@@ -1394,6 +1491,7 @@ export class Three3DRenderer {
         resolvedSkinModel,
       )
       pendingSkinGeometryController = createVoxelSkinGeometryController(model)
+      pendingSkinGeometryController.setArmsDisabled(this.petRightArmDisabled, this.petLeftArmDisabled)
       pendingSkinGeometryController.setPalmColor(this.dmeloperPalmColor)
       if (pendingDecodedSkin && skinUrl) {
         pendingSkinGeometryController.setSkin(pendingDecodedSkin)
@@ -1525,6 +1623,7 @@ export class Three3DRenderer {
     return {
       keyboardBodyDefaultTarget: keyboardLeftRestTarget,
       keyboardBodyTurnThresholdTarget,
+      keyboardHeadbuttReachTarget: this.keyboard?.getKeyTarget('KeyD'),
       keyboardNavigationTargets: MODEL_3D_CONFIG.pet.animation.keyboard.navigationKeys
         .flatMap(key => this.keyboard?.getKeyTarget(key) ?? []),
       keyboardGroup,
@@ -1532,6 +1631,7 @@ export class Three3DRenderer {
       keyboardRestTarget,
       keyboardRightRestTarget,
       mouseGroup,
+      desk: this.desk,
     }
   }
 
@@ -1544,6 +1644,12 @@ export class Three3DRenderer {
     animator?.setHeadScalePercent(this.petHeadScalePercent)
     animator?.setArmPoseSettings(this.petArmPoseSettings)
     animator?.setMouseEnabled(this.mouseEnabled)
+    animator?.setAnimationMode(this.petAnimationMode)
+    animator?.setHeadbuttRecoilSettings(this.headbuttRecoilSettings)
+    animator?.setHeadbuttMaxRadiusOffset(this.headbuttMaxRadiusOffset)
+    animator?.setTypingMotionSettings(this.typingMotionSettings)
+    animator?.setShoulderTorsoConnected(this.petShoulderTorsoConnected)
+    animator?.setArmsDisabled(this.petRightArmDisabled, this.petLeftArmDisabled)
     return animator
   }
 

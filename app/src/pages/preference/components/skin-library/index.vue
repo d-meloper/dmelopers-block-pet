@@ -6,6 +6,7 @@ import { Button, Flex, message, Modal, Tag } from 'ant-design-vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import type { RecoveryReport } from '@/features/recovery/types'
 import type {
   LocalSkinFileResponse,
   SkinLibraryEntry,
@@ -19,11 +20,14 @@ import type { SkinLibrarySelectionState } from '@/utils/skinLibrarySelection'
 import type { NormalizedVoxelSkin } from '@/utils/three3d/voxelSkin'
 
 import FileDropSurface from '@/components/file-drop-surface/index.vue'
+import RecoveryFeedback from '@/components/recovery-feedback/index.vue'
 import { getSkinSelectionId } from '@/config/skinIdentity'
 import { onPresetSelectionChange } from '@/features/presets/editIntent'
 import { beginPresetNativeEdit } from '@/features/presets/operations'
+import { RecoveryWaitError, waitForRecovery } from '@/features/recovery/wait'
 import { editorsLocked } from '@/features/stateSafety/bridge'
 import { reportDiagnostic } from '@/services/diagnostics'
+import { diagnosticCode } from '@/services/diagnosticsCore'
 import { BUILTIN_DMELOPER_SKIN, resolveDefaultDmeloperColors, resolveDmeloperSkinThumbnailUrl } from '@/services/dmeloperSkin'
 import {
   createMinecraftSkinBlob,
@@ -82,6 +86,13 @@ type ImportFailureReason = 'pngOnly' | 'invalidPng' | 'dimensions' | 'tooLarge' 
 const lastImportFailure = ref<ImportFailureReason>()
 const applying = ref(false)
 const loadError = ref(false)
+const loadRecovery = ref<RecoveryReport>()
+const cleanupRecovery = ref<RecoveryReport>()
+const importRecovery = ref<RecoveryReport>()
+const previewRecovery = ref<RecoveryReport>()
+const recoveryLifetime = new AbortController()
+let loadRead: Promise<SkinLibraryEntry[]> | undefined
+let previewRead: Promise<string> | undefined
 const cleanupPending = ref(false)
 const cleaningUp = ref(false)
 const cleanupRequestGate = new LatestRequestGate()
@@ -106,6 +117,15 @@ function setImportFailure(reason?: ImportFailureReason) {
   if (importFailureTimer !== undefined) clearTimeout(importFailureTimer)
   importFailureTimer = undefined
   lastImportFailure.value = reason
+  importRecovery.value = reason
+    ? {
+        status: 'unresolved',
+        summaryKey: 'recovery.summary.skinImportFailed',
+        cause: reason,
+        steps: [{ key: 'recovery.steps.importSkins', state: 'failed' }],
+        guidanceKeys: [reason === 'storage' ? 'recovery.guidance.checkStorage' : 'recovery.guidance.checkSkinFile', 'recovery.guidance.preserveData', ...(reason === 'unknown' ? ['recovery.guidance.lastResort'] : [])],
+      }
+    : undefined
   if (!mounted || !reason) return
   const generation = importFailureGeneration
   importFailureTimer = setTimeout(() => {
@@ -389,11 +409,27 @@ function goBack() {
 }
 
 async function loadEntries(selectActive = false) {
+  if (!mounted) return
   const generation = loadRequestGate.begin()
+  const reporting = loadError.value || !!loadRecovery.value
+  if (reporting) loadRecovery.value = { status: 'running', steps: [{ key: 'recovery.steps.loadSkins', state: 'running' }] }
   loadError.value = false
   loading.value = true
   try {
-    const loadedEntries = await listSkinLibraryEntries()
+    const deadline = Date.now() + 8000
+    // A retired wait does not cancel IPC. Drain the actual old read before
+    // requesting a fresh catalog, so a retry cannot race that request.
+    if (loadRead) await waitForRecovery(loadRead.catch(() => {}), 8000, recoveryLifetime.signal)
+    if (!mounted || !loadRequestGate.isCurrent(generation)) return
+    if (Date.now() >= deadline) throw new RecoveryWaitError('timeout')
+    const read = Promise.resolve().then(() => listSkinLibraryEntries())
+    loadRead = read
+    void read.then(() => {
+      if (loadRead === read) loadRead = undefined
+    }, () => {
+      if (loadRead === read) loadRead = undefined
+    })
+    const loadedEntries = await waitForRecovery(read, deadline - Date.now(), recoveryLifetime.signal)
     if (!loadRequestGate.isCurrent(generation)) return
     entries.value = loadedEntries
     const availableIds = new Set([BUILTIN_DMELOPER_SKIN.id, ...entries.value.map(entry => entry.id)])
@@ -405,27 +441,68 @@ async function loadEntries(selectActive = false) {
         [...availableIds],
       )
     }
+    if (reporting) {
+      loadRecovery.value = {
+        status: 'recovered',
+        summaryKey: 'recovery.summary.skinLibraryReady',
+        steps: [{ key: 'recovery.steps.loadSkins', state: 'passed' }],
+      }
+    }
   } catch (error) {
     if (!loadRequestGate.isCurrent(generation)) return
     reportDiagnostic('error', 'skin_library.load', error)
     entries.value = []
     selection.value = createSkinLibrarySelectionState(defaultActive.value ? BUILTIN_DMELOPER_SKIN.id : undefined)
     loadError.value = true
+    const cause = diagnosticCode(error)
+    loadRecovery.value = {
+      status: cause === 'timeout' ? 'unknown' : 'unresolved',
+      summaryKey: `recovery.summary.${cause === 'timeout' ? 'dataWaitUnknown' : 'dataRecoveryFailed'}`,
+      cause,
+      steps: [{ key: 'recovery.steps.loadSkins', state: cause === 'timeout' ? 'skipped' : 'failed' }],
+      guidanceKeys: [cause === 'timeout' ? 'recovery.guidance.waitForOperation' : 'recovery.guidance.checkStorage', 'recovery.guidance.preserveData', 'recovery.guidance.retryDataRead', ...(['timeout', 'unclassified_failure', 'unreadable_error'].includes(cause) ? ['recovery.guidance.lastResort'] : [])],
+    }
   } finally {
     if (loadRequestGate.isCurrent(generation)) loading.value = false
   }
 }
 
 async function loadDefaultThumbnail() {
+  if (!mounted) return
   const generation = thumbnailRequestGate.begin()
+  const reporting = defaultThumbnailError.value || !!previewRecovery.value
   defaultThumbnailError.value = false
   try {
-    const url = await resolveDmeloperSkinThumbnailUrl()
-    if (thumbnailRequestGate.isCurrent(generation)) defaultThumbnailUrl.value = url
+    previewRead ??= Promise.resolve().then(() => resolveDmeloperSkinThumbnailUrl())
+    const read = previewRead
+    void read.then(() => {
+      if (previewRead === read) previewRead = undefined
+    }, () => {
+      if (previewRead === read) previewRead = undefined
+    })
+    const url = await waitForRecovery(read, 8000, recoveryLifetime.signal)
+    if (thumbnailRequestGate.isCurrent(generation)) {
+      defaultThumbnailUrl.value = url
+      if (reporting) {
+        previewRecovery.value = {
+          status: 'recovered',
+          summaryKey: 'recovery.summary.skinPreviewReady',
+          steps: [{ key: 'recovery.steps.skinPreview', state: 'passed' }],
+        }
+      }
+    }
   } catch (error) {
     if (thumbnailRequestGate.isCurrent(generation)) {
       reportDiagnostic('warn', 'skin_library.default_thumbnail', error)
       defaultThumbnailError.value = true
+      const cause = diagnosticCode(error)
+      previewRecovery.value = {
+        status: cause === 'timeout' ? 'unknown' : 'unresolved',
+        cause,
+        summaryKey: 'recovery.summary.dataRecoveryFailed',
+        steps: [{ key: 'recovery.steps.skinPreview', state: cause === 'timeout' ? 'skipped' : 'failed' }],
+        guidanceKeys: ['recovery.guidance.retryDataRead', 'recovery.guidance.preserveData', 'recovery.guidance.lastResort'],
+      }
     }
   }
 }
@@ -628,17 +705,50 @@ function onFileInputChange(event: Event) {
 async function cleanupLibraryFiles() {
   if (!mounted || cleaningUp.value || busy.value || applying.value) return
   const generation = cleanupRequestGate.begin()
+  const reporting = cleanupPending.value || !!cleanupRecovery.value
+  const current = () => mounted && cleanupRequestGate.isCurrent(generation)
   cleaningUp.value = true
-  try {
-    const response = await cleanupSkinLibrary()
-    if (cleanupRequestGate.isCurrent(generation)) cleanupPending.value = response.cleanupPending
-  } catch (error) {
-    if (cleanupRequestGate.isCurrent(generation)) {
-      cleanupPending.value = true
-      reportDiagnostic('warn', 'skin_library.cleanup', error)
+  if (reporting) cleanupRecovery.value = { status: 'running', steps: [{ key: 'recovery.steps.cleanupSkins', state: 'running' }] }
+  const operation = Promise.resolve().then(() => cleanupSkinLibrary())
+  void operation.then((response) => {
+    if (!current()) return
+    cleanupPending.value = response.cleanupPending
+    if (reporting || response.cleanupPending || cleanupRecovery.value) {
+      cleanupRecovery.value = {
+        status: response.cleanupPending ? 'unresolved' : 'recovered',
+        summaryKey: `recovery.summary.${response.cleanupPending ? 'skinCleanupPending' : 'skinCleanupComplete'}`,
+        steps: [{ key: 'recovery.steps.cleanupSkins', state: response.cleanupPending ? 'failed' : 'passed' }],
+        ...(response.cleanupPending ? { guidanceKeys: ['recovery.guidance.checkStorage', 'recovery.guidance.preserveData', 'recovery.guidance.lastResort'] } : {}),
+      }
     }
-  } finally {
-    if (cleanupRequestGate.isCurrent(generation)) cleaningUp.value = false
+    cleaningUp.value = false
+  }, (error) => {
+    if (!current()) return
+    cleanupPending.value = true
+    const cause = diagnosticCode(error)
+    reportDiagnostic('warn', 'skin_library.cleanup', error)
+    cleanupRecovery.value = {
+      status: 'unresolved',
+      cause,
+      summaryKey: 'recovery.summary.skinCleanupPending',
+      steps: [{ key: 'recovery.steps.cleanupSkins', state: 'failed' }],
+      guidanceKeys: ['recovery.guidance.checkStorage', 'recovery.guidance.preserveData', ...(['unclassified_failure', 'unreadable_error'].includes(cause) ? ['recovery.guidance.lastResort'] : [])],
+    }
+    cleaningUp.value = false
+  })
+  try {
+    await waitForRecovery(operation, 8000, recoveryLifetime.signal)
+  } catch (error) {
+    if (current() && cleaningUp.value) {
+      cleanupPending.value = true
+      cleanupRecovery.value = {
+        status: 'unknown',
+        cause: diagnosticCode(error),
+        summaryKey: 'recovery.summary.dataWaitUnknown',
+        steps: [{ key: 'recovery.steps.cleanupSkins', state: 'running' }],
+        guidanceKeys: ['recovery.guidance.waitForOperation', 'recovery.guidance.preserveData', 'recovery.guidance.lastResort'],
+      }
+    }
   }
 }
 
@@ -835,6 +945,7 @@ const stopPresetSelectionListener = onPresetSelectionChange(() => {
 onBeforeUnmount(stopPresetSelectionListener)
 onBeforeUnmount(() => {
   mounted = false
+  recoveryLifetime.abort()
   setImportFailure()
   cancelSkinApplication()
   dropActive.value = false
@@ -901,6 +1012,10 @@ onBeforeUnmount(() => {
 
     <div class="skin-library-viewport relative min-h-0 flex-1 overflow-hidden">
       <main class="h-full min-h-0 overflow-auto p-5">
+        <RecoveryFeedback :report="importRecovery" />
+        <RecoveryFeedback :report="loadRecovery" />
+        <RecoveryFeedback :report="cleanupRecovery" />
+        <RecoveryFeedback :report="previewRecovery" />
         <p
           v-if="lastImportFailure"
           class="mb-5 mt-0 text-sm text-danger"

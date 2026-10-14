@@ -32,8 +32,14 @@ import type { ApplyMainViewportGeometryInput, WindowState } from './useWindowSta
 const require = createRequire(import.meta.url)
 const mainPageSource = readFileSync(new URL('../pages/main/index.vue', import.meta.url), 'utf8')
 const renderMainPage = compile(mainPageSource.split('<template>')[1].split('</template>')[0])
+const appSource = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+const renderApp = compile(appSource.split('<template>')[1].split('</template>')[0])
 const source = readFileSync(new URL('./useWindowState.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source.replace(/import\.meta\.hot/g, '__hot'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText
+const petModelAssetSource = readFileSync(new URL('../services/petModelAsset.ts', import.meta.url), 'utf8')
+const compiledPetModelAsset = ts.transpileModule(petModelAssetSource.replace(/import\.meta\.env/g, '({ DEV: false })'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText
 
@@ -53,12 +59,16 @@ interface SharedNativeWindow {
   writes: Array<{ owner: string, width: number, height: number }>
 }
 
+type NativeGeometryOperation = 'availableMonitors' | 'outerPosition' | 'scaleFactor' | 'setSize' | 'outerSize' | 'setPosition' | 'innerSize'
+
 function createNativeHarness(options: {
   shared?: SharedNativeWindow
   owner?: string
   registration?: Promise<void>
   label?: string
   scaleFactor?: number
+  failAt?: { operation: NativeGeometryOperation, call?: number }
+  pauseAt?: { operation: NativeGeometryOperation, call?: number, promise: Promise<void> }
   monitors?: Array<{
     position: { x: number, y: number }
     size: { width: number, height: number }
@@ -67,6 +77,18 @@ function createNativeHarness(options: {
   }>
 } = {}) {
   const calls: string[] = []
+  const geometryCalls: NativeGeometryOperation[] = []
+  const errors: unknown[][] = []
+  const geometryOperation = async (operation: NativeGeometryOperation) => {
+    geometryCalls.push(operation)
+    const call = geometryCalls.filter(item => item === operation).length
+    if (options.pauseAt?.operation === operation && (options.pauseAt.call ?? 1) === call) {
+      await options.pauseAt.promise
+    }
+    if (options.failAt?.operation === operation && (options.failAt.call ?? 1) === call) {
+      throw new Error(`INJECTED_GEOMETRY_FAILURE_${operation}`)
+    }
+  }
   const mounted: Array<() => void> = []
   const disposed: Array<() => void> = []
   const hotDisposed: Array<() => void> = []
@@ -89,16 +111,25 @@ function createNativeHarness(options: {
     label: options.label ?? 'main',
     isMinimized: async () => false,
     scaleFactor: async () => {
+      await geometryOperation('scaleFactor')
       await pauses.read
       return options.scaleFactor ?? 1
     },
-    outerPosition: async () => ({ x: 20, y: 30 }),
-    outerSize: async () => ({ ...options.shared?.size ?? { width: 200, height: 200 } }),
+    outerPosition: async () => {
+      await geometryOperation('outerPosition')
+      return { x: 20, y: 30 }
+    },
+    outerSize: async () => {
+      await geometryOperation('outerSize')
+      return { ...options.shared?.size ?? { width: 200, height: 200 } }
+    },
     innerSize: async () => {
+      await geometryOperation('innerSize')
       await pauses.sizeRead
       return { ...options.shared?.size ?? { width: 200, height: 200 } }
     },
     setSize: async (size: { width: number, height: number }) => {
+      await geometryOperation('setSize')
       calls.push('size')
       if (options.shared) {
         options.shared.size = { width: size.width, height: size.height }
@@ -107,6 +138,7 @@ function createNativeHarness(options: {
       await pauses.size
     },
     setPosition: async () => {
+      await geometryOperation('setPosition')
       calls.push('position')
       await pauses.position
     },
@@ -116,7 +148,10 @@ function createNativeHarness(options: {
   }
   const mocks: Record<string, unknown> = {
     '@tauri-apps/api/webviewWindow': { getCurrentWebviewWindow: () => appWindow },
-    '@tauri-apps/api/window': { availableMonitors: async () => options.monitors ?? [] },
+    '@tauri-apps/api/window': { availableMonitors: async () => {
+      await geometryOperation('availableMonitors')
+      return options.monitors ?? []
+    } },
     '@vueuse/core': {
       useDebounceFn: (callback: (...args: unknown[]) => Promise<void>) => (...args: unknown[]) => {
         timers.push(() => callback(...args))
@@ -135,7 +170,7 @@ function createNativeHarness(options: {
   runInNewContext(compiled, {
     exports,
     require: (id: string) => mocks[id] ?? require(id),
-    console,
+    console: { ...console, error: (...args: unknown[]) => errors.push(args) },
     setTimeout,
     clearTimeout,
     __hot: { dispose: (callback: () => void) => hotDisposed.push(callback) },
@@ -148,12 +183,116 @@ function createNativeHarness(options: {
     virtualSize: { width: 400, height: 400 },
     windowScalePercent: 100,
   }
-  return { api: exports, appStore, calls, input, listeners, pauses, timers, released, lifecycle, dispose: () => disposed.forEach(callback => callback()), hotDispose: () => hotDisposed.forEach(callback => callback()) }
+  return { api: exports, appStore, calls, geometryCalls, errors, input, listeners, pauses, timers, released, lifecycle, dispose: () => disposed.forEach(callback => callback()), hotDispose: () => hotDisposed.forEach(callback => callback()) }
 }
 
 async function flushMicrotasks() {
   for (let index = 0; index < 30; index += 1) await Promise.resolve()
 }
+
+describe('preference first paint after optional geometry restoration', () => {
+  const monitor = {
+    position: { x: 0, y: 0 },
+    size: { width: 1920, height: 1080 },
+    scaleFactor: 1,
+    workArea: { position: { x: 0, y: 0 }, size: { width: 1920, height: 1080 } },
+  }
+  const stages: Array<{ operation: NativeGeometryOperation, call?: number }> = [
+    { operation: 'availableMonitors' },
+    { operation: 'availableMonitors', call: 2 },
+    { operation: 'outerPosition' },
+    { operation: 'outerPosition', call: 2 },
+    { operation: 'scaleFactor' },
+    { operation: 'setSize' },
+    { operation: 'outerSize' },
+    { operation: 'setPosition' },
+    { operation: 'setPosition', call: 2 },
+    { operation: 'innerSize' },
+  ]
+  const saved = { x: 130.5, y: 130.5, width: 800.25, height: 600.75, retainedField: 'unchanged' }
+
+  it('renders a fresh Preferences window after required monitor lookup rejects without creating saved geometry', async () => {
+    const shared: SharedNativeWindow = { size: { ...DEFAULT_PREFERENCE_SIZE }, listeners: new Set(), writes: [] }
+    const h = createNativeHarness({ label: 'preference', shared, failAt: { operation: 'availableMonitors' } })
+    try {
+      const before = Reflect.apply(renderApp, undefined, [{ isRestored: h.lifecycle.isRestored.value }, []]) as VNode
+      assert.equal(before.type, Symbol.for('v-cmt'))
+      await h.lifecycle.restoreState()
+      assert.equal(h.lifecycle.isRestored.value, true)
+      const after = Reflect.apply(renderApp, undefined, [{ isRestored: h.lifecycle.isRestored.value }, []]) as VNode
+      assert.equal(after.type, 'RouterView')
+      assert.deepEqual(h.appStore.windowState, {})
+      assert.deepEqual(shared.size, DEFAULT_PREFERENCE_SIZE)
+      assert.deepEqual(h.calls, [])
+      assert.equal(h.errors.length, 1)
+    } finally {
+      h.dispose()
+    }
+  })
+
+  for (const stage of stages) {
+    it(`renders the App route after ${stage.operation} call ${stage.call ?? 1} rejects, preserving saved geometry`, async () => {
+      const h = createNativeHarness({ label: 'preference', monitors: stage.operation === 'scaleFactor' ? [] : [monitor], failAt: stage })
+      h.appStore.windowState.preference = { ...saved }
+      try {
+        const before = Reflect.apply(renderApp, undefined, [{ isRestored: h.lifecycle.isRestored.value }, []]) as VNode
+        assert.equal(before.type, Symbol.for('v-cmt'))
+        await h.lifecycle.restoreState()
+        assert.equal(h.lifecycle.isRestored.value, true)
+        const after = Reflect.apply(renderApp, undefined, [{ isRestored: h.lifecycle.isRestored.value }, []]) as VNode
+        assert.equal(after.type, 'RouterView')
+        assert.deepEqual(h.appStore.windowState.preference, saved)
+        assert.equal(h.errors.length, 1)
+        assert.equal(h.errors[0][0], 'Failed to restore the initial preference window.')
+        assert.equal(h.geometryCalls.filter(item => item === stage.operation).length, stage.call ?? 1, 'no geometry retry')
+      } finally {
+        h.dispose()
+      }
+    })
+
+    it(`keeps a retired owner inert after ${stage.operation} call ${stage.call ?? 1} completes`, async () => {
+      for (const rejects of [false, true]) {
+        const pending = deferred()
+        const h = createNativeHarness({
+          label: 'preference',
+          monitors: stage.operation === 'scaleFactor' ? [] : [monitor],
+          pauseAt: { ...stage, promise: pending.promise },
+          ...(rejects ? { failAt: stage } : {}),
+        })
+        h.appStore.windowState.preference = { ...saved }
+        const restoring = h.lifecycle.restoreState()
+        await flushMicrotasks()
+        await flushMicrotasks()
+        assert.equal(h.geometryCalls.filter(item => item === stage.operation).length, stage.call ?? 1, 'the selected native call is pending')
+        h.dispose()
+        const issued = [...h.geometryCalls]
+        pending.resolve()
+        await restoring
+        assert.equal(h.lifecycle.isRestored.value, false)
+        assert.deepEqual(h.appStore.windowState.preference, saved)
+        assert.deepEqual(h.geometryCalls, issued, 'no native work after disposal')
+        assert.deepEqual(h.errors, [], 'retired failures stay silent')
+      }
+    })
+  }
+
+  it('preserves successful physical readback, unknown fields and other window state', async () => {
+    const shared: SharedNativeWindow = { size: { width: 911, height: 692 }, listeners: new Set(), writes: [] }
+    const h = createNativeHarness({ label: 'preference', monitors: [monitor], shared })
+    h.appStore.windowState.preference = { ...saved }
+    h.appStore.windowState.main = { x: 77, y: 88, width: 500, height: 422 }
+    try {
+      await h.lifecycle.restoreState()
+      assert.equal(h.lifecycle.isRestored.value, true)
+      assert.deepEqual(h.appStore.windowState.preference, { ...saved, x: 20, y: 30 })
+      assert.deepEqual(shared.size, { width: saved.width, height: saved.height })
+      assert.deepEqual(h.appStore.windowState.main, { x: 77, y: 88, width: 500, height: 422 })
+      assert.deepEqual(h.errors, [])
+    } finally {
+      h.dispose()
+    }
+  })
+})
 
 describe('preference default geometry', () => {
   it('restores unusable saved sizes to defaults instead of reopening a zero client area', async () => {
@@ -509,7 +648,10 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
   const events: Record<string, (event: { payload: unknown }) => void> = {}
   const unmounted: Array<() => void> = []
   const domEvents: Record<string, Array<(event: Pick<MouseEvent, 'type' | 'button' | 'buttons'>) => void>> = {}
-  const general = { broadcast: { enabled: false, showOnDesktop: true } }
+  const general = {
+    app: { foregroundHiding: { enabled: false, applications: [] } },
+    broadcast: { enabled: false, showOnDesktop: true },
+  }
   let previewError = false
   let viewportWatch: (() => void) | undefined
   let now = 0
@@ -871,6 +1013,12 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
     resetForTest: undefined as undefined | (() => Promise<boolean>),
     hologramForTest: undefined as undefined | (() => boolean),
     dragForTest: undefined as undefined | ((event: { button: number }) => Promise<void>),
+  }
+  if (options.allowInitialize) {
+    // The extracted helper must share this VM's existing native asset controls.
+    const assetExports = {} as typeof import('../services/petModelAsset')
+    runInNewContext(compiledPetModelAsset, { ...context, exports: assetExports })
+    mocks['@/services/petModelAsset'] = assetExports
   }
   if (options.loadingPaint) {
     const paintExports = {}

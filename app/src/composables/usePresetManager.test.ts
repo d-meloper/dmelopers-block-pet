@@ -5,8 +5,10 @@ import type { _DeepPartial } from 'pinia'
 import { Window } from '@tauri-apps/api/window'
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
-import { readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
@@ -21,18 +23,21 @@ import type { PresetApplyRequest, PresetSnapshot } from '@/features/presets/type
 import type { PresetImportJournal, PresetImportPrevious } from '@/services/presetTransfer'
 import type { SkinLibraryStoreRequest } from '@/services/skinLibrary'
 
+import { builtinPresets } from '@/features/presets/builtin'
 import { presetSettings, presetSourceKey, projectPresetSettings } from '@/features/presets/compatibility'
 import * as editIntent from '@/features/presets/editIntent'
 import { markPresetUserEdit } from '@/features/presets/editIntent'
 import * as editRequests from '@/features/presets/editRequests'
+import { historicalCurrentSettings, historicalFixtures } from '@/features/presets/fixtures/historicalFixtures'
 import * as presetModel from '@/features/presets/model'
 import { applyPresetSnapshot, clonePreset } from '@/features/presets/model'
 import * as presetOperations from '@/features/presets/operations'
 import { withPresetReset } from '@/features/presets/operations'
-import { preparePresetSkin } from '@/features/presets/skin'
+import { preparePresetSkin, restorePresetSkin } from '@/features/presets/skin'
 import { installPresetSkinBrowser } from '@/features/presets/skin.test.utils'
 import { PresetTransferError } from '@/features/presets/transfer'
 import { PRESET_APPLY_REQUEST, PRESET_APPLY_RESPONSE } from '@/features/presets/types'
+import * as armControlOrder from '@/features/scene/armControlOrder'
 import { editorsLocked, initializePetForStartup, registerPresetFlush, stateOwners } from '@/features/stateSafety/bridge'
 import { createQuiescenceOwner } from '@/features/stateSafety/quiescence'
 import { getRequiredPetAssetMutation } from '@/pages/main/petAssetSelection'
@@ -73,6 +78,7 @@ for (const mode of ['selection', 'analysis'] as const) {
       module,
       exports: module.exports,
       fetch: async () => ({ ok: true, blob: async () => new Blob() }),
+      AbortController,
       require: (id: string) => {
         if (id === 'vue') return { ...vue, onMounted: () => {}, onBeforeUnmount: (callback: () => void) => unmounts.push(callback) }
         if (id === 'vue-i18n') return { useI18n: () => ({ t: (key: string) => key }) }
@@ -81,7 +87,7 @@ for (const mode of ['selection', 'analysis'] as const) {
         if (id === '@/features/stateSafety/bridge') return { editorsLocked }
         if (id === '@/services/petSkinChange') return { beginPetSkinChange: () => ({ ready: Promise.resolve(), finish: async () => {} }) }
         if (id === '@/stores/block') return { ...require(fileURLToPath(new URL('../stores/block.ts', import.meta.url))), useBlockStore: () => h.store }
-        if (id.startsWith('@/components/')) return {}
+        if (id.startsWith('@/components/') || (id.startsWith('./') && id.endsWith('.vue'))) return {}
         if (id === '@/utils/three3d/voxelSkin') {
           return { decodeVoxelSkin: async () => {
             if (holdAnalysis) await palm
@@ -255,6 +261,7 @@ function userEntries(manager: PresetManager) {
 }
 
 const DEFAULT_PRESET_ID = 'default'
+const BUNDLED_SCENE_COUNT = builtinPresets(key => key).length
 function savedCatalog(snapshot: PresetSnapshot = presetModel.createDefaultPresetSnapshot(), name = 'initialName') {
   return {
     ...presetModel.createPresetCollection(),
@@ -274,10 +281,13 @@ async function harness(
   subscriptionFailures: { response?: number, close?: number } = {},
   freshInstall = false,
   runtimeGlobals: Record<string, unknown> = {},
+  skinRestorer?: typeof restorePresetSkin,
 ) {
   setActivePinia(createPinia())
   const store = useBlockStore()
   const general = useGeneralStore()
+  const foregroundHidingSuppressed = vue.ref(false)
+  let manualShows = 0
   if (initialState) store.$patch(clonePreset(initialState) as _DeepPartial<typeof store.$state>)
   // Most cases explicitly seed two user presets; fresh-install cases stay empty.
   const seededCatalog = !initialState && !freshInstall
@@ -350,6 +360,11 @@ async function harness(
     ...runtimeGlobals,
     require: (id: string) => {
       if (id === '@/services/diagnostics') return { reportDiagnostic: (level: string, operation: string) => diagnostics.push({ level, operation }) }
+      if (id === '@/services/foregroundHiding') {
+        return { foregroundHidingSuppressed, showForegroundHidingVisit: async () => {
+          manualShows++
+        } }
+      }
       if (id === 'vue') return { ...vue, onMounted: (callback: () => Promise<void>) => mounted.push(callback), onBeforeUnmount: (callback: () => void) => unmounted.push(callback) }
       if (id === 'vue-i18n') return { useI18n: () => ({ t: (key: string) => key.split('.').at(-1) }) }
       if (id === '@tauri-apps/api/event') {
@@ -416,13 +431,14 @@ async function harness(
       if (id === '@/features/presets/model') return presetModel
       if (id === '@/features/presets/editIntent') return editIntent
       if (id === '@/features/presets/editRequests') return editRequests
+      if (id === '@/features/scene/armControlOrder') return armControlOrder
       if (id === '@/features/presets/operations') return presetOperations
       if (id === '@/features/presets/skin') {
         return {
           preparePresetSkin: skinPreparer ?? prepare,
-          restorePresetSkin: async (snapshot: PresetSnapshot) => {
+          restorePresetSkin: async (...args: Parameters<typeof restorePresetSkin>) => {
             restoredSkins++
-            return (skinPreparer ?? prepare)(snapshot)
+            return skinRestorer ? skinRestorer(...args) : (skinPreparer ?? prepare)(args[0])
           },
         }
       }
@@ -547,6 +563,8 @@ async function harness(
     store,
     general,
     generalSaves,
+    foregroundHidingSuppressed,
+    manualShows: () => manualShows,
     manager,
     saves,
     diagnostics,
@@ -623,6 +641,31 @@ async function harness(
   }
 }
 
+it('manual visibility intent bypasses automatic hiding without saving its transient mask', async () => {
+  const h = await harness()
+  try {
+    h.store.window.visible = true
+    const before = clonePreset(h.store.presetCollection)
+    h.foregroundHidingSuppressed.value = true
+    h.emitEdit({ toggleVisibility: true })
+    assert.equal(h.store.window.visible, true)
+    assert.equal(h.manualShows(), 1)
+    assert.deepEqual(h.store.presetCollection, before)
+    h.foregroundHidingSuppressed.value = false
+    h.emitEdit({ toggleVisibility: true })
+    assert.equal(h.store.window.visible, false)
+    assert.equal(h.manualShows(), 1)
+    h.emitEdit({ visible: true })
+    assert.equal(h.store.window.visible, true)
+    assert.equal(h.manualShows(), 2)
+    assert.equal(await h.manager.retry(), true)
+    assert.equal((h.saves.at(-1) as typeof h.store.$state).window.visible, true)
+    assert.equal('foregroundHidingSuppressed' in (h.saves.at(-1) as object), false)
+  } finally {
+    h.dispose()
+  }
+})
+
 async function waitFor(predicate: () => boolean) {
   const deadline = Date.now() + 5000
   while (!predicate() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10))
@@ -630,6 +673,38 @@ async function waitFor(predicate: () => boolean) {
 }
 
 describe('live preset manager', () => {
+  it('applies retained PNG choices when the optional skin library is unavailable without changing the saved source', async () => {
+    const browser = installPresetSkinBrowser()
+    const h = await harness(undefined, preparePresetSkin, undefined, undefined, {}, false, {}, restorePresetSkin)
+    try {
+      const target = h.store.presetCollection!.entries.find(entry => entry.id === 'initial')!
+      target.snapshot.appearance.dmeloperSkinDataUrl = browser.dataUrl
+      target.snapshot.appearance.activeSkinLibraryEntryId = 'a'.repeat(64)
+      target.snapshot.appearance.minecraftSkinUsername = 'Retained_Name'
+      target.snapshot.preset.dmeloperPalmColor = '#123456'
+      target.snapshot.preset.dmeloperEyebrows.color = '#abcdef'
+      target.snapshot.preset.mouseEnabled = false
+      const source = clonePreset(h.store.presetCollection!)
+      browser.failCatalog(true)
+      assert.equal(await h.manager.activate('initial'), true)
+      assert.deepEqual(h.store.presetCollection, source, 'application must preserve the retained asset and ordered catalog')
+      assert.equal(h.store.customization3d.dmeloperSkinDataUrl, browser.dataUrl)
+      assert.equal(h.store.customization3d.activeSkinLibraryEntryId, 'a'.repeat(64))
+      assert.equal(h.store.activePet3dPreset.dmeloperPalmColor, '#123456')
+      assert.equal(h.store.activePet3dPreset.dmeloperEyebrows.color, '#abcdef')
+      assert.equal(h.store.activePet3dPreset.mouseEnabled, false)
+      assert.equal(h.manager.skinLibraryWarning.value?.name, target.name)
+      assert.equal(h.manager.skinLibraryWarning.value?.code, 'IO_ERROR')
+      assert.equal(h.manager.status.value, 'saved')
+      assert.equal(h.manager.ready.value, true)
+      const saved = h.saves.at(-1) as ReturnType<typeof useBlockStore>['$state']
+      assert.deepEqual(saved.presetCollection, source)
+      assert.equal(saved.customization3d.dmeloperSkinDataUrl, browser.dataUrl)
+    } finally {
+      h.dispose()
+      browser.restore()
+    }
+  })
   it('restores missing skin-library content only when an explicit preset apply is accepted', async () => {
     const h = await harness()
     try {
@@ -651,7 +726,7 @@ describe('live preset manager', () => {
     let h = await harness(undefined, undefined, undefined, undefined, undefined, true)
     try {
       const scenes = clonePreset(h.manager.entries.value)
-      const source = scenes[2]
+      const source = scenes.find(entry => entry.id === 'builtin:preset:front')!
       assert.equal(source.origin, 'builtin')
       assert.equal(await h.manager.rename(source.id, 'Renamed'), false)
       assert.equal(await h.manager.remove(source.id), false)
@@ -679,14 +754,62 @@ describe('live preset manager', () => {
       const saved = clonePreset(h.saves.at(-1)) as ReturnType<typeof useBlockStore>['$state']
       h.dispose()
       h = await harness(saved)
-      assert.equal(h.manager.entries.value.length, 5)
+      assert.equal(h.manager.entries.value.length, BUNDLED_SCENE_COUNT + 1)
       assert.deepEqual(clonePreset(h.manager.entries.value.filter(entry => entry.origin === 'builtin')), scenes)
       assert.equal(await h.manager.remove(copy.id), true)
-      assert.equal(h.manager.entries.value.length, 4)
+      assert.equal(h.manager.entries.value.length, BUNDLED_SCENE_COUNT)
     } finally {
       h.dispose()
     }
   })
+
+  for (const builtinId of ['builtin:preset:headbutt', 'builtin:preset:torsoHeadbutt']) {
+    it(`preserves ${builtinId} through custom save, restart, image sharing and reset`, async () => {
+      const browser = installPresetSkinBrowser()
+      let h = await harness(undefined, preparePresetSkin, undefined, undefined, {}, true, {}, restorePresetSkin)
+      try {
+        const source = clonePreset(h.manager.entries.value.find(entry => entry.id === builtinId)!)
+        const expected = await preparePresetSkin(source.snapshot)
+        assert.equal(await h.manager.activate(builtinId), true)
+        assert.deepEqual(presetModel.capturePresetSnapshot(h.store), expected)
+        assert.deepEqual(h.store.presetCollection?.entries, [])
+        assert.equal(await h.manager.create(`${source.name} copy`), true)
+        const custom = clonePreset(userEntries(h.manager)[0])
+        assert.equal(custom.origin, 'user')
+        assert.ok(!custom.id.startsWith('builtin:'))
+        assert.deepEqual(custom.snapshot, expected)
+        assert.equal(h.store.presetCollection?.entries.length, 1)
+        assert.equal(await h.manager.exportPreset(custom.id, 'image'), 'saved')
+        assert.deepEqual(h.transfer.exports.at(-1)?.snapshot, expected)
+        assert.deepEqual(h.transfer.written.at(-1)?.settings, presetSettings(expected))
+
+        const saved = clonePreset(h.saves.at(-1)) as ReturnType<typeof useBlockStore>['$state']
+        h.dispose()
+        h = await harness(saved, preparePresetSkin, undefined, undefined, {}, false, {}, restorePresetSkin)
+        assert.deepEqual(clonePreset(userEntries(h.manager)[0].snapshot), expected)
+        assert.equal(await h.manager.activate('builtin:preset:default'), true)
+        assert.equal(await h.manager.activate(custom.id), true)
+        assert.deepEqual(presetModel.capturePresetSnapshot(h.store), expected)
+
+        const catalog = clonePreset(h.store.presetCollection)
+        await withPresetReset(async () => h.store.resetAllSettings())
+        await vue.nextTick()
+        assert.deepEqual(h.store.presetCollection, catalog)
+        assert.equal(await h.manager.activate(builtinId), true)
+        assert.deepEqual(presetModel.capturePresetSnapshot(h.store), expected)
+        await withPresetReset(async () => h.store.resetAllSettings({ deleteSkins: false, resetPresets: true }))
+        await vue.nextTick()
+        assert.deepEqual(h.store.presetCollection?.entries, [])
+        assert.equal(h.manager.entries.value.length, BUNDLED_SCENE_COUNT)
+        assert.deepEqual(clonePreset(h.manager.entries.value.find(entry => entry.id === builtinId)), source)
+        assert.equal(await h.manager.activate(builtinId), true)
+        assert.deepEqual(presetModel.capturePresetSnapshot(h.store), expected)
+      } finally {
+        h.dispose()
+        browser.restore()
+      }
+    })
+  }
 
   it('preserves user snapshots, ordering and favorites through a settings-only reset', async () => {
     const h = await harness()
@@ -736,7 +859,7 @@ describe('live preset manager', () => {
         // eslint-disable-next-line no-extend-native
         Array.prototype.find = originalFind
       }
-      assert.equal(Object.keys(pending).length, count + 4)
+      assert.equal(Object.keys(pending).length, count + BUNDLED_SCENE_COUNT)
       assert.ok(Object.values(pending).every(value => value === 'thumbnail'))
       t.diagnostic(`saved-card array scan comparisons for ${count} cards: ${comparisons}`)
       assert.ok(comparisons <= count * 2, 'each card must not rescan the whole saved catalog')
@@ -759,7 +882,7 @@ describe('live preset manager', () => {
         assert.equal(await h.manager.remove(id), true)
         assert.equal(h.manager.thumbnailErrors.value[id], undefined)
       }
-      assert.equal(Object.keys(h.manager.thumbnailErrors.value).length, 4, 'bundled previews remain after every user entry is removed')
+      assert.equal(Object.keys(h.manager.thumbnailErrors.value).length, BUNDLED_SCENE_COUNT, 'bundled previews remain after every user entry is removed')
     } finally {
       h.dispose()
     }
@@ -815,13 +938,13 @@ describe('live preset manager', () => {
         snapshotStrings = 0
         h.failThumbnail(fails)
         h.manager.setListVisible(true)
-        await waitFor(() => Object.keys(fails ? h.manager.thumbnailErrors.value : h.manager.thumbnails.value).length === count + 4)
+        await waitFor(() => Object.keys(fails ? h.manager.thumbnailErrors.value : h.manager.thumbnails.value).length === count + BUNDLED_SCENE_COUNT)
         assert.equal(h.manager.entries.value, entries, 'thumbnail cache completions must not invalidate the catalog index')
-        t.diagnostic(`completed ${count + 4} previews: ${comparisons} scan comparisons, ${indexBuilds} index builds, ${indexRows} indexed rows, ${snapshotStrings} key serializations`)
-        assert.ok(comparisons + indexRows <= (count + 4) * 2, 'completed previews must not rescan or rebuild the entire catalog for each result')
+        t.diagnostic(`completed ${count + BUNDLED_SCENE_COUNT} previews: ${comparisons} scan comparisons, ${indexBuilds} index builds, ${indexRows} indexed rows, ${snapshotStrings} key serializations`)
+        assert.ok(comparisons + indexRows <= (count + BUNDLED_SCENE_COUNT) * 2, 'completed previews must not rescan or rebuild the entire catalog for each result')
         assert.equal(indexBuilds, 1)
-        assert.equal(indexRows, count + 4)
-        assert.equal(snapshotStrings, (count + 4) * 3, 'indexing must preserve the existing snapshot validation work')
+        assert.equal(indexRows, count + BUNDLED_SCENE_COUNT)
+        assert.equal(snapshotStrings, (count + BUNDLED_SCENE_COUNT) * 3, 'indexing must preserve the existing snapshot validation work')
         assert.deepEqual(h.thumbnailBatches(), { total: 1, active: 0, maxActive: 1 })
       } finally {
         restoreFind()
@@ -847,7 +970,7 @@ describe('live preset manager', () => {
       assert.ok(h.manager.thumbnails.value[first.id], 'the index has already validated the first result')
       assert.equal(await h.manager.remove(second.id), true)
       release()
-      await waitFor(() => Object.keys(h.manager.thumbnails.value).length === 5)
+      await waitFor(() => Object.keys(h.manager.thumbnails.value).length === BUNDLED_SCENE_COUNT + 1)
       assert.equal(h.manager.thumbnails.value[second.id], undefined, 'a delayed result must consult the current catalog')
       assert.equal(h.manager.thumbnailErrors.value[second.id], undefined)
     } finally {
@@ -1146,13 +1269,13 @@ describe('live preset manager', () => {
     }
   })
 
-  it('starts a fresh installation with authored settings and four bundled scenes outside the user catalog', async () => {
+  it('starts a fresh installation with authored settings and bundled scenes outside the user catalog', async () => {
     const h = await harness(undefined, undefined, undefined, undefined, undefined, true)
     try {
       assert.equal(h.manager.ready.value, true)
       assert.equal(h.store.presetCollection?.activeId, null)
       assert.deepEqual(userEntries(h.manager), [])
-      assert.equal(h.manager.entries.value.length, 4)
+      assert.equal(h.manager.entries.value.length, BUNDLED_SCENE_COUNT)
       assert.ok(h.manager.entries.value.every(entry => entry.origin === 'builtin'))
       assert.deepEqual(h.store.presetCollection?.entries, [])
       assert.equal(h.store.activePet3dPreset.autoViewportPaddingPixels, 2)
@@ -1179,7 +1302,27 @@ describe('live preset manager', () => {
       assert.deepEqual(userEntries(h.manager), [])
       assert.equal(h.store.activePet3dPreset.autoViewportPaddingPixels, 12)
       assert.equal(h.store.window.visible, false)
+      armControlOrder.commitArmControlOrderRotation(0)
+      for (const value of [135, 180, 290, 0]) {
+        h.emitEdit({ key: 'sceneRotationOffsetDegrees', value })
+        assert.equal(armControlOrder.armControlOrderRotation.value, value, 'accepted menu rotation refreshes arm order')
+      }
+      h.store.activePet3dPreset.sceneRotationOffsetDegrees = -180
       h.emitEdit({ key: 'cameraZoomPercent', value: 150 })
+      assert.equal(armControlOrder.armControlOrderRotation.value, 0, 'live rotation and zoom do not commit arm order')
+      h.emitEdit({ key: 'sceneRotationOffsetDegrees', value: 136 })
+      assert.equal(armControlOrder.armControlOrderRotation.value, 0, 'unsupported menu rotation cannot change arm order')
+      editorsLocked.value = true
+      h.emitEdit({ key: 'sceneRotationOffsetDegrees', value: 180 })
+      editorsLocked.value = false
+      const releaseNative = presetOperations.beginPresetNativeEdit()
+      try {
+        h.emitEdit({ key: 'sceneRotationOffsetDegrees', value: 180 })
+        assert.equal(armControlOrder.armControlOrderRotation.value, 0, 'locked or busy requests cannot change arm order')
+        assert.equal(h.store.activePet3dPreset.sceneRotationOffsetDegrees, -180)
+      } finally {
+        releaseNative()
+      }
       h.store.updateDmeloperPalmColor('#123456')
       assert.equal(await h.manager.retry(), true)
       saved = h.saves.at(-1) as typeof saved
@@ -1257,6 +1400,7 @@ describe('live preset manager', () => {
       for (let index = 0; index < 8; index++) {
         h.emitEdit({ cycle: 'sceneRotationOffsetDegrees' })
         rotations.push(h.store.activePet3dPreset.sceneRotationOffsetDegrees)
+        assert.equal(armControlOrder.armControlOrderRotation.value, rotations.at(-1))
       }
       assert.deepEqual(rotations, [45, 90, 135, 180, 225, 290, 0, 45])
       for (const [current, expected] of [[78, 100], [199, 200], [200, 25]]) {
@@ -1958,16 +2102,16 @@ describe('live preset manager', () => {
       assert.equal(h.rendered(), 0)
       h.manager.setListVisible(true)
       await new Promise(resolve => setTimeout(resolve, 650))
-      assert.equal(h.rendered(), 6)
+      assert.equal(h.rendered(), BUNDLED_SCENE_COUNT + 2)
       assert.deepEqual(h.thumbnailBatches(), { total: 1, active: 0, maxActive: 1 })
       await h.manager.rename('initial', 'Renamed')
       await h.manager.toggleFavorite('initial')
       await new Promise(resolve => setTimeout(resolve, 650))
-      assert.equal(h.rendered(), 6)
+      assert.equal(h.rendered(), BUNDLED_SCENE_COUNT + 2)
       h.failThumbnail(true)
       h.store.activePet3dPreset.cameraZoomPercent = 162
       await new Promise(resolve => setTimeout(resolve, 650))
-      assert.equal(h.rendered(), 6, 'current edits must reuse the stored preview')
+      assert.equal(h.rendered(), BUNDLED_SCENE_COUNT + 2, 'current edits must reuse the stored preview')
       h.manager.retryThumbnail('initial')
       await new Promise(resolve => setTimeout(resolve, 650))
       assert.equal(h.manager.thumbnailErrors.value.initial, true)
@@ -2028,7 +2172,7 @@ describe('live preset manager', () => {
       assert.equal((h.saves.at(-1) as ReturnType<typeof useBlockStore>['$state']).customization3d.preset.cameraZoomPercent, 185)
       assert.deepEqual(h.store.presetCollection, catalog)
       assert.deepEqual(clonePreset(h.manager.thumbnails.value), previews)
-      assert.equal(h.rendered(), 6)
+      assert.equal(h.rendered(), BUNDLED_SCENE_COUNT + 2)
       assert.equal(Object.keys(h.manager.cardPending.value).length, 0)
     } finally {
       releaseSave()
@@ -3144,5 +3288,636 @@ it('preserves future root settings from legacy snapshots through safe partial ap
     assert.deepEqual(Reflect.get(entry.snapshot, 'futureOption'), { enabled: true })
   } finally {
     h.dispose()
+  }
+})
+
+/**
+ * Installed Pinia packages and production stores/manager/skin/transfer; only native I/O,
+ * browser image decoding and renderer acknowledgement are substituted. Saves use isolated disk.
+ */
+function installedPresetHarness() {
+  type State = Record<string, any>
+  const root = fileURLToPath(new URL('../../', import.meta.url))
+  const pluginPath = require.resolve('@tauri-store/pinia/dist/index.js')
+  const sharedPath = require.resolve('@tauri-store/shared/dist/index.js', { paths: [path.dirname(pluginPath)] })
+  const diskRoot = mkdtempSync(path.join(tmpdir(), 'block-pet-preset-manager-'))
+  const diskFile = path.join(diskRoot, 'settings.json')
+  const backend = new Map<string, State>()
+  const syncHandlers = new Map<string, Set<(event: {
+    payload: {
+      id: string
+      state: State
+    }
+  }) => void>>()
+  const events = new Map<string, Map<string, (event: {
+    payload: unknown
+  }) => void>>()
+  const compiled = new Map<string, string>()
+  const heldPatches: Array<() => void> = []
+  const heldApplies: Array<() => void> = []
+  const applications: PresetApplyRequest[] = []
+  const completed: Array<{
+    commit: boolean
+    expected: PresetImportPrevious
+  }> = []
+  const diagnostics: Array<{ level: string, operation: string, message?: string }> = []
+  let journal: PresetImportJournal | undefined
+  let heldOwner: string | undefined
+  let holdAcknowledgements = false
+  let applyFailures = 0
+  let saveCount = 0
+  let commitFailure = false
+  let saveFailureAt: number | undefined
+  let document: Record<string, any> | undefined
+  let nicknamePng = ''
+  let readDocument: ((filename: string) => Record<string, any>) | undefined
+  let desktop: ReturnType<typeof window> | undefined
+  const disk = () => JSON.parse(readFileSync(diskFile, 'utf8')) as Record<string, State>
+  const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
+  const colors = (value: unknown): unknown => typeof value === 'string' && /^#[a-f\d]{6}$/i.test(value)
+    ? value.toLowerCase()
+    : Array.isArray(value)
+      ? value.map(colors)
+      : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, colors(item)])) : value
+  function window(label: 'main' | 'preference') {
+    const modules = new Map<string, {
+      exports: any
+    }>()
+    const mounted: Array<() => Promise<void>> = []
+    const unmounted: Array<() => void> = []
+    let owner: PresetManager | undefined
+    const invoke = async (command: string, args: State = {}) => {
+      if (command === 'plugin:pinia|load' || command === 'plugin:pinia|get_store_state')
+        return plain(backend.get(args.id) ?? {})
+      if (command === 'plugin:pinia|patch') {
+        const incoming = plain(args.state)
+        const deliver = () => {
+          backend.set(args.id, { ...(backend.get(args.id) ?? {}), ...incoming })
+          for (const [receiver, listeners] of syncHandlers) {
+            if (receiver === label)
+              continue
+            for (const listener of listeners)
+              listener({ payload: { id: args.id, state: plain(backend.get(args.id)!) } })
+          }
+        }
+        if (heldOwner === label) {
+          await new Promise<void>((resolve) => {
+            heldPatches.push(() => {
+              deliver()
+              resolve()
+            })
+          })
+        } else {
+          deliver()
+        }
+        return
+      }
+      if (command === 'plugin:pinia|save_all_now') {
+        if (saveFailureAt === saveCount) {
+          saveFailureAt = undefined
+          throw new Error('fixture disk failure')
+        }
+        writeFileSync(diskFile, JSON.stringify(Object.fromEntries(backend)), 'utf8')
+        saveCount++
+        return
+      }
+      if (command.startsWith('plugin:pinia|'))
+        return
+      if (command === 'read_pet_preset')
+        return JSON.stringify(readDocument?.(args.filePath) ?? document)
+      if (command === 'read_preset_import')
+        return journal ? plain(journal) : null
+      if (command === 'prepare_preset_import') {
+        const saved = disk().cat
+        assert.deepEqual(saved.presetCollection, args.previous.collection, 'journal must follow acknowledged durable baseline')
+        assert.deepEqual(plain(load('@/features/presets/model').capturePresetSnapshot(saved)), args.previous.snapshot)
+        assert.equal(saved.window.visible, args.previous.visible)
+        journal = { operationId: args.operationId, phase: 'prepared', previous: plain(args.previous) }
+        const native = await require('@tauri-apps/api/core').invoke('store_skin_library_entry', { request: args.request })
+        return { id: native.id }
+      }
+      if (command === 'finish_preset_import') {
+        assert.equal(args.operationId, journal?.operationId)
+        const saved = disk().cat
+        assert.deepEqual(saved.presetCollection, args.expected.collection, 'completion must follow exact durable catalog')
+        assert.deepEqual(plain(load('@/features/presets/model').capturePresetSnapshot(saved)), args.expected.snapshot)
+        assert.equal(saved.window.visible, args.expected.visible)
+        if (args.commit && commitFailure) {
+          commitFailure = false
+          throw new Error('interrupted import commit')
+        }
+        if (!args.commit) {
+          assert.deepEqual(args.expected.collection, journal!.previous.collection, 'rollback must preserve original ordering and members')
+          assert.deepEqual(colors(presetSettings(args.expected.snapshot)), colors(historicalCurrentSettings(presetSettings(journal!.previous.snapshot))))
+          if (journal!.previous.snapshot.appearance.dmeloperSkinDataUrl)
+            assert.equal(args.expected.snapshot.appearance.dmeloperSkinDataUrl, journal!.previous.snapshot.appearance.dmeloperSkinDataUrl)
+        }
+        completed.push(plain({ commit: args.commit, expected: args.expected }))
+        if (args.commit)
+          journal!.phase = 'committed'
+        else
+          journal = undefined
+        return
+      }
+      return require('@tauri-apps/api/core').invoke(command, args)
+    }
+    const overrides: Record<string, unknown> = {
+      'vue': { ...vue, onMounted: (callback: () => Promise<void>) => mounted.push(callback), onBeforeUnmount: (callback: () => void) => unmounted.push(callback) },
+      'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
+      '@tauri-apps/api/core': { ...require('@tauri-apps/api/core'), invoke },
+      '@tauri-apps/api/app': { getVersion: async () => 'fixture' },
+      '@tauri-apps/api/webviewWindow': { getCurrentWebviewWindow: () => ({ label, onCloseRequested: async () => () => { }, listen: async (event: string, handler: (event: {
+        payload: {
+          id: string
+          state: State
+        }
+      }) => void) => {
+        if (event !== 'tauri-store://state-change') {
+          assert.equal(event, 'tauri-store://config-change')
+          return () => {}
+        }
+        const listeners = syncHandlers.get(label) ?? new Set()
+        listeners.add(handler)
+        syncHandlers.set(label, listeners)
+        return () => listeners.delete(handler)
+      } }) },
+      '@tauri-apps/api/event': {
+        listen: async (event: string, handler: (event: {
+          payload: unknown
+        }) => void) => {
+          const listeners = events.get(label) ?? new Map()
+          listeners.set(event, handler)
+          events.set(label, listeners)
+          return () => listeners.delete(event)
+        },
+        emitTo: async (_receiver: string, event: string, payload: unknown) => {
+          if (event !== PRESET_APPLY_REQUEST)
+            return
+          const request = plain(payload) as PresetApplyRequest
+          applications.push(request)
+          const acknowledge = () => {
+            const failed = applyFailures > 0
+            if (failed)
+              applyFailures--
+            const model = desktop!.load('@/features/presets/model') as typeof presetModel
+            if (!failed)
+              desktop!.block.$patch(() => model.applyPresetSnapshot(desktop!.block, request.snapshot, desktop!.block.activePet3dPreset.viewportModeRevision + 1, request.restoreVisibility ?? true))
+            events.get(label)?.get(PRESET_APPLY_RESPONSE)?.({ payload: {
+              requestId: request.requestId,
+              success: !failed,
+              restored: !failed,
+              revision: desktop!.block.activePet3dPreset.viewportModeRevision,
+              snapshot: failed ? request.snapshot : model.capturePresetSnapshot(desktop!.block),
+            } })
+          }
+          if (holdAcknowledgements)
+            heldApplies.push(acknowledge)
+          else
+            acknowledge()
+        },
+      },
+      '@/services/systemLanguage': { getSystemLanguage: () => 'en-US' },
+      '@/services/diagnostics': { reportDiagnostic: (level: string, operation: string, cause: { message?: string }) => diagnostics.push({ level, operation, message: cause?.message }) },
+      '@/plugins/process': { registerAppProcessOwner: () => () => { } },
+      '@/features/presets/thumbnail': { createPresetThumbnailBatch: () => ({ render: async () => 'fixture-thumbnail', dispose() { } }) },
+    }
+    function load(name: string, from = root): any {
+      if (name in overrides)
+        return overrides[name]
+      let file: string | undefined
+      if (name === '@tauri-store/pinia')
+        file = pluginPath
+      else if (name === '@tauri-store/shared')
+        file = sharedPath
+      else if (name.startsWith('@/'))
+        file = path.join(root, 'src', name.slice(2))
+      else if (name.startsWith('.'))
+        file = path.resolve(from, name)
+      else
+        return require(name)
+      if (!existsSync(file) || statSync(file).isDirectory())
+        file = [`${file}.ts`, path.join(file, 'index.ts')].find(existsSync)
+      assert.ok(file, `unresolved installed fixture module: ${name}`)
+      if (modules.has(file))
+        return modules.get(file)!.exports
+      const module = { exports: {} as any }
+      modules.set(file, module)
+      if (file.endsWith('.json')) {
+        module.exports = { default: JSON.parse(readFileSync(file, 'utf8')) }
+        return module.exports
+      }
+      let text = compiled.get(file)
+      if (!text) {
+        text = ts.transpileModule(readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, allowJs: true } }).outputText
+        compiled.set(file, text)
+      }
+      // eslint-disable-next-line no-new-func
+      new Function('require', 'module', 'exports', text)((id: string) => load(id, path.dirname(file)), module, module.exports)
+      return module.exports
+    }
+    const skin = load('@/services/minecraftSkin') as typeof import('@/services/minecraftSkin')
+    overrides['@/services/minecraftSkin'] = { ...skin, fetchMinecraftSkin: async (name: string) => ({ pngBase64: nicknamePng, model: 'wide', canonicalName: name, height: 64 }) }
+    const pinia = createPinia()
+    pinia.use(load('@/plugins/settingsStore').createSettingsStorePlugin({ isSavingAllowed: () => true, beforeBackendSync: (state: State) => state }))
+    vue.createSSRApp({ render: () => null }).use(pinia)
+    const block = load('@/stores/block').useBlockStore(pinia) as ReturnType<typeof useBlockStore> & {
+      $tauri: {
+        start: () => Promise<void>
+        stop: () => Promise<void>
+      }
+    }
+    const general = load('@/stores/general').useGeneralStore(pinia) as ReturnType<typeof useGeneralStore> & {
+      $tauri: {
+        start: () => Promise<void>
+        stop: () => Promise<void>
+      }
+    }
+    const result = {
+      block,
+      load,
+      owner: () => owner,
+      initialize: async () => {
+        for (const store of [block, general]) {
+          await store.$tauri.start()
+          await store.init()
+          await vue.nextTick()
+        }
+      },
+      startOwner: async () => {
+        setActivePinia(pinia)
+        owner = load('@/composables/usePresetManager').usePresetManager() as PresetManager
+        for (const mount of mounted.splice(0))
+          await mount()
+        return owner
+      },
+      dispose: async () => {
+        unmounted.forEach(stop => stop())
+        for (const store of [block, general]) {
+          await store.$tauri.stop()
+          store.$dispose()
+        }
+        syncHandlers.delete(label)
+        events.delete(label)
+      },
+    }
+    if (label === 'main')
+      desktop = result
+    return result
+  }
+  return {
+    backend,
+    window,
+    disk,
+    applications,
+    completed,
+    diagnostics,
+    saves: () => saveCount,
+    document: (value: Record<string, any>, png = '') => {
+      document = value
+      nicknamePng = png
+    },
+    readDocument: (reader: (filename: string) => Record<string, any>) => {
+      readDocument = reader
+    },
+    journal: () => journal,
+    seedJournal: (value: PresetImportJournal) => {
+      journal = plain(value)
+    },
+    failApply: () => applyFailures++,
+    failCommit: () => {
+      commitFailure = true
+    },
+    failSaveAfter: (count: number) => {
+      saveFailureAt = saveCount + count
+    },
+    hold: (label: string) => {
+      heldOwner = label
+    },
+    release: async () => {
+      heldOwner = undefined
+      heldPatches.splice(0).forEach(deliver => deliver())
+      await vue.nextTick()
+    },
+    pendingPatches: () => heldPatches.length,
+    holdApply: () => {
+      holdAcknowledgements = true
+    },
+    releaseApply: () => {
+      holdAcknowledgements = false
+      heldApplies.splice(0).forEach(acknowledge => acknowledge())
+    },
+    removeDisk: () => {
+      assert.equal(path.dirname(diskRoot), path.resolve(tmpdir()))
+      assert.ok(path.basename(diskRoot).startsWith('block-pet-preset-manager-'))
+      if (existsSync(diskFile))
+        unlinkSync(diskFile)
+      rmdirSync(diskRoot)
+    },
+  }
+}
+function installedSkinBrowser() {
+  let writes = 0
+  const browser = installPresetSkinBrowser((_command, args) => {
+    const request = args!.request as SkinLibraryStoreRequest
+    writes++
+    const digest = require('node:crypto').createHash('sha256').update(Buffer.from(request.pngBase64, 'base64')).digest('hex') as string
+    const identity = require('node:crypto').createHash('sha256').update(`${request.source}\0${(request.canonicalNickname ?? request.originalFilename!).toLowerCase()}`).digest('hex') as string
+    const entry = { id: identity, source: request.source, displayName: request.displayName, originalFilename: request.originalFilename, canonicalNickname: request.canonicalNickname, model: request.model, pngSha256: digest, width: 64, height: 64, thumbnailPngBase64: request.thumbnailPngBase64, addedAt: 0 }
+    browser.setEntries([entry] as import('@/services/skinLibrary').SkinLibraryEntry[])
+    return entry
+  })
+  return { browser, writes: () => writes }
+}
+for (const { fixture } of historicalFixtures.filter(({ binding }) => binding.kind === 'official-release')) {
+  it(`installed manager imports applies shares and reloads released ${fixture.provenance.version} presets without losing original bytes or choices`, async () => {
+    const skins = installedSkinBrowser()
+    const h = installedPresetHarness()
+    let main = h.window('main')
+    let preference = h.window('preference')
+    try {
+      await main.initialize()
+      await preference.initialize()
+      let owner = await preference.startOwner()
+      const documents = fixture.cases.filter(scenario => scenario.portable)
+      const before = clonePreset(fixture)
+      for (const scenario of documents) {
+        h.document(scenario.portable!, scenario.snapshot.appearance.dmeloperSkinDataUrl?.split(',')[1])
+        const sceneBefore = presetModel.capturePresetSnapshot(preference.block)
+        const imported = await owner.importPreset(`C:/fixture/${scenario.id}.petpreset`)
+        assert.ok(imported, `${fixture.provenance.version}/${scenario.id}`)
+        assert.deepEqual(presetModel.capturePresetSnapshot(preference.block), await preparePresetSkin(sceneBefore), 'import materializes its live baseline without applying the target')
+        const entry = preference.block.presetCollection!.entries.find(entry => entry.id === imported)!
+        const originalEntry = clonePreset(entry)
+        assert.deepEqual(entry.sourceSettings, scenario.portable!.settings)
+        const expected = historicalCurrentSettings(scenario.expectedLegacySettings ?? scenario.portable!.settings)
+        assert.deepEqual(presetSettings(entry.snapshot), expected)
+        assert.equal(await owner.activate(imported), true, `${scenario.id}: ${owner.error.value}; ${JSON.stringify(h.diagnostics)}`)
+        assert.equal(owner.skinLibraryWarning.value, undefined)
+        assert.equal(preference.block.activePet3dPreset.petAnimationMode, 'default')
+        assert.equal(preference.block.activePet3dPreset.petRightArmDisabled, false)
+        assert.equal(preference.block.activePet3dPreset.mouseEnabled, expected.preset.mouseEnabled)
+        assert.equal(preference.block.activePet3dPreset.cameraZoomPercent, expected.preset.cameraZoomPercent)
+        assert.deepEqual(preference.block.presetCollection!.entries.find(item => item.id === imported), originalEntry)
+        assert.deepEqual(main.block.customization3d.dmeloperSkinDataUrl, entry.snapshot.appearance.dmeloperSkinDataUrl)
+        assert.deepEqual(h.disk().cat.presetCollection, clonePreset(preference.block.presetCollection))
+        await main.dispose()
+        await preference.dispose()
+        h.backend.clear()
+        for (const [id, state] of Object.entries(h.disk()))
+          h.backend.set(id, state)
+        main = h.window('main')
+        preference = h.window('preference')
+        await main.initialize()
+        await preference.initialize()
+        owner = await preference.startOwner()
+        const reloaded = preference.block.presetCollection!.entries.find(item => item.id === imported)!
+        assert.deepEqual(clonePreset(reloaded), originalEntry)
+        assert.equal(await owner.activate(imported), true, `${scenario.id}: ${owner.error.value}; ${JSON.stringify(h.diagnostics)}`)
+        const transfer = preference.load('@/features/presets/transfer') as typeof import('@/features/presets/transfer')
+        const shared = await transfer.exportPortablePreset(reloaded.name, reloaded.snapshot, scenario.portable!.skin.mode === 'nickname' ? 'nickname' : 'image', reloaded.sourceSettings)
+        const wire = JSON.parse(transfer.serializePortablePreset(shared))
+        assert.deepEqual(wire.settings, scenario.portable!.settings)
+        assert.equal(wire.skin.mode, scenario.portable!.skin.mode)
+        if (wire.skin.mode === 'image')
+          assert.equal(wire.skin.pngBase64, scenario.portable!.skin.pngBase64)
+        assert.deepEqual(presetModel.capturePresetSnapshot(main.block), presetModel.capturePresetSnapshot(preference.block))
+      }
+      assert.deepEqual(fixture, before)
+      assert.equal(preference.block.presetCollection!.entries.length, documents.length)
+    } finally {
+      await main.dispose()
+      await preference.dispose()
+      h.removeDisk()
+      skins.browser.restore()
+    }
+  })
+}
+it('installed manager waits for delayed cross-window and durable acknowledgements before reporting optional skin restoration', async () => {
+  const skins = installedSkinBrowser()
+  const h = installedPresetHarness()
+  const fixture = historicalFixtures.find(({ binding }) => binding.version === '1.1.2')!.fixture
+  const state = clonePreset(useBlockStore(createPinia()).$state)
+  state.presetCollection = clonePreset(fixture.catalog)
+  h.backend.set('cat', state)
+  const main = h.window('main')
+  const preference = h.window('preference')
+  try {
+    await main.initialize()
+    await preference.initialize()
+    const owner = await preference.startOwner()
+    const localIdentity = require('node:crypto').createHash('sha256').update('local\0kept-user-skin.png').digest('hex') as string
+    const target = preference.block.presetCollection!.entries.find(entry => entry.id === 'historical-custom')!
+    target.snapshot.appearance.dmeloperSkinDataUrl = skins.browser.dataUrl
+    target.snapshot.appearance.activeSkinLibraryEntryId = localIdentity
+    delete target.snapshot.appearance.minecraftSkinUsername
+    assert.equal(await owner.activate('builtin:preset:default'), true, 'bundled lazy assets must work through the same installed manager')
+    assert.equal(preference.block.customization3d.activeSkinLibraryEntryId, 'builtin:dmeloper')
+    const retained = clonePreset(preference.block.presetCollection)
+    skins.browser.failCatalog(true)
+    const saves = h.saves()
+    const applies = h.applications.length
+    h.holdApply()
+    const applying = owner.activate('historical-custom')
+    await waitFor(() => h.applications.length === applies + 1)
+    assert.equal(owner.skinLibraryWarning.value, undefined)
+    assert.equal(h.saves(), saves + 1, 'only the previous durable baseline can be sealed before renderer acknowledgement')
+    h.hold('preference')
+    h.releaseApply()
+    await waitFor(() => h.pendingPatches() > 0)
+    assert.equal(owner.skinLibraryWarning.value, undefined)
+    assert.equal(h.saves(), saves + 1, 'save barrier must observe installed plugin backend readback')
+    await h.release()
+    assert.equal(await applying, true)
+    assert.deepEqual(clonePreset(owner.skinLibraryWarning.value), { name: 'Historical custom', code: 'IO_ERROR' })
+    assert.deepEqual(preference.block.presetCollection, retained)
+    assert.deepEqual(h.disk().cat.presetCollection, retained)
+    assert.deepEqual(presetModel.capturePresetSnapshot(main.block), presetModel.capturePresetSnapshot(preference.block))
+    const rawSkin = preference.block.customization3d.dmeloperSkinDataUrl
+    skins.browser.failCatalog(false)
+    assert.equal(await owner.create('Retained copy'), true)
+    assert.equal(h.disk().cat.presetCollection.entries.at(-1).snapshot.appearance.dmeloperSkinDataUrl, rawSkin)
+    assert.equal(h.disk().cat.presetCollection.entries.at(-1).snapshot.appearance.activeSkinLibraryEntryId, localIdentity)
+    assert.equal((await preparePresetSkin(clonePreset(h.disk().cat.presetCollection.entries.at(-1).snapshot))).appearance.activeSkinLibraryEntryId, localIdentity, 'JSON reload must preserve the explicit local choice')
+    assert.equal(skins.writes(), 0, 'save and application fallback cannot claim a library write')
+    skins.browser.failCatalog(false)
+    assert.equal(await owner.activate('historical-custom'), true)
+    assert.equal(owner.skinLibraryWarning.value, undefined)
+    assert.equal(skins.writes(), 1, 'explicit retry restores exact saved bytes once')
+  } finally {
+    h.releaseApply()
+    await h.release()
+    await main.dispose()
+    await preference.dispose()
+    h.removeDisk()
+    skins.browser.restore()
+  }
+})
+it('installed manager isolates malformed legacy imports and rolls back a failed native commit without losing earlier items', async () => {
+  const skins = installedSkinBrowser()
+  const h = installedPresetHarness()
+  const main = h.window('main')
+  const preference = h.window('preference')
+  try {
+    await main.initialize()
+    await preference.initialize()
+    const owner = await preference.startOwner()
+    const document = historicalFixtures.find(({ binding }) => binding.version === '1.0.1')!.fixture.cases[1].portable!
+    h.document(document)
+    const first = await owner.importPreset('C:/fixture/first.petpreset')
+    assert.ok(first)
+    const corrupt = { ...document, skin: { mode: 'image', model: 'wide', pngBase64: 'YQ==' } }
+    let repaired = false
+    h.readDocument(filename => filename.includes('corrupt') && !repaired ? corrupt : document)
+    const imported = await owner.importPresets(['C:/fixture/corrupt.petpreset', 'C:/fixture/second.petpreset', 'C:/fixture/third.petpreset'])
+    assert.equal(imported.length, 2, 'one corrupt item must not stop other validated source files')
+    assert.deepEqual(Array.from(owner.importResults.value, result => result.status), ['failed', 'saved', 'saved'])
+    const completedIds = Array.from(owner.importResults.value, result => result.presetId).filter(Boolean)
+    repaired = true
+    await owner.retryImport()
+    assert.equal(preference.block.presetCollection!.entries.length, 4)
+    for (const id of completedIds) assert.equal(preference.block.presetCollection!.entries.filter(entry => entry.id === id).length, 1, 'batch retry must not duplicate a saved item')
+    const retained = clonePreset(preference.block.presetCollection)
+    h.failCommit()
+    assert.equal(await owner.importPreset('C:/fixture/interrupted.petpreset'), undefined)
+    assert.deepEqual(preference.block.presetCollection, retained)
+    assert.deepEqual(h.disk().cat.presetCollection, retained)
+    assert.equal(h.journal(), undefined, 'rollback completion follows acknowledged durable prior state')
+    assert.equal(h.completed.at(-1)?.commit, false)
+    assert.ok(await owner.retryImport())
+    assert.equal(preference.block.presetCollection!.entries.length, retained!.entries.length + 1)
+    assert.equal(preference.block.presetCollection!.entries[0].id, first)
+  } finally {
+    await main.dispose()
+    await preference.dispose()
+    h.removeDisk()
+    skins.browser.restore()
+  }
+})
+it('installed manager preserves an interrupted legacy recovery until the scene acknowledgement and durable rollback succeed', async () => {
+  const skins = installedSkinBrowser()
+  const h = installedPresetHarness()
+  const fixture = historicalFixtures.find(({ binding }) => binding.version === '1.1.2')!.fixture
+  const previous = { collection: clonePreset(fixture.catalog), snapshot: clonePreset(fixture.cases[1].snapshot), visible: false }
+  const state = clonePreset(useBlockStore(createPinia()).$state)
+  state.presetCollection = clonePreset(fixture.catalog)
+  state.customization3d.dmeloperSkinDataUrl = fixture.cases[0].snapshot.appearance.dmeloperSkinDataUrl
+  h.backend.set('cat', state)
+  h.seedJournal({ operationId: '11111111-1111-4111-8111-111111111111', phase: 'prepared', previous })
+  h.failApply()
+  const main = h.window('main')
+  const preference = h.window('preference')
+  try {
+    await main.initialize()
+    await preference.initialize()
+    const owner = await preference.startOwner()
+    assert.equal(owner.ready.value, false)
+    assert.deepEqual(h.journal()?.previous, previous, 'failed recovery cannot erase or rewrite the historical journal')
+    assert.equal(h.completed.length, 0)
+    assert.equal(await owner.retry(), true)
+    assert.equal(h.journal(), undefined)
+    assert.equal(h.completed.at(-1)?.commit, false)
+    assert.equal(preference.block.window.visible, false)
+    assert.equal(main.block.window.visible, false)
+    assert.equal(h.disk().cat.window.visible, false)
+    assert.equal(preference.block.customization3d.dmeloperSkinDataUrl, previous.snapshot.appearance.dmeloperSkinDataUrl)
+    assert.equal(preference.block.presetCollection!.activeId, null)
+    assert.deepEqual(preference.block.presetCollection!.entries.map(entry => entry.id), previous.collection.entries.map(entry => entry.id))
+    assert.deepEqual(h.disk().cat.presetCollection, clonePreset(preference.block.presetCollection))
+  } finally {
+    await main.dispose()
+    await preference.dispose()
+    h.removeDisk()
+    skins.browser.restore()
+  }
+})
+
+it('installed manager preserves durable and live baseline when the save after optional skin application fails', async () => {
+  const skins = installedSkinBrowser()
+  const h = installedPresetHarness()
+  const fixture = historicalFixtures.find(({ binding }) => binding.version === '1.1.2')!.fixture
+  const state = clonePreset(useBlockStore(createPinia()).$state)
+  state.presetCollection = clonePreset(fixture.catalog)
+  h.backend.set('cat', state)
+  const main = h.window('main')
+  const preference = h.window('preference')
+  try {
+    await main.initialize()
+    await preference.initialize()
+    const owner = await preference.startOwner()
+    const prior = presetModel.capturePresetSnapshot(preference.block)
+    const catalog = clonePreset(preference.block.presetCollection)
+    skins.browser.failCatalog(true)
+    h.failSaveAfter(1)
+    assert.equal(await owner.activate('historical-custom'), false)
+    assert.equal(owner.skinLibraryWarning.value, undefined, 'a failed durable application cannot be presented as a successful partial result')
+    assert.deepEqual(preference.block.presetCollection, catalog)
+    assert.deepEqual(h.disk().cat.presetCollection, catalog)
+    assert.deepEqual(presetModel.capturePresetSnapshot(preference.block), await preparePresetSkin(prior))
+    assert.deepEqual(presetModel.capturePresetSnapshot(main.block), presetModel.capturePresetSnapshot(preference.block))
+    assert.equal(await owner.retry(), true)
+    assert.deepEqual(h.disk().cat.presetCollection, catalog)
+    assert.equal(h.disk().cat.customization3d.dmeloperSkinDataUrl, preference.block.customization3d.dmeloperSkinDataUrl)
+  } finally {
+    await main.dispose()
+    await preference.dispose()
+    h.removeDisk()
+    skins.browser.restore()
+  }
+})
+
+it('installed manager preserves the fixed-development catalog anchor and applies only supported choices explicitly', async () => {
+  const skins = installedSkinBrowser()
+  const h = installedPresetHarness()
+  const fixture = historicalFixtures.find(({ binding }) => binding.kind === 'fixed-development')!.fixture
+  const original = clonePreset(fixture)
+  const state = clonePreset(useBlockStore(createPinia()).$state)
+  state.presetCollection = clonePreset(fixture.catalog)
+  h.backend.set('cat', state)
+  const main = h.window('main')
+  const preference = h.window('preference')
+  try {
+    await main.initialize()
+    await preference.initialize()
+    const owner = await preference.startOwner()
+    assert.equal(owner.ready.value, true)
+    const entry = preference.block.presetCollection!.entries.find(item => item.id === 'initial')!
+    const retained = clonePreset(entry)
+    assert.ok(owner.compatibility.value[entry.id].length > 0, 'unsupported development-only choices must remain visible as partial compatibility')
+    const skin = preference.block.customization3d.dmeloperSkinDataUrl
+    assert.equal(await owner.activate(entry.id, { compatibleOnly: true, applySkin: false, expectedSourceKey: presetSourceKey(entry) }), true)
+    assert.equal(preference.block.customization3d.dmeloperSkinDataUrl, skin)
+    assert.deepEqual(preference.block.presetCollection!.entries.find(item => item.id === entry.id), retained)
+    assert.deepEqual(h.disk().cat.presetCollection, clonePreset(preference.block.presetCollection))
+    assert.deepEqual(fixture, original)
+  } finally {
+    await main.dispose()
+    await preference.dispose()
+    h.removeDisk()
+    skins.browser.restore()
+  }
+})
+
+it('keeps valid retained preset cards usable when another saved PNG fails lazy preparation', async () => {
+  const browser = installPresetSkinBrowser()
+  const h = await harness(undefined, preparePresetSkin, undefined, undefined, {}, false, {}, restorePresetSkin)
+  try {
+    const damaged = h.store.presetCollection!.entries.find(entry => entry.id === 'initial')!
+    damaged.snapshot.appearance.dmeloperSkinDataUrl = 'data:image/png;base64,YQ=='
+    damaged.snapshot.appearance.activeSkinLibraryEntryId = 'a'.repeat(64)
+    const retained = clonePreset(h.store.presetCollection)
+    h.manager.setListVisible(true)
+    await waitFor(() => h.manager.thumbnailErrors.value.initial === true && Object.keys(h.manager.cardPending.value).length === 0)
+    assert.equal(h.manager.ready.value, true)
+    assert.equal(h.manager.status.value, 'saved')
+    assert.ok(h.manager.thumbnails.value.default, 'a different valid PNG remains previewable')
+    assert.equal(await h.manager.activate('initial'), false)
+    assert.equal(h.manager.skinLibraryWarning.value, undefined, 'invalid PNG must never become an optional restoration gap')
+    assert.deepEqual(h.store.presetCollection, retained)
+    assert.equal(await h.manager.activate('default'), true)
+    assert.deepEqual(h.store.presetCollection, retained)
+    assert.equal(damaged.snapshot.appearance.dmeloperSkinDataUrl, 'data:image/png;base64,YQ==', 'preserve the failed original for repair')
+  } finally {
+    h.dispose()
+    browser.restore()
   }
 })

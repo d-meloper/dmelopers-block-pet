@@ -2,6 +2,7 @@ import type { Pet3dPreset } from '@/stores/block'
 import type { Three3DRenderer } from '@/utils/three3d'
 
 import { MODEL_3D_CONFIG } from '@/config/model3d'
+import { normalizePetMotionSettings } from '@/config/petMotion'
 
 /** Shared by the desktop renderer and isolated, input-free thumbnail renderer. */
 export function applyPresetVisualSettings(renderer: Three3DRenderer, preset: Pet3dPreset, mouseEnabled = preset.mouseEnabled): void {
@@ -13,6 +14,13 @@ export function applyPresetVisualSettings(renderer: Three3DRenderer, preset: Pet
   renderer.setPetTransform(preset.petRotationDegrees, preset.petDeskOffset)
   renderer.setPetHeadScalePercent(preset.petHeadScalePercent ?? 100)
   renderer.setPetArmPoseSettings(preset)
+  renderer.setAnimationMode(preset.petAnimationMode ?? 'default')
+  const motion = normalizePetMotionSettings(preset)
+  renderer.setHeadbuttMaxRadiusOffset(motion.petHeadbuttMaxRadiusOffset)
+  renderer.setHeadbuttRecoilSettings(motion)
+  renderer.setTypingMotionSettings(motion)
+  renderer.setShoulderTorsoConnected(preset.petShoulderTorsoConnected === true)
+  renderer.setPetArmsDisabled(preset.petRightArmDisabled === true, preset.petLeftArmDisabled === true)
   renderer.setMouseBasePosition(preset.mouseBaseXOffset, preset.mouseBaseZOffset)
   renderer.setMouseScalePercent(preset.mouseScalePercent)
   renderer.setKeyboardBasePosition(preset.keyboardBaseXOffset, preset.keyboardBaseZOffset)

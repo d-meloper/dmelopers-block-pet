@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { Flex } from 'ant-design-vue'
 import { computed } from 'vue'
 
 import ColorPicker from '@/components/color-picker/index.vue'
 import DefaultSnapSlider from '@/components/default-snap-slider/index.vue'
+import PreferenceOptionGroup from '@/components/preference-option-group/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import { createDefaultLightingSettings, LIGHTING_LIMITS } from '@/config/lighting'
 import { markPresetUserEdit } from '@/features/presets/editIntent'
@@ -24,7 +24,7 @@ function updateColor(value: string) {
 }
 
 function updateNumber(key: typeof fields[number], value: number | null) {
-  if (value === null || !Number.isFinite(value)) return
+  if (blocked.value || value === null || !Number.isFinite(value)) return
   const { min, max } = LIGHTING_LIMITS[key]
   markPresetUserEdit()
   keyLight.value[key] = Math.min(max, Math.max(min, value))
@@ -32,12 +32,10 @@ function updateNumber(key: typeof fields[number], value: number | null) {
 </script>
 
 <template>
-  <Flex
-    gap="middle"
-    vertical
-  >
+  <PreferenceOptionGroup>
     <ProListItem
       :description="$t('pages.preference.scene.lighting.hints.color')"
+      plain
       :title="$t('pages.preference.scene.lighting.labels.color')"
     >
       <ColorPicker
@@ -51,6 +49,7 @@ function updateNumber(key: typeof fields[number], value: number | null) {
       <ProListItem
         v-for="field in fields"
         :key="field"
+        plain
         :title="$t(`pages.preference.scene.lighting.labels.${field}`)"
         vertical
       >
@@ -58,11 +57,12 @@ function updateNumber(key: typeof fields[number], value: number | null) {
           :aria-label="$t(`pages.preference.scene.lighting.labels.${field}`)"
           class="m-0!"
           :default-value="defaults[field]"
+          :disabled="blocked"
           v-bind="LIGHTING_LIMITS[field]"
           :value="keyLight[field]"
           @update:value="updateNumber(field, $event)"
         />
       </ProListItem>
     </div>
-  </Flex>
+  </PreferenceOptionGroup>
 </template>

@@ -1,7 +1,9 @@
 import type { Pet3dPresetSelectionPayload } from '@/stores/block'
 
+import { MODEL_3D_CONFIG } from '@/config/model3d'
 import { normalizeAutoViewportPadding } from '@/features/scene/viewportSettings'
 import { getResolvedDmeloperSkinUrl } from '@/services/dmeloperSkin'
+import { getHeadbuttRearViewWeight } from '@/utils/three3d/headbuttViewport'
 
 export interface VisibleBoundsSelectionSignature {
   modelId: Pet3dPresetSelectionPayload['modelId']
@@ -17,6 +19,9 @@ export interface VisibleBoundsSelectionSignature {
   petHeadScalePercent: number
   petRotationDegrees: number
   petDeskOffset: number
+  petShoulderTorsoConnected: boolean
+  petRightArmDisabled: boolean
+  petLeftArmDisabled: boolean
   deskHeightOffset: number
   deskWidthOffset: number
   deskDepthOffset: number
@@ -25,6 +30,8 @@ export interface VisibleBoundsSelectionSignature {
   petLeftArmBendPercent: number
   petLeftArmSpreadDegrees: number
   mouseEnabled: boolean
+  reserveMouseContent: boolean
+  reserveHeadbuttTopContent: boolean
   mouseBaseXOffset: number
   mouseBaseZOffset: number
   mouseScalePercent: number
@@ -64,6 +71,9 @@ export function createVisibleBoundsSelectionSignature(
     petHeadScalePercent: preset.petHeadScalePercent,
     petRotationDegrees: preset.petRotationDegrees,
     petDeskOffset: preset.petDeskOffset,
+    petShoulderTorsoConnected: preset.petShoulderTorsoConnected === true,
+    petRightArmDisabled: preset.petRightArmDisabled === true,
+    petLeftArmDisabled: preset.petLeftArmDisabled === true,
     deskHeightOffset: preset.deskHeightOffset ?? 0,
     deskWidthOffset: preset.deskWidthOffset ?? -1,
     deskDepthOffset: preset.deskDepthOffset ?? 0,
@@ -72,6 +82,9 @@ export function createVisibleBoundsSelectionSignature(
     petLeftArmBendPercent: preset.petLeftArmBendPercent,
     petLeftArmSpreadDegrees: preset.petLeftArmSpreadDegrees,
     mouseEnabled: preset.mouseEnabled,
+    reserveMouseContent: preset.mouseEnabled || preset.petAnimationMode === 'headbutt',
+    reserveHeadbuttTopContent: preset.petAnimationMode === 'headbutt'
+      && getHeadbuttRearViewWeight(MODEL_3D_CONFIG.scene.rotationDegrees + preset.sceneRotationOffsetDegrees, preset.petRotationDegrees) > 0,
     mouseBaseXOffset: preset.mouseBaseXOffset,
     mouseBaseZOffset: preset.mouseBaseZOffset,
     mouseScalePercent: preset.mouseScalePercent,

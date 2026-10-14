@@ -98,7 +98,7 @@ const tray = useTray(() => presetManager.ready.value && !presetManager.busy.valu
 provide(BROADCAST_CONTROLLER, useBroadcast(presetManager.ready, presetManager.busy))
 // Global shortcuts belong to the window, which stays mounted across tabs and hide/show.
 useKeyPress(visibleBlock, () => {
-  void emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { visible: !blockStore.window.visible })
+  void emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { toggleVisibility: true })
 })
 useKeyPress(visiblePreference, () => {
   void toggleWindowVisible(WINDOW_LABEL.PREFERENCE)

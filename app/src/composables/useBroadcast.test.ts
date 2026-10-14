@@ -41,6 +41,7 @@ async function harness(enabled = false, listenerFails = false, statusQuery?: () 
     exports: module.exports,
     module,
     console,
+    AbortController,
     require: (id: string) => {
       if (id === 'vue') return { ...vue, onMounted: (fn: () => Promise<void>) => mounted.push(fn), onBeforeUnmount: (fn: () => void) => unmounted.push(fn) }
       if (id === '@tauri-apps/api/core') {
@@ -106,6 +107,75 @@ async function harness(enabled = false, listenerFails = false, statusQuery?: () 
 }
 
 describe('broadcast preference owner', () => {
+  it('retry preserves a known rejected-scene cause instead of trusting the old native status', async () => {
+    const h = await harness(true)
+    try {
+      h.ready.value = true
+      h.configureReply(async () => {
+        throw new Error('scene_invalid')
+      })
+      await h.flush()
+      assert.equal(h.controller.status.value.error, 'scene_invalid')
+      h.event({ enabled: true, clients: 1, sceneRevision: 1, confirmedClients: 1 })
+      assert.equal(h.controller.status.value.error, 'scene_invalid', 'late readiness of a retained scene cannot clear the current rejection')
+      const report = await h.controller.retry()
+      assert.equal(report?.status, 'unresolved')
+      assert.equal(report?.cause, 'scene_invalid')
+      assert.equal(h.controller.status.value.error, 'scene_invalid')
+      assert.ok(report?.guidanceKeys?.includes('recovery.broadcast.guidance.scene'))
+    } finally {
+      h.dispose()
+    }
+  })
+
+  it('one retry owns repeated clicks, records readback and distinguishes waiting sources', async () => {
+    const h = await harness(true)
+    try {
+      h.ready.value = true
+      await h.flush()
+      let resolve!: (value: BroadcastStatus) => void
+      h.configureReply(() => new Promise((release) => {
+        resolve = release
+      }))
+      const first = h.controller.retry()
+      const second = h.controller.retry()
+      assert.equal(first, second)
+      assert.equal(h.controller.retryPending.value, true)
+      await h.flush()
+      resolve({ enabled: true, clients: 0 })
+      const report = await first
+      assert.equal(report?.summaryKey, 'recovery.broadcast.waiting')
+      assert.equal(h.controller.retryPending.value, false)
+      assert.ok(report?.steps.some(step => step.key.endsWith('verify') && step.state === 'passed'))
+    } finally {
+      h.dispose()
+    }
+  })
+
+  it('a setting change cancels the old retry report and leaves the latest native intent in control', async () => {
+    const h = await harness(true)
+    try {
+      h.ready.value = true
+      await h.flush()
+      let resolve!: (value: BroadcastStatus) => void
+      h.configureReply(() => new Promise((release) => {
+        resolve = release
+      }))
+      const retry = h.controller.retry()
+      await h.flush()
+      h.general.broadcast.enabled = false
+      await h.flush()
+      assert.equal((await retry)?.status, 'cancelled')
+      resolve({ enabled: true, clients: 0 })
+      h.configureReply(async status => status)
+      await h.flush()
+      assert.equal(h.calls.at(-1)?.enabled, false)
+      assert.equal(h.controller.status.value.enabled, false)
+    } finally {
+      h.dispose()
+    }
+  })
+
   it('keeps a newer client status when an earlier configure reply arrives late', async () => {
     const h = await harness()
     let release!: (status: BroadcastStatus) => void
@@ -179,7 +249,7 @@ describe('broadcast preference owner', () => {
           : JSON.parse(JSON.stringify(h.controller.status.value))
         if (scenario === 'event') assert.equal(expected.clients, 1)
         if (scenario === 'configure-error') assert.equal(expected.error, 'unavailable')
-        if (scenario === 'invalid-scene') assert.equal(expected.error, 'render_failed')
+        if (scenario === 'invalid-scene') assert.equal(expected.error, 'skin_invalid')
         resolveStatus({ enabled: false, clients: 0 })
         await h.mountedDone
         assert.deepEqual(JSON.parse(JSON.stringify(h.controller.status.value)), expected)

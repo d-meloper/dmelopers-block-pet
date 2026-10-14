@@ -9,12 +9,16 @@ import { useI18n } from 'vue-i18n'
 import type { PresetManager } from '@/composables/usePresetManager'
 import type { PresetCompatibilityIssue } from '@/features/presets/compatibility'
 import type { PresetListEntry } from '@/features/presets/types'
+import type { RecoveryReport } from '@/features/recovery/types'
 
 import FileDropSurface from '@/components/file-drop-surface/index.vue'
 import PreferenceInfo from '@/components/preference-info/index.vue'
 import PreferenceSections from '@/components/preference-sections/index.vue'
+import RecoveryFeedback from '@/components/recovery-feedback/index.vue'
 import { compatiblePresetFields, fieldBounds, presetSource, presetSourceKey } from '@/features/presets/compatibility'
+import { waitForRecovery } from '@/features/recovery/wait'
 import { reportDiagnostic } from '@/services/diagnostics'
+import { diagnosticCode } from '@/services/diagnosticsCore'
 import { useGeneralStore } from '@/stores/general'
 
 import ExportDialog from './export-dialog.vue'
@@ -48,6 +52,10 @@ const fileDropActive = ref(false)
 const fileDropRegion = ref<{ top: string, left: string, width: string, height: string }>()
 const fileInputError = ref<string>()
 const showImportError = ref(false)
+const recovery = ref<RecoveryReport>()
+const retryBusy = ref(false)
+const recoveryLifetime = new AbortController()
+let recoveryGeneration = 0
 const announcement = ref('')
 let mounted = true
 let importAttempt = 0
@@ -65,7 +73,7 @@ let pointerDrag: {
   scroller?: HTMLElement
 } | undefined
 let scrollFrame: number | undefined
-const disabled = computed(() => busy.value || !ready.value)
+const disabled = computed(() => busy.value || retryBusy.value || !ready.value)
 const exportingEntry = computed(() => entries.value.find(entry => entry.id === exportingId.value))
 const applyingEntry = computed(() => entries.value.find(entry => entry.id === applyingId.value))
 const compatibilityIssues = computed(() => applyingId.value ? props.manager.compatibility?.value[applyingId.value] ?? [] : [])
@@ -113,6 +121,14 @@ const stopImportWarning = watch([
   clearImportWarning()
   if (!mounted || exportingEntry.value || (!fileError && !transferFailure && failures === '[]')) return
   showImportError.value = true
+  if (!retryBusy.value) {
+    recovery.value = {
+      status: 'unresolved',
+      summaryKey: 'recovery.summary.dataRecoveryFailed',
+      steps: [{ key: 'recovery.steps.retryPresetImport', state: 'failed' }],
+      guidanceKeys: ['recovery.guidance.checkPresetFile', 'recovery.guidance.preserveData', 'recovery.guidance.lastResort'],
+    }
+  }
   const generation = importWarningGeneration
   importWarningTimer = setTimeout(() => {
     if (!mounted || generation !== importWarningGeneration) return
@@ -223,8 +239,69 @@ async function retryCreate() {
     retryingCreate.value = true
     nameDialogOpen.value = true
   } else {
-    await props.manager.retryCreate()
+    await runPresetRetry('createPreset', 'presetsReady', async () => await props.manager.retryCreate() && !createError.value)
   }
+}
+
+async function runPresetRetry(step: string, summary: string, work: () => Promise<boolean>) {
+  if (!mounted || busy.value || retryBusy.value) return
+  const generation = ++recoveryGeneration
+  const current = () => mounted && generation === recoveryGeneration
+  const key = `recovery.steps.${step}`
+  retryBusy.value = true
+  recovery.value = { status: 'running', steps: [{ key, state: 'running' }] }
+  const accept = (success: boolean, error?: unknown) => {
+    if (!current()) return
+    const cause = error === undefined ? 'unclassified_failure' : diagnosticCode(error)
+    recovery.value = {
+      status: success ? 'recovered' : 'unresolved',
+      summaryKey: `recovery.summary.${success ? summary : 'dataRecoveryFailed'}`,
+      steps: [{ key, state: success ? 'passed' : 'failed' }],
+      ...(!success
+        ? {
+            cause,
+            guidanceKeys: ['recovery.guidance.preserveData', 'recovery.guidance.checkStorage', 'recovery.guidance.retryDataRead', ...(['unclassified_failure', 'unreadable_error', 'timeout'].includes(cause) ? ['recovery.guidance.lastResort'] : [])],
+          }
+        : {}),
+    }
+    retryBusy.value = false
+  }
+  // The manager keeps transaction ownership. A display timeout neither
+  // releases that owner nor starts another import/save/rollback request.
+  const operation = Promise.resolve().then(() => current() ? work() : false)
+  void operation.then(result => accept(result), (error) => {
+    if (current()) reportDiagnostic('error', 'presets.retry_ui', error)
+    accept(false, error)
+  })
+  try {
+    await waitForRecovery(operation, 10_000, recoveryLifetime.signal)
+  } catch (error) {
+    if (!current() || !retryBusy.value) return
+    recovery.value = {
+      status: 'unknown',
+      summaryKey: 'recovery.summary.dataWaitUnknown',
+      cause: diagnosticCode(error),
+      steps: [{ key, state: 'running' }],
+      guidanceKeys: ['recovery.guidance.waitForOperation', 'recovery.guidance.preserveData', 'recovery.guidance.lastResort'],
+    }
+  }
+}
+
+async function retryPresets() {
+  await runPresetRetry('restorePresets', 'presetsReady', async () =>
+    await props.manager.retry() && ready.value && !hasIndependentError.value)
+}
+
+async function retryImport() {
+  if (!mounted || importDisabled.value || !props.manager.canRetryImport.value) return
+  await runPresetRetry('retryPresetImport', 'presetImportComplete', async () => {
+    const id = await props.manager.retryImport()
+    if (!mounted) return false
+    const saved = importResults.value.length > 0 && importResults.value.every(result => result.status === 'saved')
+      && !props.manager.canRetryImport.value && !importBatchStopped.value
+    if (saved) completeImport(id)
+    return saved
+  })
 }
 
 function openRenameDialog(entry: PresetListEntry) {
@@ -261,6 +338,7 @@ function openFilePicker() {
 async function importSources(sources: Array<File | string>) {
   if (!mounted || importDisabled.value || sources.length === 0) return
   const attempt = ++importAttempt
+  recovery.value = undefined
   fileInputError.value = undefined
   clearImportWarning()
   try {
@@ -360,6 +438,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', updateFileDropRegion)
   mounted = false
+  recoveryGeneration += 1
+  recoveryLifetime.abort()
   importAttempt += 1
   stopImportWarning()
   clearImportWarning()
@@ -609,6 +689,24 @@ function cancelPointerDrag(event: PointerEvent) {
       {{ $t('pages.preference.presets.hints.scope') }}
     </p>
     <p
+      v-if="manager.skinLibraryWarning?.value"
+      aria-live="polite"
+      class="mb-4 text-sm text-color-3"
+      role="status"
+    >
+      {{ $t('pages.preference.presets.warnings.skinLibraryUnavailable', { name: manager.skinLibraryWarning.value.name }) }}
+    </p>
+    <RecoveryFeedback :report="recovery" />
+    <Button
+      v-if="manager.canRetryImport.value"
+      class="mb-4"
+      :disabled="importDisabled"
+      :loading="retryBusy"
+      @click="retryImport"
+    >
+      {{ $t('pages.preference.presets.buttons.retry') }}
+    </Button>
+    <p
       v-if="transferPhase && !exportingEntry"
       aria-live="polite"
       class="mb-4 flex items-center gap-2 text-sm text-color-3"
@@ -678,9 +776,9 @@ function cancelPointerDrag(event: PointerEvent) {
     >
       <span class="min-w-0 flex-1 text-red-6">{{ errorText }}</span>
       <Button
-        :disabled="busy"
+        :disabled="busy || retryBusy"
         size="small"
-        @click="manager.retry()"
+        @click="retryPresets"
       >
         {{ $t('pages.preference.presets.buttons.retry') }}
       </Button>

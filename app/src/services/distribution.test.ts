@@ -9,6 +9,7 @@ import type { DistributionChannel, DistributionInfo } from './distribution'
 
 function harness(channel: DistributionChannel, updateUrl: string) {
   const calls: string[] = []
+  const pauses = new Map<string, Promise<void>>()
   let startupFailure: unknown
   let openerFailure: unknown
   const info: DistributionInfo = { channel, updateUrl, dataRoot: 'durable', localDataRoot: 'local', dataSchema: 1 }
@@ -21,17 +22,20 @@ function harness(channel: DistributionChannel, updateUrl: string) {
     require: (id: string) => id === '@tauri-apps/api/core'
       ? { invoke: async (command: string) => {
           calls.push(command)
+          await pauses.get(command)
           if (command === 'await_native_startup' && startupFailure) throw startupFailure
           if (command === 'distribution_info') return info
         } }
       : { openUrl: async (url: string) => {
           calls.push(`open:${url}`)
+          await pauses.get('opener')
           if (openerFailure) throw openerFailure
         } },
   })
   return {
     ...exports,
     calls,
+    pause: (operation: string, work: Promise<void>) => pauses.set(operation, work),
     failStartup: (failure: unknown) => {
       startupFailure = failure
     },
@@ -39,6 +43,18 @@ function harness(channel: DistributionChannel, updateUrl: string) {
       openerFailure = failure
     },
   }
+}
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+async function settle() {
+  await new Promise(resolve => setImmediate(resolve))
 }
 
 it('opens the verified Store product page or exact native updates fallback after startup', async () => {
@@ -95,4 +111,59 @@ it('allows only the exact Store updates URI in the native custom-scheme opener s
   const permission = capability.permissions.find((entry: string | { identifier: string }) => typeof entry === 'object' && entry.identifier === 'opener:allow-open-url')
   assert.deepEqual(permission.allow, [{ url: 'ms-windows-store://downloadsandupdates' }])
   assert.ok(capability.permissions.includes('opener:allow-default-urls'), 'existing HTTPS resource links remain available')
+})
+
+it('checks current ownership after delayed readiness or distribution preparation before issuing an opener', async () => {
+  for (const operation of ['await_native_startup', 'distribution_info']) {
+    const h = harness('store', 'ms-windows-store://downloadsandupdates')
+    const preparation = deferred()
+    h.pause(operation, preparation.promise)
+    let current = true
+    const opening = h.openStore(() => current)
+    await settle()
+    assert.ok(h.calls.includes(operation))
+    current = false
+    preparation.resolve()
+    await opening
+    assert.deepEqual(h.calls, ['await_native_startup', 'distribution_info'])
+  }
+})
+
+it('a current guarded caller retains the exact Store destination and channel validation', async () => {
+  for (const url of ['https://apps.microsoft.com/detail/9NBLGGH4NNS1', 'ms-windows-store://downloadsandupdates']) {
+    const h = harness('store', url)
+    await h.openStore(() => true)
+    assert.deepEqual(h.calls, ['await_native_startup', 'distribution_info', `open:${url}`])
+  }
+  for (const [channel, url] of [
+    ['github', 'ms-windows-store://downloadsandupdates'],
+    ['test', 'https://apps.microsoft.com/detail/9NBLGGH4NNS1'],
+    ['development', 'ms-windows-store://downloadsandupdates'],
+    ['store', 'https://apps.microsoft.com.evil.invalid/detail/9NBLGGH4NNS1'],
+    ['store', 'ms-windows-store://downloadsandupdates?query=other'],
+  ] as const) {
+    const h = harness(channel, url)
+    await assert.rejects(h.openStore(() => true), /STORE_ID_UNAVAILABLE/)
+    assert.deepEqual(h.calls, ['await_native_startup', 'distribution_info'])
+  }
+})
+
+it('retains ownership of an already issued opener when its caller becomes stale', async () => {
+  const h = harness('store', 'ms-windows-store://downloadsandupdates')
+  const opener = deferred()
+  h.pause('opener', opener.promise)
+  let current = true
+  let completed = false
+  const opening = h.openStore(() => current).then(() => {
+    completed = true
+  })
+  await settle()
+  assert.deepEqual(h.calls, ['await_native_startup', 'distribution_info', 'open:ms-windows-store://downloadsandupdates'])
+  current = false
+  await settle()
+  assert.equal(completed, false, 'retiring preparation cannot cancel an already issued native opener')
+  opener.resolve()
+  await opening
+  assert.equal(completed, true)
+  assert.equal(h.calls.length, 3)
 })

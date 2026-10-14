@@ -15,6 +15,8 @@ import { APP_DISPLAY_NAME } from '@/constants/branding'
 import { isKoreanLanguage, resolveLanguage, selectByLanguage } from '@/locales/languageBranch'
 import { DEFAULT_PROGRAM_SETTINGS_RESET_OPTIONS, ProgramSettingsResetError } from '@/utils/programSettingsReset'
 
+import * as supportRecovery from './supportRecovery'
+
 function harness(renderTemplate = false) {
   const preference = Vue.ref<LanguagePreference>('system')
   const systemLanguage = Vue.ref<Language>('ko-KR')
@@ -29,8 +31,10 @@ function harness(renderTemplate = false) {
   let failCopy = false
   let failLogPath = false
   let failLogPreparation = false
+  let logPreparationPending = Promise.resolve()
   let collectInfo = async () => ({ appName: APP_DISPLAY_NAME, appVersion: '1.0.0', distributionChannel: 'store', unavailable: [] as object[] })
   let mounted: () => Promise<void> = async () => {}
+  let unmounted: () => void = () => {}
   let resetError: unknown
   const resetCalls: ProgramSettingsResetOptions[] = []
   let resetPending = Promise.resolve()
@@ -56,6 +60,8 @@ function harness(renderTemplate = false) {
     '@/services/diagnostics': { reportDiagnostic: () => {} },
     'vue': { ...Vue, onMounted: (callback: typeof mounted) => {
       mounted = callback
+    }, onBeforeUnmount: (callback: typeof unmounted) => {
+      unmounted = callback
     } },
     'vue-i18n': { useI18n: () => ({ locale, t: (key: string) => key }) },
     '@ant-design/icons-vue': { GithubFilled: 'github-icon' },
@@ -73,6 +79,7 @@ function harness(renderTemplate = false) {
       assert.equal(command, 'prepare_log_directory')
       assert.equal(args, undefined)
       logActions.push('prepare')
+      await logPreparationPending
       if (failLogPreparation) throw new Error('LOG_DIRECTORY_CREATE_FAILED')
       return '/logs'
     } },
@@ -109,6 +116,8 @@ function harness(renderTemplate = false) {
     '@/components/pro-list-item/index.vue': { default: 'list-item' },
     '@/components/pro-list/index.vue': { default: 'list' },
     './AutomaticUpdates.vue': { default: 'updates' },
+    './supportRecovery': supportRecovery,
+    '@/components/recovery-feedback/index.vue': { default: 'recovery-feedback' },
   }
   runInNewContext(ts.transpileModule(script.content, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -125,6 +134,7 @@ function harness(renderTemplate = false) {
   return {
     actions: setup as Actions,
     mount: () => mounted(),
+    unmount: () => unmounted(),
     nodes: () => flatten((setup as Render)({ $t: (key: string) => key }, [])),
     buttons: (title: string) => {
       const nodes = flatten((setup as Render)({ $t: (key: string) => key }, []))
@@ -155,6 +165,9 @@ function harness(renderTemplate = false) {
     },
     pauseReset: (pending: Promise<void>) => {
       resetPending = pending
+    },
+    pauseLogPreparation: (pending: Promise<void>) => {
+      logPreparationPending = pending
     },
     fail: () => {
       failOpen = true
@@ -306,6 +319,43 @@ it('reports app-info clipboard failure without a success toast', async () => {
   assert.deepEqual(h.copied, [])
   assert.deepEqual(h.successes, [])
   assert.deepEqual(h.errors, ['pages.preference.about.errors.copyInfo'])
+})
+
+it('serializes actual log preparation and rejects its late opener after About is disposed', async () => {
+  const h = harness()
+  let release!: () => void
+  h.pauseLogPreparation(new Promise<void>((resolve) => {
+    release = resolve
+  }))
+  const first = h.actions.openLogs()
+  await h.actions.openLogs()
+  assert.deepEqual(h.logActions, ['prepare'])
+  h.unmount()
+  release()
+  await first
+  assert.deepEqual(h.logActions, ['prepare'])
+  assert.deepEqual(h.openedPaths, [])
+  assert.deepEqual(h.errors, [])
+})
+
+it('rejects a retired collection before clipboard write or success feedback', async () => {
+  const h = harness()
+  let release!: () => void
+  h.setCollector(async () => {
+    await new Promise<void>((resolve) => {
+      release = resolve
+    })
+    return { appName: APP_DISPLAY_NAME, appVersion: '1.0.0', distributionChannel: 'github', unavailable: [] }
+  })
+  const copying = h.actions.copyInfo()
+  for (let i = 0; i < 10; i++) await Promise.resolve()
+  h.unmount()
+  release()
+  await copying
+  await h.actions.copyInfo()
+  assert.deepEqual(h.copied, [])
+  assert.deepEqual(h.successes, [])
+  assert.deepEqual(h.errors, [])
 })
 
 it('distinguishes blocked, preflight and partial reset errors without closing the retry dialog', async () => {

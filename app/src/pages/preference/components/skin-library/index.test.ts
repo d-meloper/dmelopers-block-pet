@@ -15,7 +15,9 @@ import { applyPresetSnapshot, capturePresetSnapshot, clonePreset, createPresetCo
 import * as presetOperations from '@/features/presets/operations'
 import { preparePresetSkin } from '@/features/presets/skin'
 import { installPresetSkinBrowser } from '@/features/presets/skin.test.utils'
+import * as recoveryWait from '@/features/recovery/wait'
 import * as stateSafety from '@/features/stateSafety/bridge'
+import * as diagnosticsCore from '@/services/diagnosticsCore'
 import * as dmeloperSkin from '@/services/dmeloperSkin'
 import * as minecraftSkin from '@/services/minecraftSkin'
 import * as skinLibrary from '@/services/skinLibrary'
@@ -115,6 +117,7 @@ function entry(character: string): SkinLibraryEntry {
 }
 
 function mountLibrary(options: {
+  recoveryTimeoutMs?: number
   timers?: ReturnType<typeof warningClock>
   entries?: SkinLibraryEntry[]
   list?: () => Promise<SkinLibraryEntry[]>
@@ -157,6 +160,15 @@ function mountLibrary(options: {
   // eslint-disable-next-line no-new-func
   new Function('require', 'module', 'exports', 'setTimeout', 'clearTimeout', transformed.outputText)((id: string) => {
     if (id === '@/components/file-drop-surface/index.vue') return { default: stub('div') }
+    if (id === '@/components/recovery-feedback/index.vue') return { default: stub('recovery-feedback') }
+    if (id === '@/features/recovery/wait') {
+      return {
+        ...recoveryWait,
+        waitForRecovery: <T>(operation: Promise<T>, timeoutMs: number, signal?: AbortSignal) =>
+          recoveryWait.waitForRecovery(operation, options.recoveryTimeoutMs ?? timeoutMs, signal),
+      }
+    }
+    if (id === '@/services/diagnosticsCore') return diagnosticsCore
     if (id === '@/services/petSkinChange') {
       return { beginPetSkinChange: () => {
         skinChanges.push({ phase: 'prepare' })
@@ -1085,6 +1097,74 @@ describe('skin deletion confirmation, ownership and cleanup', () => {
       assert.equal(walk(control.root).filter(node => node.props.role === 'alert').length, 0)
     } finally {
       control.app.unmount()
+    }
+  })
+})
+
+describe('bounded skin-library Retry feedback', () => {
+  it('times out a catalog read, serializes Retry, and accepts only a fresh catalog', async () => {
+    const pending = deferred<SkinLibraryEntry[]>()
+    let reads = 0
+    const h = mountLibrary({ recoveryTimeoutMs: 20, list: () => ++reads === 1 ? pending.promise : Promise.resolve([entry('b')]) })
+    const reports = () => walk(h.root).filter(node => node.type === 'recovery-feedback').map(node => node.props.report as import('@/features/recovery/types').RecoveryReport | undefined)
+    try {
+      await new Promise(resolve => setTimeout(resolve, 35))
+      await flush()
+      assert.ok(reports().some(report => report?.status === 'unknown'))
+      await h.click(h.button('pages.preference.skinLibrary.buttons.retry'))
+      assert.equal(reads, 1, 'an outstanding IPC read is drained rather than duplicated')
+      pending.resolve([entry('a')])
+      await flush()
+      assert.ok(!h.cards().some(card => card.props['data-skin-id'] === entry('a').id))
+      await h.click(h.button('pages.preference.skinLibrary.buttons.retry'))
+      assert.equal(reads, 2)
+      assert.ok(h.cards().some(card => card.props['data-skin-id'] === entry('b').id))
+      assert.ok(reports().some(report => report?.summaryKey === 'recovery.summary.skinLibraryReady'))
+    } finally {
+      pending.resolve([])
+      h.app.unmount()
+    }
+  })
+
+  it('retains the actual cleanup gate on timeout and observes its definite late cleanup result', async () => {
+    const pending = deferred<SkinLibraryCleanupResponse>()
+    const h = mountLibrary({ recoveryTimeoutMs: 20, cleanup: () => pending.promise })
+    const reports = () => walk(h.root).filter(node => node.type === 'recovery-feedback').map(node => node.props.report as import('@/features/recovery/types').RecoveryReport | undefined)
+    try {
+      await new Promise(resolve => setTimeout(resolve, 35))
+      await flush()
+      const retry = h.button('pages.preference.skinLibrary.buttons.retryCleanup')
+      assert.equal(retry.props.disabled, true)
+      assert.equal(h.cleanupCalls(), 1)
+      assert.ok(reports().some(report => report?.status === 'unknown'))
+      pending.resolve({ cleanupPending: false })
+      await flush()
+      assert.ok(reports().some(report => report?.summaryKey === 'recovery.summary.skinCleanupComplete' && report.status === 'recovered'))
+      assert.equal(h.cleanupCalls(), 1)
+    } finally {
+      pending.resolve({ cleanupPending: false })
+      h.app.unmount()
+    }
+  })
+
+  it('retains unknown import guidance after the transient warning expires without exposing the exception', async () => {
+    const timers = warningClock()
+    const h = mountLibrary({ timers, readLocal: async () => {
+      throw new Error('C:/PRIVATE_USER/TOKEN')
+    } })
+    try {
+      await flush()
+      h.drop(['example.png'])
+      await h.waitImport()
+      timers.advance(3000)
+      await flush()
+      const reports = walk(h.root).filter(node => node.type === 'recovery-feedback').map(node => node.props.report as import('@/features/recovery/types').RecoveryReport | undefined)
+      const report = reports.find(value => value?.summaryKey === 'recovery.summary.skinImportFailed')!
+      assert.equal(report.status, 'unresolved')
+      assert.equal(report.guidanceKeys?.at(-1), 'recovery.guidance.lastResort')
+      assert.ok(!JSON.stringify(report).includes('PRIVATE'))
+    } finally {
+      h.app.unmount()
     }
   })
 })

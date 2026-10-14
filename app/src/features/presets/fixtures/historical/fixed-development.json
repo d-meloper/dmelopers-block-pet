@@ -1,0 +1,437 @@
+{
+  "fixtureVersion": 1,
+  "provenance": {
+    "kind": "fixed-development",
+    "version": "fixed-development",
+    "producerCommit": "f99e9e6ae2a705355345ae9820d482b1ea386b54",
+    "publicCommit": null,
+    "sources": {
+      "src-tauri/assets/models/dmeloper/default.png": {
+        "gitBlob": "8cd1e1657b0fea26c0f37f50522d85304b078f3d",
+        "sha256": "c79c163fcde7edd727499d449421dae7a1f5e5d1004152512c84b68656099b88"
+      },
+      "src/features/presets/model.ts": {
+        "gitBlob": "8aa1a969b4dc527aeef19e0d08cc37e948c119c1",
+        "sha256": "e6696819e0d19ab58c70018a2038900ba5a0c6d917e48f0da982eac1bf2b1c27"
+      },
+      "src/config/defaultSettings.ts": {
+        "gitBlob": "eb8d030a96d9df8f48e9a34bcc3bb2c9215c125f",
+        "sha256": "1034a04d8e75e66625edb78ab8d5e8526512e4da61e50eef880a1258ce285074"
+      },
+      "src/config/deviceColors.ts": {
+        "gitBlob": "ba77cac1385852a177cd40ad9dda42d8e7dce971",
+        "sha256": "c752e230cd91dac2a86ce74515642f8a057992c1f49a85d4a9cef97bdb8f0a9f"
+      },
+      "src/config/model3d.ts": {
+        "gitBlob": "6bc0785bceee4217b2cae9997be7ed3f9e9d7cf9",
+        "sha256": "3497920da644306a046358a4f21818705c47050215061bf8b2a2bb74344447cd"
+      },
+      "src/config/dmeloperEyebrows.ts": {
+        "gitBlob": "9dc0798ae4a9644f51612d80d6099ad450795f7e",
+        "sha256": "be78683986dc439fc9768006bb3745821380e4dbef5915355830d54f4ed9d4f0"
+      },
+      "src/config/skinIdentity.ts": {
+        "gitBlob": "5773a9750579f2f8d5d68d209852d57fabe47f1e",
+        "sha256": "8fc9817a6b82d1f98069fd4bb1a6481a537d03bb5025e713dadf632db44a8535"
+      },
+      "src/stores/cat.ts": {
+        "gitBlob": "62fe77204aed1a955de4878b71a9cc356c6359aa",
+        "sha256": "f0af47cd2298de279fa11b5a2a304e84d11078a1d143dd35fc64248a3448c5a6"
+      },
+      "src/config/performance.ts": {
+        "gitBlob": "eaacd7db934ee79db40b1ffc256a76a8a1f0cdc1",
+        "sha256": "fd1cd49e3ccb969aa85b0007d76cd33d2323ce7d3401a6227d154ad9620f5abb"
+      },
+      "src/config/petArmPose.ts": {
+        "gitBlob": "bcc38943b071a6571aababa33f8f3e767188dd02",
+        "sha256": "8cc8c7c561784f56bed2166ac18e8eab101c80fd9b98dea776c371f6771c2b5f"
+      },
+      "src/features/presets/editIntent.ts": {
+        "gitBlob": "c265a9a5ae2abc2417d36dadd6bbaee65f3c6cff",
+        "sha256": "df14b18e70de223a6aa467ad8f2ec221933c0298682e7eddb5ad35720cffe380"
+      },
+      "src/features/scene/viewportSettings.ts": {
+        "gitBlob": "72ce6ba4a3d414fa3b348afd46773be691103c65",
+        "sha256": "e612685052299e2e17c4ab4244a337e956eb1e725721f0a16114080b465c204f"
+      },
+      "src/stores/petSettingsMigration.ts": {
+        "gitBlob": "65dcb5b9a7df278bdd17480c8c0bb26ea3f8abcf",
+        "sha256": "12ba850c9b4b46ba19e50fafb1872ff41da71df2c85af8dc5087f3f30fb765dc"
+      },
+      "src/features/presets/types.ts": {
+        "gitBlob": "186e2c21fa61fe39d58428d8110ad085697aabab",
+        "sha256": "9c9e9a86800f91e9339908381f1154242fe23bced7900799bec5fac8fbea3ede"
+      },
+      "src-tauri/src/preset_transfer.rs": {
+        "gitBlob": "9c9c632679c69034b3655b1d2ee6023bc65ffce8",
+        "sha256": "3817eb4703abb7a4a8ba7c70ba775512274744af6691fe4af8f1064076e9c904"
+      }
+    }
+  },
+  "catalogVersion": 3,
+  "presetKeys": [
+    "petRightArmBendPercent",
+    "petRightArmSpreadDegrees",
+    "petLeftArmBendPercent",
+    "petLeftArmSpreadDegrees",
+    "petHeadScalePercent",
+    "petRotationDegrees",
+    "petDeskOffset",
+    "dmeloperEyebrows",
+    "dmeloperPalmColor",
+    "showDisplayArea",
+    "autoViewportEnabled",
+    "autoViewportPaddingPixels",
+    "manualViewportRect",
+    "sceneRotationOffsetDegrees",
+    "cameraHorizontalOffset",
+    "cameraVerticalOffset",
+    "cameraZoomPercent",
+    "keyboardColor",
+    "keyboardKeycapColor",
+    "keyboardLegendColor",
+    "keyboardPressedColor",
+    "mouseColor",
+    "mousePressedColor",
+    "mouseEnabled",
+    "mouseBaseXOffset",
+    "mouseBaseZOffset",
+    "mouseScalePercent",
+    "keyboardBaseXOffset",
+    "keyboardBaseZOffset",
+    "keyboardScalePercent",
+    "keyboardLegendLanguage"
+  ],
+  "defaults": {
+    "preset": {
+      "petRightArmBendPercent": 100,
+      "petRightArmSpreadDegrees": 0,
+      "petLeftArmBendPercent": 100,
+      "petLeftArmSpreadDegrees": 0,
+      "petHeadScalePercent": 100,
+      "petRotationDegrees": 0,
+      "petDeskOffset": 0,
+      "dmeloperEyebrows": {
+        "enabled": true,
+        "color": "#523830",
+        "centerOffsetPixels": 0,
+        "heightOffsetPixels": 0.3,
+        "spacingPixels": 1.5,
+        "widthPixels": 2,
+        "thicknessPixels": 0.5,
+        "depthPercent": 50
+      },
+      "dmeloperPalmColor": "#FFDFCE",
+      "showDisplayArea": false,
+      "autoViewportEnabled": true,
+      "autoViewportPaddingPixels": 4,
+      "manualViewportRect": {
+        "x": 0,
+        "y": 0,
+        "width": 500,
+        "height": 422
+      },
+      "sceneRotationOffsetDegrees": 0,
+      "cameraHorizontalOffset": 0,
+      "cameraVerticalOffset": 0,
+      "cameraZoomPercent": 100,
+      "keyboardColor": "#d5d8dc",
+      "keyboardKeycapColor": "#f7f3e8",
+      "keyboardLegendColor": "#31343a",
+      "keyboardPressedColor": "#f2b36d",
+      "mouseColor": "#ffffff",
+      "mousePressedColor": "#f2b36d",
+      "mouseEnabled": true,
+      "mouseBaseXOffset": 0,
+      "mouseBaseZOffset": 0,
+      "mouseScalePercent": 100,
+      "keyboardBaseXOffset": 0,
+      "keyboardBaseZOffset": 0,
+      "keyboardScalePercent": 100,
+      "keyboardLegendLanguage": "ko"
+    },
+    "appearance": {
+      "selectedModelId": "dmeloper",
+      "dmeloperSkinModel": "wide",
+      "useDefaultDmeloperSkin": true
+    },
+    "mirror": false,
+    "opacity": 100,
+    "eyebrowAnimationEnabled": true
+  },
+  "cases": [
+    {
+      "id": "default-local",
+      "snapshot": {
+        "preset": {
+          "petRightArmBendPercent": 100,
+          "petRightArmSpreadDegrees": 0,
+          "petLeftArmBendPercent": 100,
+          "petLeftArmSpreadDegrees": 0,
+          "petHeadScalePercent": 100,
+          "petRotationDegrees": 0,
+          "petDeskOffset": 0,
+          "dmeloperEyebrows": {
+            "enabled": true,
+            "color": "#523830",
+            "centerOffsetPixels": 0,
+            "heightOffsetPixels": 0.3,
+            "spacingPixels": 1.5,
+            "widthPixels": 2,
+            "thicknessPixels": 0.5,
+            "depthPercent": 50
+          },
+          "dmeloperPalmColor": "#FFDFCE",
+          "showDisplayArea": false,
+          "autoViewportEnabled": true,
+          "autoViewportPaddingPixels": 4,
+          "manualViewportRect": {
+            "x": 0,
+            "y": 0,
+            "width": 500,
+            "height": 422
+          },
+          "sceneRotationOffsetDegrees": 0,
+          "cameraHorizontalOffset": 0,
+          "cameraVerticalOffset": 0,
+          "cameraZoomPercent": 100,
+          "keyboardColor": "#d5d8dc",
+          "keyboardKeycapColor": "#f7f3e8",
+          "keyboardLegendColor": "#31343a",
+          "keyboardPressedColor": "#f2b36d",
+          "mouseColor": "#ffffff",
+          "mousePressedColor": "#f2b36d",
+          "mouseEnabled": true,
+          "mouseBaseXOffset": 0,
+          "mouseBaseZOffset": 0,
+          "mouseScalePercent": 100,
+          "keyboardBaseXOffset": 0,
+          "keyboardBaseZOffset": 0,
+          "keyboardScalePercent": 100,
+          "keyboardLegendLanguage": "ko"
+        },
+        "appearance": {
+          "selectedModelId": "dmeloper",
+          "dmeloperSkinModel": "wide",
+          "useDefaultDmeloperSkin": true
+        },
+        "mirror": false,
+        "opacity": 100,
+        "eyebrowAnimationEnabled": true
+      }
+    },
+    {
+      "id": "custom-wider-local",
+      "snapshot": {
+        "preset": {
+          "petRightArmBendPercent": 100,
+          "petRightArmSpreadDegrees": 0,
+          "petLeftArmBendPercent": 100,
+          "petLeftArmSpreadDegrees": 0,
+          "petHeadScalePercent": 100,
+          "petRotationDegrees": 137,
+          "petDeskOffset": 1.25,
+          "dmeloperEyebrows": {
+            "enabled": true,
+            "color": "#523830",
+            "centerOffsetPixels": 0,
+            "heightOffsetPixels": 0.3,
+            "spacingPixels": 1.5,
+            "widthPixels": 2,
+            "thicknessPixels": 0.5,
+            "depthPercent": 50
+          },
+          "dmeloperPalmColor": "#FFDFCE",
+          "showDisplayArea": false,
+          "autoViewportEnabled": true,
+          "autoViewportPaddingPixels": 4,
+          "manualViewportRect": {
+            "x": 0,
+            "y": 0,
+            "width": 500,
+            "height": 422
+          },
+          "sceneRotationOffsetDegrees": 0,
+          "cameraHorizontalOffset": 0,
+          "cameraVerticalOffset": 0,
+          "cameraZoomPercent": 137,
+          "keyboardColor": "#d5d8dc",
+          "keyboardKeycapColor": "#f7f3e8",
+          "keyboardLegendColor": "#31343a",
+          "keyboardPressedColor": "#f2b36d",
+          "mouseColor": "#ffffff",
+          "mousePressedColor": "#f2b36d",
+          "mouseEnabled": true,
+          "mouseBaseXOffset": -1.25,
+          "mouseBaseZOffset": 0,
+          "mouseScalePercent": 100,
+          "keyboardBaseXOffset": 0,
+          "keyboardBaseZOffset": 0,
+          "keyboardScalePercent": 100,
+          "keyboardLegendLanguage": "ko"
+        },
+        "appearance": {
+          "selectedModelId": "dmeloper",
+          "dmeloperSkinModel": "slim",
+          "useDefaultDmeloperSkin": true,
+          "dmeloperSkinDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAACg0lEQVR4nO2aT2sTQRTA37xMlqIXb34AxYMURaQ1ENSTaLGHIl6s1YIVPChKUdSPoOBXKAVpwIP00H8IlkI9qScpHkTwIl5aomJswOzmj6S6674lnTTOptnZNz8IO+/N7GPe7puZzcwT0Iarp443VPV3708q7z86PCYgwSAwB4E5CMxBYA4CcxCYg8AcMZo/plzn21GuuMp6r1pT1i+9+9DT7wQE5shOGhdmpoLy5bEJSAP4P863klP7AAozU1u/AyfOBDq/nIaHgDtptD77Aj69eRnIzXJTlwZE48t79Srg/ZvlHz15vHV9eO9BoCt+/aa8ffz6rUSvArKTxmHH04KIKkZO50lE3Lhzk9QPXRhVvrFG6aMyop49X1R26NK1yY7sr716q7X/gNtVONkscAC3q3A9DziAwBxxPp8jY6per5MGFZdGglerEnlufpq2//vfYH+mj+jXa7/+XDeKRF/6uansYP/hQy3tB3bb2Dt5Vj1noV9wsnRBiMpZqZaj+A5Hy0lD+gXXo282KntVtdyKJDvug8AcBOZIf7yHQz4qN8d7OOSjcjfZJ+hkChn6zjLOHiLvlZ31C7s1/k0BgTkIzMG413/TkIW5WS0DlR+fwWTk6vKyloHcAP1UtVgsFvasLDxt7ESXalZCDrNzPuw4W+dNQUDCWXu9QCLIdemeYLH4ncib5TKRL165nXgfLRaLxWLpESJug3HnF+ie//dsU9QxJL8Au2XYlPwCBOYIXQPdyi+I6/x/1yLAMfR8AeMyZOr5IgJzJBiO7n6BjKMTOvkFuuf/B3PDvZ8EXUPHfxP2cwACc5Dr+u8jdQ3o5hdAaQOMfgCrmvkF5waP6HZBi9+8Fx5tnPZcnwAAAABJRU5ErkJggg==",
+          "minecraftSkinUsername": "Fixture_User",
+          "activeSkinLibraryEntryId": "c79c163fcde7edd727499d449421dae7a1f5e5d1004152512c84b68656099b88"
+        },
+        "mirror": false,
+        "opacity": 100,
+        "eyebrowAnimationEnabled": true
+      }
+    }
+  ],
+  "valueCases": [],
+  "catalog": {
+    "schemaVersion": 3,
+    "activeId": "initial",
+    "entries": [
+      {
+        "id": "builtin:default",
+        "name": "",
+        "builtin": true,
+        "favorite": false,
+        "snapshot": {
+          "preset": {
+            "petRightArmBendPercent": 100,
+            "petRightArmSpreadDegrees": 0,
+            "petLeftArmBendPercent": 100,
+            "petLeftArmSpreadDegrees": 0,
+            "petHeadScalePercent": 100,
+            "petRotationDegrees": 0,
+            "petDeskOffset": 0,
+            "dmeloperEyebrows": {
+              "enabled": true,
+              "color": "#523830",
+              "centerOffsetPixels": 0,
+              "heightOffsetPixels": 0.3,
+              "spacingPixels": 1.5,
+              "widthPixels": 2,
+              "thicknessPixels": 0.5,
+              "depthPercent": 50
+            },
+            "dmeloperPalmColor": "#FFDFCE",
+            "showDisplayArea": false,
+            "autoViewportEnabled": true,
+            "autoViewportPaddingPixels": 4,
+            "manualViewportRect": {
+              "x": 0,
+              "y": 0,
+              "width": 500,
+              "height": 422
+            },
+            "sceneRotationOffsetDegrees": 0,
+            "cameraHorizontalOffset": 0,
+            "cameraVerticalOffset": 0,
+            "cameraZoomPercent": 100,
+            "keyboardColor": "#d5d8dc",
+            "keyboardKeycapColor": "#f7f3e8",
+            "keyboardLegendColor": "#31343a",
+            "keyboardPressedColor": "#f2b36d",
+            "mouseColor": "#ffffff",
+            "mousePressedColor": "#f2b36d",
+            "mouseEnabled": true,
+            "mouseBaseXOffset": 0,
+            "mouseBaseZOffset": 0,
+            "mouseScalePercent": 100,
+            "keyboardBaseXOffset": 0,
+            "keyboardBaseZOffset": 0,
+            "keyboardScalePercent": 100,
+            "keyboardLegendLanguage": "ko"
+          },
+          "appearance": {
+            "selectedModelId": "dmeloper",
+            "dmeloperSkinModel": "wide",
+            "useDefaultDmeloperSkin": true
+          },
+          "mirror": false,
+          "opacity": 100,
+          "eyebrowAnimationEnabled": true
+        }
+      },
+      {
+        "id": "initial",
+        "name": "Historical development custom",
+        "builtin": false,
+        "favorite": false,
+        "snapshot": {
+          "preset": {
+            "petRightArmBendPercent": 100,
+            "petRightArmSpreadDegrees": 0,
+            "petLeftArmBendPercent": 100,
+            "petLeftArmSpreadDegrees": 0,
+            "petHeadScalePercent": 100,
+            "petRotationDegrees": 137,
+            "petDeskOffset": 1.25,
+            "dmeloperEyebrows": {
+              "enabled": true,
+              "color": "#523830",
+              "centerOffsetPixels": 0,
+              "heightOffsetPixels": 0.3,
+              "spacingPixels": 1.5,
+              "widthPixels": 2,
+              "thicknessPixels": 0.5,
+              "depthPercent": 50
+            },
+            "dmeloperPalmColor": "#FFDFCE",
+            "showDisplayArea": false,
+            "autoViewportEnabled": true,
+            "autoViewportPaddingPixels": 4,
+            "manualViewportRect": {
+              "x": 0,
+              "y": 0,
+              "width": 500,
+              "height": 422
+            },
+            "sceneRotationOffsetDegrees": 0,
+            "cameraHorizontalOffset": 0,
+            "cameraVerticalOffset": 0,
+            "cameraZoomPercent": 137,
+            "keyboardColor": "#d5d8dc",
+            "keyboardKeycapColor": "#f7f3e8",
+            "keyboardLegendColor": "#31343a",
+            "keyboardPressedColor": "#f2b36d",
+            "mouseColor": "#ffffff",
+            "mousePressedColor": "#f2b36d",
+            "mouseEnabled": true,
+            "mouseBaseXOffset": -1.25,
+            "mouseBaseZOffset": 0,
+            "mouseScalePercent": 100,
+            "keyboardBaseXOffset": 0,
+            "keyboardBaseZOffset": 0,
+            "keyboardScalePercent": 100,
+            "keyboardLegendLanguage": "ko"
+          },
+          "appearance": {
+            "selectedModelId": "dmeloper",
+            "dmeloperSkinModel": "slim",
+            "useDefaultDmeloperSkin": true,
+            "dmeloperSkinDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAACg0lEQVR4nO2aT2sTQRTA37xMlqIXb34AxYMURaQ1ENSTaLGHIl6s1YIVPChKUdSPoOBXKAVpwIP00H8IlkI9qScpHkTwIl5aomJswOzmj6S6674lnTTOptnZNz8IO+/N7GPe7puZzcwT0Iarp443VPV3708q7z86PCYgwSAwB4E5CMxBYA4CcxCYg8AcMZo/plzn21GuuMp6r1pT1i+9+9DT7wQE5shOGhdmpoLy5bEJSAP4P863klP7AAozU1u/AyfOBDq/nIaHgDtptD77Aj69eRnIzXJTlwZE48t79Srg/ZvlHz15vHV9eO9BoCt+/aa8ffz6rUSvArKTxmHH04KIKkZO50lE3Lhzk9QPXRhVvrFG6aMyop49X1R26NK1yY7sr716q7X/gNtVONkscAC3q3A9DziAwBxxPp8jY6per5MGFZdGglerEnlufpq2//vfYH+mj+jXa7/+XDeKRF/6uansYP/hQy3tB3bb2Dt5Vj1noV9wsnRBiMpZqZaj+A5Hy0lD+gXXo282KntVtdyKJDvug8AcBOZIf7yHQz4qN8d7OOSjcjfZJ+hkChn6zjLOHiLvlZ31C7s1/k0BgTkIzMG413/TkIW5WS0DlR+fwWTk6vKyloHcAP1UtVgsFvasLDxt7ESXalZCDrNzPuw4W+dNQUDCWXu9QCLIdemeYLH4ncib5TKRL165nXgfLRaLxWLpESJug3HnF+ie//dsU9QxJL8Au2XYlPwCBOYIXQPdyi+I6/x/1yLAMfR8AeMyZOr5IgJzJBiO7n6BjKMTOvkFuuf/B3PDvZ8EXUPHfxP2cwACc5Dr+u8jdQ3o5hdAaQOMfgCrmvkF5waP6HZBi9+8Fx5tnPZcnwAAAABJRU5ErkJggg==",
+            "minecraftSkinUsername": "Fixture_User",
+            "activeSkinLibraryEntryId": "c79c163fcde7edd727499d449421dae7a1f5e5d1004152512c84b68656099b88"
+          },
+          "mirror": false,
+          "opacity": 100,
+          "eyebrowAnimationEnabled": true
+        }
+      }
+    ]
+  },
+  "unsupportedCurrentPaths": [
+    [
+      "preset",
+      "petRotationDegrees"
+    ],
+    [
+      "preset",
+      "petDeskOffset"
+    ],
+    [
+      "preset",
+      "mouseBaseXOffset"
+    ]
+  ]
+}

@@ -8,15 +8,26 @@ import type { PresetSnapshot } from './types'
 
 import { clonePreset } from './model'
 
-async function isLegacyBundledSkin(snapshot: PresetSnapshot, entryId: string): Promise<boolean> {
+function isOptionalLibraryFailure(cause: unknown): cause is SkinLibraryError {
+  return cause instanceof SkinLibraryError && ['STORAGE_UNAVAILABLE', 'IO_ERROR'].includes(cause.code)
+}
+
+async function isLegacyBundledSkin(snapshot: PresetSnapshot, entryId: string, blob: Blob): Promise<boolean> {
   if (snapshot.appearance.minecraftSkinUsername) return false
   try {
+    // Released materialization used the PNG digest when no selection ID existed.
+    // Native local/Java IDs hash their own namespace and filename/username. A
+    // removed user entry must keep that identity even when its PNG is bundled.
+    const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer())
+    const pngSha256 = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
+    if (entryId !== pngSha256) return false
     if (snapshot.appearance.dmeloperSkinDataUrl !== await resolveDmeloperSkinUrl()) return false
     // A user import with identical pixels keeps its own editable library identity.
     const entries = await listSkinLibraryEntries()
     return !entries.some(entry => entry.id === entryId)
   } catch (error) {
-    // Resource/catalog failures cannot discard a saved skin. Retry on the next apply.
+    if (error instanceof SkinLibraryError && !isOptionalLibraryFailure(error)) throw error
+    // Optional resource/catalog reads cannot discard a validated saved skin.
     console.warn('The bundled preset skin identity could not be verified.', error)
     return false
   }
@@ -37,7 +48,7 @@ async function prepareSkin(snapshot: PresetSnapshot, preserveUserIdentity = fals
     const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer())
     next.appearance.activeSkinLibraryEntryId = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
   }
-  if (!bundled && !preserveUserIdentity && await isLegacyBundledSkin(next, next.appearance.activeSkinLibraryEntryId)) {
+  if (!bundled && !preserveUserIdentity && await isLegacyBundledSkin(next, next.appearance.activeSkinLibraryEntryId, blob)) {
     next.appearance.activeSkinLibraryEntryId = BUILTIN_DMELOPER_SKIN.id
   }
   // Decoding validates bytes and resolves compatible geometry; appearance belongs to the preset.
@@ -51,11 +62,26 @@ export async function preparePresetSkin(snapshot: PresetSnapshot): Promise<Prese
 }
 
 /** Explicit application alone can restore a removed user skin from retained PNG bytes. */
-export async function restorePresetSkin(snapshot: PresetSnapshot, name: string): Promise<PresetSnapshot> {
+export async function restorePresetSkin(
+  snapshot: PresetSnapshot,
+  name: string,
+  onUnavailable?: (cause: SkinLibraryError) => void,
+): Promise<PresetSnapshot> {
   const prepared = await prepareSkin(snapshot, true)
-  const next = prepared.snapshot
-  if (next.appearance.activeSkinLibraryEntryId === BUILTIN_DMELOPER_SKIN.id) return next
+  if (prepared.snapshot.appearance.activeSkinLibraryEntryId === BUILTIN_DMELOPER_SKIN.id) return prepared.snapshot
+  try {
+    return await restorePreparedSkin(prepared, name)
+  } catch (cause) {
+    if (!onUnavailable || !isOptionalLibraryFailure(cause)) throw cause
+    // Application can use the validated embedded PNG without claiming a library
+    // acknowledgement. Preserve its identity and let the caller report the gap.
+    onUnavailable(cause)
+    return prepared.snapshot
+  }
+}
 
+async function restorePreparedSkin(prepared: Awaited<ReturnType<typeof prepareSkin>>, name: string): Promise<PresetSnapshot> {
+  const next = prepared.snapshot
   const digest = await crypto.subtle.digest('SHA-256', await prepared.blob.arrayBuffer())
   const pngSha256 = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
   const entries = await listSkinLibraryEntries()

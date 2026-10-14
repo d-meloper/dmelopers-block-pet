@@ -7,14 +7,15 @@ import ts from 'typescript'
 
 import * as prompt from '@/features/petRuntime/recoveryPrompt'
 import * as events from '@/features/petRuntime/types'
+import * as recoveryWait from '@/features/recovery/wait'
 
-function fixture(registration: Promise<void> | ((event: string) => Promise<void>) = Promise.resolve(), failSecond = false) {
+function fixture(registration: Promise<void> | ((event: string) => Promise<void>) = Promise.resolve(), failSecond: boolean | number = false) {
   const mounted: Array<() => Promise<void>> = []
   const disposed: Array<() => void> = []
   const listeners = new Map<string, (event: { payload: unknown }) => void>()
   const released: string[] = []
   const queried: string[] = []
-  const dialogs: Array<{ onOk: () => Promise<void> }> = []
+  const dialogs: Array<{ onOk: () => Promise<void>, content: { children: Array<{ children: string }> } }> = []
   const diagnostics: unknown[] = []
   let restarts = 0
   let activeIncident: number | undefined = 1
@@ -23,11 +24,14 @@ function fixture(registration: Promise<void> | ((event: string) => Promise<void>
     listeners.get(event)?.({ payload: { incident } })
   }
   const mocks: Record<string, unknown> = {
-    'vue': { onMounted: (fn: () => Promise<void>) => mounted.push(fn), onUnmounted: (fn: () => void) => disposed.push(fn) },
+    'vue': { h: (_tag: string, children: unknown) => ({ children }), onMounted: (fn: () => Promise<void>) => mounted.push(fn), onUnmounted: (fn: () => void) => disposed.push(fn) },
     '@tauri-apps/api/event': {
       listen: async (event: string, listener: (event: { payload: unknown }) => void) => {
         await (typeof registration === 'function' ? registration(event) : registration)
-        if (failSecond && event === events.PET_RUNTIME_RESTART_REQUIRED) throw new Error('registration failed')
+        if (failSecond && event === events.PET_RUNTIME_RESTART_REQUIRED) {
+          if (typeof failSecond === 'number') failSecond--
+          throw new Error('registration failed')
+        }
         listeners.set(event, listener)
         return () => {
           released.push(event)
@@ -41,13 +45,14 @@ function fixture(registration: Promise<void> | ((event: string) => Promise<void>
         if (activeIncident !== undefined) listeners.get(events.PET_RUNTIME_RESTART_REQUIRED)?.({ payload: { incident: activeIncident } })
       },
     },
-    'ant-design-vue': { Modal: { confirm: (options: { onOk: () => Promise<void> }) => {
+    'ant-design-vue': { Modal: { confirm: (options: typeof dialogs[number]) => {
       dialogs.push(options)
       return { destroy: () => {} }
     } }, message: { error: () => {} } },
     '@/constants': { WINDOW_LABEL: { MAIN: 'main' } },
     '@/features/petRuntime/recoveryPrompt': prompt,
     '@/features/petRuntime/types': events,
+    '@/features/recovery/wait': { ...recoveryWait, waitForRecovery: <T>(operation: Promise<T>, _timeout: number, signal: AbortSignal) => recoveryWait.waitForRecovery(operation, 1000, signal) },
     '@/plugins/process': { restartApp: async () => {
       restarts++
     } },
@@ -58,7 +63,7 @@ function fixture(registration: Promise<void> | ((event: string) => Promise<void>
   const exports = {} as { usePetRuntimeRecovery: (t: (key: string) => string) => void }
   runInNewContext(ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, { exports, require: (name: string) => mocks[name] })
+  }).outputText, { exports, require: (name: string) => mocks[name], AbortController, setTimeout: (callback: () => void) => setTimeout(callback, 5), clearTimeout })
   exports.usePetRuntimeRecovery(key => key)
   return { mount: () => Promise.all(mounted.map(fn => fn())), dispose: () => disposed.forEach(fn => fn()), dialogs, queried, released, diagnostics, emitRuntime, listeners, restarts: () => restarts }
 }
@@ -68,6 +73,7 @@ it('replays a startup incident after subscribing and delegates a confirmed resta
   await h.mount()
   assert.deepEqual(h.queried, [events.PET_RUNTIME_RECOVERY_QUERY])
   assert.equal(h.dialogs.length, 1)
+  assert.ok(h.dialogs[0].content.children.some(paragraph => paragraph.children === 'recovery.guidance.lastResort'))
   assert.equal(h.restarts(), 0)
   await h.dialogs[0].onOk()
   assert.equal(h.restarts(), 1)
@@ -96,6 +102,18 @@ it('releases partial subscriptions and reports registration failure', async () =
   assert.equal(h.queried.length, 0)
   assert.equal(h.diagnostics.length, 1)
   h.dispose()
+})
+
+it('a transient listener failure retries setup in order and replays the existing incident without restarting', async () => {
+  const h = fixture(Promise.resolve(), 1)
+  await h.mount()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(h.queried, [events.PET_RUNTIME_RECOVERY_QUERY])
+  assert.equal(h.dialogs.length, 1)
+  assert.equal(h.restarts(), 0)
+  assert.equal(h.diagnostics.length, 1)
+  h.dispose()
+  assert.equal(h.released.length, 3)
 })
 
 it('cannot open a stale failure prompt before the recovery listener finishes registering', async () => {

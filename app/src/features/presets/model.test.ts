@@ -5,18 +5,19 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import { DESK_SETTING_KEYS, LEGACY_DESK_SETTINGS } from '@/config/desk'
 import { DEFAULT_DEVICE_COLORS, DEVICE_COLOR_KEYS } from '@/config/deviceColors'
-import presetRanges from '@/config/presetRanges.json'
 import { preparePetStateForSync, useBlockStore } from '@/stores/block'
 import { LEGACY_SKIN_APPEARANCE_KEYS } from '@/stores/petSettingsMigration'
 
 import type { PresetCollection, PresetSnapshot } from './types'
 
+import { inspectPresetCompatibility, isPresetSourceSettings, presetSettings, presetSource } from './compatibility'
 import {
   applyPresetSnapshot,
   capturePresetSnapshot,
   clonePreset,
   createDefaultPresetSnapshot,
   createPresetCollection,
+  isExecutablePresetSnapshot,
   isPresetSnapshot,
   migratePresetCollection,
   movePreset,
@@ -55,6 +56,7 @@ describe('preset ownership and persistence', () => {
     source.window.passThrough = true
     source.model.mirror = true
     source.model.eyebrowAnimationEnabled = false
+    source.activePet3dPreset.petAnimationMode = 'headbutt'
     source.model.maxFPS = 30
     source.activePet3dPreset.viewportModeRevision = 87
     source.activePet3dPreset.mouseEnabled = false
@@ -65,6 +67,7 @@ describe('preset ownership and persistence', () => {
     assert.equal(snapshot.opacity, 45)
     assert.equal(snapshot.mirror, true)
     assert.equal(snapshot.eyebrowAnimationEnabled, false)
+    assert.equal(snapshot.preset.petAnimationMode, 'headbutt')
     assert.equal(snapshot.preset.mouseEnabled, false)
     assert.equal(snapshot.preset.keyboardLegendLanguage, 'en')
     assert.equal('viewportModeRevision' in snapshot.preset, false)
@@ -83,6 +86,7 @@ describe('preset ownership and persistence', () => {
     assert.equal(target.window.passThrough, false)
     assert.equal(target.activePet3dPreset.viewportModeRevision, 121)
     assert.equal(target.activePet3dPreset.cameraZoomPercent, 140)
+    assert.equal(target.activePet3dPreset.petAnimationMode, 'headbutt')
     snapshot.preset.manualViewportRect.width = 150
     assert.notEqual(target.activePet3dPreset.manualViewportRect.width, 150)
   })
@@ -213,7 +217,7 @@ describe('saved preset range recovery', () => {
     assert.equal(target.presetCollection.activeId, DEFAULT_PRESET_ID)
   })
 
-  it('applies runtime bounds only to the current copy and retains the stored snapshot', () => {
+  it('retains unsupported saved values as source while applying only the executable catalog projection', () => {
     const target = store()
     const saved = savedCatalog()
     saved.entries[1].snapshot.preset.petRotationDegrees = 90
@@ -221,13 +225,18 @@ describe('saved preset range recovery', () => {
     const before = clonePreset(saved)
     target.presetCollection = saved
     target.init()
-    assert.deepEqual(target.presetCollection, before)
+    const migrated = target.presetCollection!
+    assert.deepEqual(presetSource(migrated.entries[1]), presetSettings(before.entries[1].snapshot))
+    assert.ok(inspectPresetCompatibility(presetSource(migrated.entries[1])).some(issue => issue.path[1] === 'petRotationDegrees'))
+    assert.equal(isExecutablePresetSnapshot(migrated.entries[1].snapshot), true)
+    const retained = clonePreset(migrated)
     applyPresetSnapshot(target, target.presetCollection.entries[1].snapshot)
-    assert.equal(target.activePet3dPreset.petRotationDegrees, presetRanges.preset.petRotationDegrees.max)
+    assert.equal(target.activePet3dPreset.petRotationDegrees, createDefaultPresetSnapshot().preset.petRotationDegrees)
     assert.equal(target.activePet3dPreset.petDeskOffset, -0.044)
-    assert.deepEqual(target.presetCollection, before)
+    assert.deepEqual(target.presetCollection, retained)
     target.init()
-    assert.deepEqual(target.presetCollection, before)
+    assert.deepEqual(target.presetCollection, retained)
+    assert.equal(before.entries[1].snapshot.preset.petRotationDegrees, 90)
   })
 
   it('preserves unsupported/corrupt catalog evidence for validation instead of repairing it into acceptance', () => {
@@ -235,7 +244,6 @@ describe('saved preset range recovery', () => {
     for (const damage of [
       (value: ReturnType<typeof createPresetCollection>) => value.schemaVersion = 999,
       (value: ReturnType<typeof createPresetCollection>) => value.entries[1].snapshot.preset.lighting.key.strengthPercent = Number.NaN,
-      (value: ReturnType<typeof createPresetCollection>) => Reflect.set(value.entries[1].snapshot.preset, 'unknownField', 1),
     ]) {
       const saved = savedCatalog(createDefaultPresetSnapshot())
       saved.entries[1].snapshot.preset.petRotationDegrees = 90
@@ -320,7 +328,11 @@ it('upgrades every v1 preset palette before strict validation and keeps existing
   assert.equal(migratePresetCollection(migrated), migrated)
   const corrupt = clonePreset(before)
   corrupt.entries[1].snapshot.preset.keyboardColor = 'invalid'
-  assert.throws(() => validatePresetCollection(migratePresetCollection(corrupt)))
+  const archived = migratePresetCollection(corrupt)
+  validatePresetCollection(archived)
+  assert.deepEqual(presetSource(archived.entries[1]), presetSettings(corrupt.entries[1].snapshot))
+  assert.equal(isExecutablePresetSnapshot(archived.entries[1].snapshot), true)
+  assert.ok(inspectPresetCompatibility(presetSource(archived.entries[1])).some(issue => issue.path[1] === 'keyboardColor' && issue.reason === 'color'))
 })
 
 it('migrates v2 skin memory into inert evidence while preserving each explicit preset appearance', () => {
@@ -414,7 +426,9 @@ it('adds default head size to existing version 3 catalogs without losing saved s
   const migrated = migratePresetCollection(legacy)
   validatePresetCollection(migrated)
   assert.equal(migrated.entries[0].snapshot.preset.petHeadScalePercent, 100)
-  assert.equal(migrated.entries[0].snapshot.preset.petRotationDegrees, 37)
+  assert.equal(migrated.entries[0].snapshot.preset.petRotationDegrees, createDefaultPresetSnapshot().preset.petRotationDegrees)
+  assert.equal((presetSource(migrated.entries[0]).preset as Record<string, unknown>).petRotationDegrees, 37)
+  assert.ok(inspectPresetCompatibility(presetSource(migrated.entries[0])).some(issue => issue.path[1] === 'petRotationDegrees' && issue.reason === 'range'))
   assert.equal(migratePresetCollection(migrated), migrated)
 })
 
@@ -467,7 +481,7 @@ it('additively migrates desk settings in existing catalogs and retains each expl
   for (const key of DESK_SETTING_KEYS) assert.equal(target.activePet3dPreset[key], LEGACY_DESK_SETTINGS[key])
 })
 
-it('rejects explicit invalid desk values and unknown preset fields without masking them during migration', () => {
+it('archives bounded invalid desk values and unknown fields without executing them; non-JSON evidence remains rejected', () => {
   for (const changes of [
     { deskTransparent: null },
     { deskTransparent: 'true' },
@@ -493,7 +507,20 @@ it('rejects explicit invalid desk values and unknown preset fields without maski
     const collection = savedCatalog()
     Object.assign(collection.entries[0].snapshot.preset, changes)
     assert.equal(isPresetSnapshot(collection.entries[0].snapshot), false)
-    assert.throws(() => validatePresetCollection(migratePresetCollection(collection)))
+    const original = presetSettings(collection.entries[0].snapshot)
+    const migrated = migratePresetCollection(collection)
+    if (!isPresetSourceSettings(original)) {
+      assert.throws(() => validatePresetCollection(migrated))
+      assert.deepEqual(migrated, collection)
+      continue
+    }
+    validatePresetCollection(migrated)
+    assert.deepEqual(presetSource(migrated.entries[0]), original)
+    assert.ok(inspectPresetCompatibility(presetSource(migrated.entries[0])).length)
+    assert.equal(isExecutablePresetSnapshot(migrated.entries[0].snapshot), true)
+    assert.deepEqual(presetSettings(collection.entries[0].snapshot), original)
+    const restored = JSON.parse(JSON.stringify(migrated))
+    assert.deepEqual(migratePresetCollection(restored), migrated)
   }
 })
 
@@ -517,4 +544,29 @@ it('removes only the legacy default entry and preserves local user presets and s
     { id: 'builtin:default', name: '', builtin: true, favorite: false, snapshot: createDefaultPresetSnapshot() },
   ] })
   assert.deepEqual(migrated, createPresetCollection())
+})
+
+it('additively migrates old catalogs to default animation and preserves explicit modes and retained sources', () => {
+  for (const schemaVersion of [1, 2, 3, 4]) {
+    const collection = savedCatalog()
+    collection.schemaVersion = schemaVersion
+    Reflect.deleteProperty(collection.entries[0].snapshot.preset, 'petAnimationMode')
+    collection.entries[1].snapshot.preset.petAnimationMode = 'headbutt'
+    const original = { preset: { petAnimationMode: 'future-mode', retained: null } }
+    collection.entries[1].sourceSettings = original
+    const before = JSON.stringify(collection)
+    const migrated = migratePresetCollection(collection)
+    validatePresetCollection(migrated)
+    assert.equal(migrated.schemaVersion, 4)
+    assert.equal(migrated.entries[0].snapshot.preset.petAnimationMode, 'default')
+    assert.equal(migrated.entries[1].snapshot.preset.petAnimationMode, 'headbutt')
+    assert.deepEqual(migrated.entries[1].sourceSettings, original)
+    assert.equal(JSON.stringify(collection), before)
+    assert.equal(migratePresetCollection(migrated), migrated)
+    const target = store()
+    for (const entry of migrated.entries) {
+      applyPresetSnapshot(target, entry.snapshot)
+      assert.equal(capturePresetSnapshot(target).preset.petAnimationMode, entry.snapshot.preset.petAnimationMode)
+    }
+  }
 })

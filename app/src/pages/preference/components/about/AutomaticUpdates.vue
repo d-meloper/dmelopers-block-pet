@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { Button, Flex, message, Progress } from 'ant-design-vue'
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import RecoveryFeedback from '@/components/recovery-feedback/index.vue'
 import { usePreferenceUpdates } from '@/composables/usePreferenceUpdates'
 import { APP_DISPLAY_NAME } from '@/constants/branding'
 import { reportDiagnostic } from '@/services/diagnostics'
@@ -11,14 +12,22 @@ import { useAppStore } from '@/stores/app'
 
 import AppIdentity from './AppIdentity.vue'
 import MicrosoftStoreIcon from './MicrosoftStoreIcon.vue'
+import { createSupportRecovery } from './supportRecovery'
 
 const { t } = useI18n()
 const app = useAppStore()
-const { channel, appInfo: info, checking, phase, percent, failed, busy, canCancel, cancelling, cancel, check, update: install } = usePreferenceUpdates()
+const { channel, appInfo: info, checking, phase, percent, failed, busy, canCancel, cancelling, cancel, check, update: install, recovery, handoffUnconfirmed } = usePreferenceUpdates()
 const openingStore = ref(false)
+const storeRecovery = createSupportRecovery()
+const { report: storeReport, busy: storeBusy } = storeRecovery
+let disposed = false
+onBeforeUnmount(() => {
+  disposed = true
+  storeRecovery.dispose()
+})
 const installAvailable = computed(() => (channel.value === 'github' || channel.value === 'test')
   && !failed.value && !!info.value?.available && !!info.value.version)
-const actionDisabled = computed(() => busy.value || openingStore.value || channel.value === 'development')
+const actionDisabled = computed(() => busy.value || openingStore.value || storeBusy.value || handoffUnconfirmed?.value || channel.value === 'development')
 const actionSpinning = computed(() => busy.value || openingStore.value)
 const actionLabel = computed(() => t(channel.value === 'store'
   ? 'storeUpdates.open'
@@ -34,16 +43,16 @@ const status = computed(() => {
 const description = computed(() => [`v${app.version}`, status.value].filter(Boolean).join(' '))
 
 async function runUpdateAction() {
-  if (actionDisabled.value) return
+  if (disposed || actionDisabled.value) return
   if (channel.value === 'store') {
     openingStore.value = true
     try {
-      await openStore()
-    } catch (error) {
-      reportDiagnostic('warn', 'updates.open_store', error)
-      message.error(t('storeUpdates.openFailed'))
+      await storeRecovery.run('open', current => openStore(current), (error) => {
+        reportDiagnostic('warn', 'updates.open_store', error)
+        message.error(t('storeUpdates.openFailed'))
+      })
     } finally {
-      openingStore.value = false
+      if (!disposed) openingStore.value = false
     }
     return
   }
@@ -120,6 +129,7 @@ async function runUpdateAction() {
       </Button>
     </Flex>
   </AppIdentity>
+  <RecoveryFeedback :report="storeReport ?? recovery" />
 </template>
 
 <style scoped>

@@ -1,18 +1,18 @@
 #[path = "state_safety/general_defaults.rs"]
 mod general_defaults;
 mod settings_defaults;
+#[path = "state_safety/startup_stores.rs"]
+mod startup_stores;
 #[path = "system_language.rs"]
 #[allow(dead_code)]
 mod system_language;
-#[path = "state_safety/startup_stores.rs"]
-mod startup_stores;
 
 use general_defaults::initialize_store;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::{fs, path::Path};
 use tauri::{
+    test::{mock_builder, mock_context, noop_assets, MockRuntime},
     Manager,
-    test::{MockRuntime, mock_builder, mock_context, noop_assets},
 };
 use tauri_plugin_pinia::ManagerExt;
 
@@ -99,6 +99,45 @@ fn missing_defaults_reach_native_memory_before_frontends_without_an_eager_save()
 }
 
 #[test]
+fn foreground_rule_records_remain_atomic_through_native_save_and_reload() {
+    for raw in [
+        json!({"enabled":true}),
+        json!(null),
+        json!([]),
+        json!({
+            "enabled": true, "applications": ["C:\\Apps\\Player.exe"],
+            "sites": ["example.com"], "future": {"retained": 0}
+        }),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join(filename());
+        let initial = json!({"migrated":true,"app":{"foregroundHiding":raw}});
+        let bytes = serde_json::to_vec(&initial).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        let first = app(temp.path());
+        initialize_store(first.handle()).unwrap();
+        assert_eq!(
+            first.pinia().try_state::<Value>("general").unwrap()["app"]["foregroundHiding"],
+            raw
+        );
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        first.pinia().save_all_now().unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(&path).unwrap()).unwrap()["app"]
+                ["foregroundHiding"],
+            raw
+        );
+        drop(first);
+        let second = app(temp.path());
+        initialize_store(second.handle()).unwrap();
+        assert_eq!(
+            second.pinia().try_state::<Value>("general").unwrap()["app"]["foregroundHiding"],
+            raw
+        );
+    }
+}
+
+#[test]
 fn shared_language_default_is_system_and_existing_explicit_choices_survive() {
     let defaults: Value = settings_defaults::section("general").unwrap();
     assert_eq!(defaults["appearance"]["language"], "system");
@@ -113,7 +152,10 @@ fn shared_language_default_is_system_and_existing_explicit_choices_survive() {
         let state = app.pinia().try_state::<Value>("general").unwrap();
         assert_eq!(state["appearance"]["language"], language);
         assert_eq!(state["appearance"]["retained"], 0);
-        assert_eq!(state["appearance"]["theme"], defaults["appearance"]["theme"]);
+        assert_eq!(
+            state["appearance"]["theme"],
+            defaults["appearance"]["theme"]
+        );
         assert_eq!(fs::read(&path).unwrap(), before);
     }
 }

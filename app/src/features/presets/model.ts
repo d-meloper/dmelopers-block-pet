@@ -1,18 +1,19 @@
 import type { BlockStore } from '@/stores/block'
 
-import { DEFAULT_MODEL_SETTINGS, DEFAULT_SKIN_APPEARANCE, DEFAULT_WINDOW_SETTINGS } from '@/config/defaultSettings'
+import { DEFAULT_MODEL_SETTINGS, DEFAULT_PET_PRESET, DEFAULT_SKIN_APPEARANCE, DEFAULT_WINDOW_SETTINGS } from '@/config/defaultSettings'
 import { isDeskSettings, migrateDeskSettings } from '@/config/desk'
 import { DEFAULT_DEVICE_COLORS, DEVICE_COLOR_KEYS } from '@/config/deviceColors'
 import { migrateDmeloperEyebrowDepth } from '@/config/dmeloperEyebrows'
 import { isLightingSettings, migratePresetLighting } from '@/config/lighting'
 import { DEFAULT_PET_MODEL_ID } from '@/config/model3d'
+import { migratePetMotionSettings } from '@/config/petMotion'
 import { isSkinSelectionId } from '@/config/skinIdentity'
 import { createDefaultPet3dPreset } from '@/stores/block'
 import { LEGACY_SKIN_APPEARANCE_KEYS, splitLegacySkinAppearance } from '@/stores/petSettingsMigration'
 
 import type { PresetCollection, PresetEntry, PresetSnapshot } from './types'
 
-import { inspectPresetCompatibility, isPresetSourceSettings, presetSettings } from './compatibility'
+import { inspectPresetCompatibility, isPresetSourceSettings, migratedPresetSettings, presetSettings, projectPresetSettings } from './compatibility'
 import { PRESET_APPEARANCE_KEYS, PRESET_COLLECTION_VERSION, PRESET_SETTING_KEYS } from './types'
 
 export function clonePreset<T>(value: T): T {
@@ -45,7 +46,7 @@ export function capturePresetSnapshot(store: BlockStore): PresetSnapshot {
 
 export function applyPresetSnapshot(store: BlockStore, snapshot: PresetSnapshot, revision?: number, visible = true): void {
   const next = clonePreset(snapshot)
-  next.preset = migratePresetLighting(migrateDeskSettings(next.preset))
+  next.preset = migratedPresetSettings(presetSettings(next)).preset as PresetSnapshot['preset']
   const customization = store.customization3d
   for (const key of PRESET_APPEARANCE_KEYS) delete (customization as unknown as Record<string, unknown>)[key]
   Object.assign(customization, Object.fromEntries(PRESET_APPEARANCE_KEYS.map(key => [key, next.appearance[key]])), { skinLibraryMigrationCompleted: true })
@@ -83,7 +84,11 @@ export function isPresetSnapshot(value: unknown): value is PresetSnapshot {
     && isLightingSettings(migratePresetLighting(snapshot.preset).lighting)
     && isDeskSettings(migrateDeskSettings(snapshot.preset))
     && matchesShape({
-      ...migratePresetLighting(migrateDeskSettings(snapshot.preset)),
+      ...migratePetMotionSettings(migratePresetLighting(migrateDeskSettings(snapshot.preset))),
+      ...('petAnimationMode' in snapshot.preset ? {} : { petAnimationMode: DEFAULT_PET_PRESET.petAnimationMode }),
+      ...('petShoulderTorsoConnected' in snapshot.preset ? {} : { petShoulderTorsoConnected: DEFAULT_PET_PRESET.petShoulderTorsoConnected }),
+      ...('petRightArmDisabled' in snapshot.preset ? {} : { petRightArmDisabled: DEFAULT_PET_PRESET.petRightArmDisabled }),
+      ...('petLeftArmDisabled' in snapshot.preset ? {} : { petLeftArmDisabled: DEFAULT_PET_PRESET.petLeftArmDisabled }),
       dmeloperEyebrows: migrateDmeloperEyebrowDepth(snapshot.preset.dmeloperEyebrows),
     }, createDefaultPresetSnapshot().preset)
     && matchesShape(snapshot.appearance, createDefaultPresetSnapshot().appearance)
@@ -91,6 +96,7 @@ export function isPresetSnapshot(value: unknown): value is PresetSnapshot {
     && snapshot.preset.cameraZoomPercent > 0
     && snapshot.preset.manualViewportRect.width > 0 && snapshot.preset.manualViewportRect.height > 0
     && ['ko', 'en'].includes(snapshot.preset.keyboardLegendLanguage)
+    && (!('petAnimationMode' in snapshot.preset) || ['default', 'headbutt'].includes(snapshot.preset.petAnimationMode))
     && DEVICE_COLOR_KEYS.every(key => /^#[0-9a-f]{6}$/i.test(snapshot.preset[key]))
     && (snapshot.appearance.activeSkinLibraryEntryId === undefined || isSkinSelectionId(snapshot.appearance.activeSkinLibraryEntryId))
     && /^#[0-9a-f]{6}$/i.test(snapshot.preset.dmeloperPalmColor)
@@ -116,12 +122,6 @@ export function migratePresetCollection(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value
   const source = value as PresetCollection
   if (![1, 2, 3, 4].includes(source.schemaVersion) || !Array.isArray(source.entries)) return value
-  if (source.schemaVersion === PRESET_COLLECTION_VERSION
-    && source.entries.every(entry => entry?.snapshot?.preset && typeof entry.snapshot.preset === 'object' && 'petHeadScalePercent' in entry.snapshot.preset
-      && entry.snapshot.preset.dmeloperEyebrows === migrateDmeloperEyebrowDepth(entry.snapshot.preset.dmeloperEyebrows)
-      && entry.snapshot.preset === migratePresetLighting(migrateDeskSettings(entry.snapshot.preset)))) {
-    return value
-  }
   const archive = { ...source.legacyAppearanceArchive }
   const entries = source.schemaVersion < PRESET_COLLECTION_VERSION
     ? source.entries.filter(entry => entry?.id !== 'builtin:default')
@@ -131,7 +131,7 @@ export function migratePresetCollection(value: unknown): unknown {
     schemaVersion: PRESET_COLLECTION_VERSION,
     activeId: source.schemaVersion < PRESET_COLLECTION_VERSION && source.activeId === 'builtin:default' ? null : source.activeId,
     entries: entries.map((entry) => {
-      if (!entry?.snapshot?.preset || typeof entry.snapshot.preset !== 'object') return entry
+      if (!entry?.snapshot?.preset || typeof entry.snapshot.preset !== 'object' || Array.isArray(entry.snapshot.preset)) return entry
       const nextEntry = { ...entry } as PresetEntry & { builtin?: unknown }
       if (source.schemaVersion < PRESET_COLLECTION_VERSION) delete nextEntry.builtin
       const snapshot = { ...entry.snapshot } as PresetSnapshot & { visible?: unknown }
@@ -141,22 +141,46 @@ export function migratePresetCollection(value: unknown): unknown {
         snapshot.appearance = legacy.appearance as PresetSnapshot['appearance']
         if (legacy.archive && typeof entry.id === 'string') archive[entry.id] = clonePreset({ ...legacy.archive, ...archive[entry.id] })
       }
-      return {
-        ...nextEntry,
-        snapshot: {
-          ...snapshot,
-          preset: {
-            ...(source.schemaVersion === 1 ? DEFAULT_DEVICE_COLORS : {}),
-            ...migratePresetLighting(migrateDeskSettings(snapshot.preset)),
-            ...('petHeadScalePercent' in snapshot.preset ? {} : { petHeadScalePercent: 100 }),
-            dmeloperEyebrows: migrateDmeloperEyebrowDepth(snapshot.preset.dmeloperEyebrows),
-          },
+      const original = presetSettings(snapshot)
+      // Non-JSON values and oversized/deep sources remain invalid evidence.
+      // Projection must not turn them into an accepted catalog by serializing.
+      if (!isPresetSourceSettings(original)) return { ...nextEntry, snapshot }
+      const legacy = {
+        ...original,
+        preset: {
+          ...(source.schemaVersion === 1 ? DEFAULT_DEVICE_COLORS : {}),
+          ...snapshot.preset,
+          ...('petHeadScalePercent' in snapshot.preset ? {} : { petHeadScalePercent: 100 }),
         },
       }
+      const settings = migratedPresetSettings(legacy)
+      const partial = inspectPresetCompatibility(legacy).length > 0
+      // Keep the old source when a current reader cannot execute all of it, or
+      // an established migration retires/changes explicit fields. Missing-only
+      // additions need no second source. Never replace an existing source.
+      if (nextEntry.sourceSettings === undefined && (partial || changesExistingSettings(original, settings))) {
+        nextEntry.sourceSettings = clonePreset(original)
+      }
+      const executable = partial ? projectPresetSettings(legacy) : settings
+      // Keep unchanged snapshot property order as well as values, while removing
+      // unsupported root fields only from the executable copy.
+      nextEntry.snapshot = Object.fromEntries(Object.entries({ ...snapshot, ...executable })
+        .filter(([key]) => key === 'appearance' || Object.prototype.hasOwnProperty.call(executable, key))) as unknown as PresetSnapshot
+      return nextEntry
     }),
   }
-  if (Object.keys(archive).length) return { ...migrated, legacyAppearanceArchive: archive }
-  return migrated
+  const result = Object.keys(archive).length ? { ...migrated, legacyAppearanceArchive: archive } : migrated
+  // Avoid replacing an already migrated Pinia catalog on every initialization.
+  return JSON.stringify(result) === JSON.stringify(value) ? value : result
+}
+
+function changesExistingSettings(previous: unknown, current: unknown): boolean {
+  if (previous && typeof previous === 'object' && !Array.isArray(previous)) {
+    return !current || typeof current !== 'object' || Array.isArray(current)
+      || Object.entries(previous).some(([key, value]) => !Object.prototype.hasOwnProperty.call(current, key)
+        || changesExistingSettings(value, (current as Record<string, unknown>)[key]))
+  }
+  return JSON.stringify(previous) !== JSON.stringify(current)
 }
 
 export function validatePresetCollection(value: unknown): asserts value is PresetCollection {

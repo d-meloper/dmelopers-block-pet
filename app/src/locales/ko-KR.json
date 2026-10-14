@@ -1,4 +1,115 @@
 {
+  "recovery": {
+    "status": {
+      "running": "복구 방법을 시도하고 결과를 확인하고 있습니다.",
+      "recovered": "다시 시도한 작업의 결과를 확인했습니다.",
+      "unresolved": "복구를 시도했지만 문제가 남아 있습니다.",
+      "unknown": "응답을 확인하지 못해 해결 여부를 판단할 수 없습니다.",
+      "cancelled": "설정이나 작업 상태가 바뀌어 이번 확인을 중단했습니다."
+    },
+    "step": {
+      "running": "시도 중",
+      "passed": "확인됨",
+      "failed": "확인 실패",
+      "skipped": "확인하지 않음"
+    },
+    "nextSteps": "다음 해결 방법을 순서대로 확인해 주세요.",
+    "guidance": {
+      "checkAppWindow": "환경 설정 창을 다시 열어 응답을 확인하세요. 저장 중인 작업이 끝난 뒤 앱을 재실행하고, 계속 실패하면 정보 탭에서 로그를 확인하세요.",
+      "logs": "환경 설정 → 정보 → 로그 열기에서 발생 시각의 오류 기록을 확인하세요.",
+      "support": "문제가 계속되면 정보 탭의 문의 항목으로 앱 버전, 발생 시각, 이번 시도 결과를 전달하세요.",
+      "restart": "저장 중인 작업이 끝난 뒤 설정을 저장하고 앱을 종료·재실행하세요. 재실행 후 같은 작업을 다시 확인하세요.",
+      "storage": "디스크의 여유 공간과 앱 데이터의 읽기·쓰기 권한을 확인하세요. 파일을 사용하는 다른 작업이 끝난 뒤 다시 시도하세요.",
+      "timeout": "기존 요청이 계속 처리 중일 수 있습니다. 중복 작업을 시작하지 말고 잠시 기다린 뒤 상태를 확인하세요.",
+      "changed": "진행 중 설정이나 대상이 변경됐습니다. 현재 상태가 안정된 뒤 다시 시도해 주세요.",
+      "lastResort": "앞선 방법을 확인해도 문제 원인을 찾을 수 없다면 컴퓨터 재부팅, 프로그램 재설치를 시도해 주세요. 재설치 시 기존 설정과 사용자 데이터를 유지하세요.",
+      "retryUpdateCheck": "진행 중인 작업이 끝난 뒤 업데이트 확인을 다시 눌러 최신 결과를 확인하세요. 설치를 중복 실행하지 마세요.",
+      "contactSupport": "정보 탭의 문의 항목으로 앱 버전, 발생 시각, 실패한 단계와 로그를 전달하세요.",
+      "checkNetwork": "인터넷 연결, VPN·프록시 설정과 업데이트 서버 접근을 확인한 뒤 업데이트 확인을 다시 누르세요.",
+      "verifyUpdate": "업데이트 검증에 실패했습니다. 파일을 임의로 실행하거나 검증을 건너뛰지 말고, 업데이트를 다시 확인하세요. 계속되면 로그를 첨부해 문의하세요.",
+      "checkStorage": "디스크 여유 공간과 앱 데이터의 읽기·쓰기 권한을 확인하세요. 다른 작업이 해당 파일을 사용 중이라면 끝난 뒤 다시 시도하세요.",
+      "waitForOperation": "기존 요청이 계속 처리 중일 수 있습니다. 진행 중인 작업의 종료를 확인한 뒤 다시 시도하세요.",
+      "preserveSettings": "설정 저장을 확인하지 못했습니다. 현재 설정과 원본 데이터를 보존하고 저장 작업이 끝난 뒤 다시 확인하세요.",
+      "manualUpdate": "설정과 사용자 데이터를 보존하고 정보 탭의 공식 다운로드 경로에서 현재 배포 방식에 맞는 업데이트 방법을 확인하세요.",
+      "confirmUpdate": "설치 프로그램의 완료 여부를 확인하고 앱을 다시 열어 정보 탭의 버전을 확인하세요. 응답이 없다고 설치를 중복 실행하지 마세요.",
+      "checkWindowsOpener": "Windows에서 폴더와 웹 링크를 열 수 있는지, 기본 브라우저와 연결 프로그램 설정이 정상인지 확인한 뒤 다시 눌러 주세요.",
+      "copySupportManually": "클립보드 복사를 다시 시도하세요. 계속 실패하면 표시된 문의 정보와 오류 기록을 직접 복사해 전달하세요.",
+      "retrySupport": "인터넷 연결을 확인하고 안내를 다시 불러오세요. 계속 실패하면 정보 탭의 문의 항목을 이용하세요.",
+      "checkPresetFile": "프리셋 원본을 보존하고 지원되는 파일과 버전인지 확인하세요. 파일을 다시 선택해 가져오기 결과와 각 항목의 오류를 확인하세요.",
+      "preserveData": "문제 해결을 위해 기존 프리셋·스킨·앱 데이터를 삭제하거나 초기화하지 마세요. 원본을 보존한 채 실패한 항목을 확인하세요.",
+      "retryDataRead": "현재 저장·가져오기 작업이 끝난 뒤 목록 또는 미리보기의 다시 시도를 눌러 결과를 확인하세요.",
+      "checkSkinFile": "스킨 원본을 보존하고 지원되는 Minecraft PNG 스킨인지 확인하세요. 오류가 난 파일을 다시 선택해 가져오기 결과를 확인하세요."
+    },
+    "broadcast": {
+      "configurationFailed": "현재 방송 설정을 다시 적용했지만 거부됐습니다.",
+      "backupWarning": "방송 상태는 확인했지만 주소 복구용 정보 저장에 문제가 남아 있습니다.",
+      "off": "방송 서버가 꺼진 상태임을 확인했습니다.",
+      "connected": "방송 서버 상태와 연결된 브라우저 소스의 현재 장면 준비 상태를 확인했습니다.",
+      "renderUnconfirmed": "방송 서버는 확인했지만 현재 장면의 표시 준비 응답은 확인하지 못했습니다.",
+      "waiting": "방송 서버는 준비됐습니다. OBS 브라우저 소스 연결을 기다리고 있습니다.",
+      "steps": {
+        "ready": "설정과 장면의 준비 상태 확인",
+        "subscribe": "연결 상태 알림 다시 연결",
+        "configure": "현재 방송 설정 다시 적용",
+        "verify": "앱의 실제 방송 상태 다시 확인",
+        "render": "브라우저 소스의 장면 준비 응답 확인"
+      },
+      "guidance": {
+        "port": "방송 주소의 포트를 사용할 수 없습니다. 앱이 중복 실행됐는지와 해당 포트를 사용하는 프로그램을 확인하고, 충돌을 해소한 뒤 다시 시도하세요.",
+        "address": "OBS 브라우저 소스의 URL이 앱에서 복사한 현재 방송 주소와 일치하는지 확인하세요. 복구 과정에서 주소를 바꾸지 않았습니다.",
+        "identity": "저장된 방송 주소 정보가 서로 다르거나 손상됐습니다. 기존 데이터를 보존한 채 앱을 종료하고, 로그와 복구용 정보의 상태를 확인하세요.",
+        "noReset": "앱 데이터나 방송 주소 파일을 삭제·초기화하지 마세요. 복구할 기존 주소를 확인할 수 없는 경우 로그를 첨부해 문의하세요.",
+        "scene": "현재 장면 설정의 적용이 거부됐습니다. 설정을 저장하고 앱을 재실행한 뒤 다시 시도하세요. 계속되면 앱 업데이트와 오류 기록을 확인하세요.",
+        "skin": "현재 스킨 정보를 방송 장면으로 전달하지 못했습니다. 원본을 보존하고 지원되는 Minecraft PNG 스킨인지 확인한 뒤 다시 적용하세요.",
+        "previousScene": "가능한 경우 이전에 표시되던 장면을 유지합니다. 스킨 원본을 수정하거나 삭제하기 전에 로그의 오류를 확인하세요.",
+        "refresh": "OBS에서 해당 브라우저 소스를 새로고침하세요. 소스가 활성 상태이고 방송 사용이 ON인지 확인하세요.",
+        "acceleration": "OBS 설정의 브라우저 소스 하드웨어 가속을 확인하세요. 변경 시 OBS를 재실행하고 해당 소스를 다시 확인하세요.",
+        "input": "입력 반응에 필요한 수집기를 준비하지 못했습니다. 앱을 재실행한 뒤 키보드·마우스 반응을 확인하세요. 계속되면 입력 오류 기록을 함께 문의하세요.",
+        "server": "로컬 방송 서버를 준비하거나 유지하지 못했습니다. 앱 실행 상태와 포트 사용 상태를 확인하고 재실행 후 다시 시도하세요.",
+        "ready": "다른 설정 적용이나 불러오기가 끝날 때까지 기다리세요. 장면 준비가 끝난 뒤 다시 시도해 주세요.",
+        "disabled": "방송 사용이 OFF인 상태에서는 OBS 연결을 시작하지 않습니다. 연결하려면 방송 사용을 ON으로 켜세요.",
+        "bridge": "앱과 환경 설정 창의 응답 또는 상태 알림을 확인하지 못했습니다. 현재 작업이 끝난 뒤 앱을 재실행하고 다시 시도하세요."
+      }
+    },
+    "summary": {
+      "updateWindowUnknown": "환경 설정 창의 상태를 확인하지 못했습니다. 이번 업데이트 확인 결과도 확정할 수 없습니다.",
+      "updateWaitUnknown": "업데이트 요청의 응답을 확인하지 못했습니다. 기존 작업이 계속 진행 중일 수 있습니다.",
+      "updateFailed": "업데이트 작업을 완료하지 못했습니다.",
+      "updateHandoffUnknown": "설치 프로그램 실행 요청이 처리됐습니다. 설치 완료와 새 앱 버전은 직접 확인해 주세요.",
+      "updateCheckComplete": "업데이트 확인 결과를 받았습니다.",
+      "supportWaitUnknown": "열기·복사 요청의 응답을 확인하지 못했습니다.",
+      "supportFailed": "요청한 열기·복사 또는 안내 불러오기를 완료하지 못했습니다.",
+      "supportOpened": "열기 요청을 전달했습니다. 실제 창이나 웹페이지가 열렸는지 확인해 주세요.",
+      "supportCopied": "복사 요청이 처리됐습니다. 붙여넣어 내용을 확인해 주세요.",
+      "dataRecoveryFailed": "다시 확인했지만 데이터 작업에 문제가 남아 있습니다.",
+      "dataWaitUnknown": "데이터 작업의 응답을 확인하지 못했습니다. 기존 작업이 끝날 때까지 기다려 주세요.",
+      "presetsReady": "프리셋 작업 결과와 현재 오류 상태를 확인했습니다.",
+      "presetImportComplete": "프리셋 가져오기 결과를 확인했습니다.",
+      "skinLibraryReady": "스킨 목록을 다시 불러와 결과를 확인했습니다.",
+      "skinPreviewReady": "스킨 미리보기 준비 상태를 확인했습니다.",
+      "skinCleanupPending": "스킨 정리가 아직 완료되지 않았습니다.",
+      "skinCleanupComplete": "스킨 정리 완료 응답을 확인했습니다.",
+      "skinImportFailed": "스킨 가져오기를 완료하지 못했습니다."
+    },
+    "steps": {
+      "observeUpdateWindow": "환경 설정 창 상태 다시 확인",
+      "checkUpdates": "업데이트 정보 다시 확인",
+      "downloadUpdate": "업데이트 다운로드",
+      "verifyUpdate": "업데이트 무결성과 서명 확인",
+      "saveUpdate": "설치 전 현재 설정 저장 확인",
+      "handoffUpdate": "설치 프로그램 실행 요청",
+      "openSupport": "로그 폴더 또는 웹페이지 열기 요청",
+      "copySupport": "문의 정보 복사 요청",
+      "loadNotice": "안내 불러오기",
+      "restorePresets": "프리셋 상태 다시 확인",
+      "createPreset": "프리셋 생성 다시 시도",
+      "retryPresetImport": "프리셋 가져오기 다시 시도",
+      "loadSkins": "스킨 목록 다시 불러오기",
+      "skinPreview": "스킨 미리보기 다시 준비",
+      "cleanupSkins": "대기 중인 스킨 정리 다시 시도",
+      "importSkins": "스킨 가져오기 결과 확인"
+    }
+  },
   "pages": {
     "main": {
       "loading": "불러오는 중…",
@@ -157,9 +268,14 @@
           "preview": "미리보기를 만들지 못했습니다.",
           "load": "프리셋을 불러오지 못했습니다. 다시 시도해 주세요."
         },
+        "warnings": {
+          "skinLibraryUnavailable": "프리셋 {name}을 저장된 스킨 이미지로 적용했습니다. 스킨 라이브러리 복원은 확인되지 않았습니다. 원본 프리셋은 보존되며, 다시 적용해 복원을 재시도할 수 있습니다."
+        },
         "builtinNames": {
           "default": "기본",
           "sunset": "기본 (저녁 노을)",
+          "headbutt": "기본 (박치기)",
+          "torsoHeadbutt": "몸통 박치기",
           "front": "정면",
           "bigHeadKeyboard": "대두 키보드"
         },
@@ -191,6 +307,18 @@
             "structure": "현재 설정 구조"
           },
           "settings": {
+            "petAnimationMode": "타이핑 모션",
+            "petHeadbuttRecoilEnabled": "반동 사용",
+            "petHeadbuttMaxRadius": "박치기 최대 반경",
+            "petTypingRadius": "타이핑 반경",
+            "petHeadbuttRecoilStrength": "반동 크기",
+            "petHeadbuttRecoilWobble": "출렁임",
+            "petTypingHandLift": "손 들림",
+            "petTypingBodyMotion": "몸 움직임",
+            "petTypingReturnSpeed": "복귀 속도",
+            "petShoulderTorsoConnected": "어깨 몸통 연결",
+            "petRightArmDisabled": "오른팔 끄기",
+            "petLeftArmDisabled": "왼팔 끄기",
             "petRightArmBendPercent": "오른팔 굽힘",
             "petLeftArmBendPercent": "왼팔 굽힘",
             "petRightArmSpreadDegrees": "오른팔 벌림",
@@ -268,17 +396,20 @@
         "detailTabs": {
           "body": "머리·몸",
           "arms": "팔·손바닥",
-          "eyebrows": "눈썹"
+          "eyebrows": "눈썹",
+          "motion": "동작"
         },
         "detailReset": {
           "body": "머리·몸 설정 초기화",
           "arms": "팔·손바닥 설정 초기화",
-          "eyebrows": "눈썹 설정 초기화"
+          "eyebrows": "눈썹 설정 초기화",
+          "motion": "동작 설정 초기화"
         },
         "detailResetConfirm": {
           "body": "머리·몸 설정을 기본값으로 초기화하시겠습니까?",
           "arms": "양팔과 손바닥 색상을 기본값으로 초기화하시겠습니까?",
-          "eyebrows": "눈썹 설정을 기본값으로 초기화하시겠습니까?"
+          "eyebrows": "눈썹 설정을 기본값으로 초기화하시겠습니까?",
+          "motion": "동작 설정을 기본값으로 초기화하시겠습니까?"
         },
         "labels": {
           "modelSettings": "장면 설정",
@@ -304,7 +435,21 @@
           "dmeloperSkinModel": "스킨 유형",
           "petHeadScale": "머리 크기",
           "petBehaviorSettings": "펫 외형",
+          "petAnimationMode": "타이핑 모션",
+          "petShoulderTorsoConnected": "어깨 몸통 연결",
+          "petRightArmDisabled": "오른팔 끄기",
+          "petLeftArmDisabled": "왼팔 끄기",
+          "petRightArmVisible": "오른팔 표시",
+          "petLeftArmVisible": "왼팔 표시",
           "petRightArmBend": "오른쪽 팔 구부림 정도",
+          "petHeadbuttRecoilEnabled": "반동 사용",
+          "petHeadbuttMaxRadius": "박치기 최대 반경",
+          "petTypingRadius": "타이핑 반경",
+          "petHeadbuttRecoilStrength": "반동 크기",
+          "petHeadbuttRecoilWobble": "출렁임",
+          "petTypingHandLift": "손 들림",
+          "petTypingBodyMotion": "몸 움직임",
+          "petTypingReturnSpeed": "복귀 속도",
           "petRightArmSpread": "오른쪽 팔 반경",
           "petLeftArmBend": "왼쪽 팔 구부림 정도",
           "petLeftArmSpread": "왼쪽 팔 반경",
@@ -355,6 +500,17 @@
           "minecraftSkinUsername": "Minecraft: Java Edition 닉네임에 연결된 스킨을 조회해 펫에 적용합니다.",
           "dmeloperSkinModel": "와이드 모델은 스킨이 지원하는 경우에만 선택할 수 있습니다.",
           "petHeadScale": "펫의 머리 크기를 변경합니다.",
+          "petShoulderTorsoConnected": "펫 모델의 어깨 접합부와 몸통을 연결합니다.",
+          "petHeadbuttRecoilEnabled": "박치기 후 몸을 들어 올릴 때 자연스럽게 반동이 생깁니다.",
+          "petHeadbuttMaxRadius": "값이 클수록 박치기가 닿는 범위가 넓어집니다.",
+          "petTypingRadius": "값이 클수록 팔을 더 멀리 뻗어 타이핑합니다.",
+          "petHeadbuttRecoilStrength": "값이 클수록 목을 더 크게 젖힙니다.",
+          "petHeadbuttRecoilWobble": "값이 클수록 앞뒤로 더 오래 출렁입니다. ('반동 크기'의 값이 -0.7 이하일 때 이 옵션은 숨겨집니다.)",
+          "petTypingHandLift": "값이 클수록 손을 더 높이 들어 타이핑합니다.",
+          "petTypingBodyMotion": "값이 클수록 타이핑할 때 몸을 더 크게 움직이고 허리를 더 깊게 숙입니다.",
+          "petTypingReturnSpeed": "값이 클수록 타이핑 후 더 빨리 복귀를 시작하고, 손과 몸이 더 빠르게 원래 자세로 돌아갑니다.",
+          "petRightArmDisabled": "오른팔과 손바닥을 숨기고 해당 팔의 애니메이션을 끕니다.",
+          "petLeftArmDisabled": "왼팔과 손바닥을 숨기고 해당 팔의 애니메이션을 끕니다.",
           "petRightArmBend": "오른쪽 팔꿈치의 구부림을 조절합니다.",
           "petRightArmSpread": "오른쪽 팔을 수평 방향으로 회전합니다.",
           "petLeftArmBend": "왼쪽 팔꿈치의 구부림을 조절합니다.",
@@ -381,6 +537,10 @@
           "minecraftSkinLoading": "Minecraft 스킨 조회 서비스에서 확인하는 중…"
         },
         "options": {
+          "petAnimationMode": {
+            "default": "기본",
+            "headbutt": "박치기"
+          },
           "dmeloperSkinModel": {
             "wide": "와이드",
             "slim": "슬림"
@@ -835,6 +995,52 @@
           "copyInfo": "환경 정보를 복사하지 못했습니다. 다시 시도해 주세요.",
           "openLog": "로그 폴더를 열지 못했습니다. 다시 시도해 주세요.",
           "copyEmail": "이메일 주소를 복사하지 못했습니다. 다시 시도해 주세요."
+        }
+      },
+      "foregroundHiding": {
+        "title": "펫 자동 숨기기",
+        "faqLabel": "펫 자동 숨기기 FAQ",
+        "faqQuestion": "Q. 등록한 앱을 켜도 펫이 숨겨지지 않아요.",
+        "faqAnswer": "A. 등록한 프로그램이 일반 설치본, Store 설치본 처럼 다른 경로로 설치돼있거나, 포터블 형태로 설치된 경우 실제 실행하는 앱과 다르게 지정하면 이 문제가 발생할 수 있습니다. 올바른 앱을 선택했는지 다시 한 번 확인해주세요.",
+        "enabled": "펫 자동 숨기기",
+        "enabledHint": "등록한 앱의 창이 활성 창일 때 데스크톱 펫을 일시적으로 숨깁니다.",
+        "applications": "자동 숨김 대상 앱",
+        "noApplications": "추가한 앱이 없습니다.",
+        "addApplication": "앱 추가",
+        "removeApplication": "{name} 제거",
+        "applicationModalTitle": "설치된 앱 선택",
+        "applicationModalHint": "설치된 앱을 선택하거나 PC에서 실행 파일을 직접 지정하세요.",
+        "sharedExecutable": "이 바로가기의 실행 파일을 기준으로 함께 적용됩니다.",
+        "unresolvedApplication": "실행 파일을 확인할 수 없습니다. PC에서 앱 선택으로 직접 지정하세요.",
+        "requiresExecutable": "직접 지정 필요",
+        "selectFromPc": "PC에서 앱 선택",
+        "searchApplications": "프로그램 검색",
+        "noMatchingApplications": "검색한 프로그램이 없습니다.",
+        "loadingApplications": "설치된 앱을 불러오는 중…",
+        "noInstalledApplications": "표시할 앱을 찾지 못했습니다. PC에서 앱 선택으로 실행 파일을 직접 지정하세요.",
+        "addNamedApplication": "{name} 추가",
+        "add": "추가",
+        "added": "추가됨",
+        "remove": "제거",
+        "invalidHint": "저장된 자동 숨기기 설정이 올바르지 않습니다. 원래 저장된 값은 유지되며 자동 숨기기는 작동하지 않습니다. 이 항목을 초기화하여 잘못된 규칙을 제거하거나 저장된 설정을 수정한 뒤 사용하세요.",
+        "repair": "자동 숨기기 초기화",
+        "repairTitle": "자동 숨기기 설정을 초기화할까요?",
+        "repairHint": "자동 숨기기를 끄고 선택한 앱을 제거합니다. 다른 환경설정은 유지됩니다.",
+        "unavailableHint": "앞에 있는 앱을 확인하지 못했습니다. 확인할 수 없는 동안에는 펫을 자동으로 숨기지 않습니다. 앱이 더 높은 권한으로 실행 중인지 확인하세요.",
+        "status": {
+          "off": "자동 숨기기가 꺼져 있습니다.",
+          "empty": "자동 숨기기를 사용하려면 앱을 추가하세요.",
+          "observing": "앞에 있는 앱을 확인 중입니다.",
+          "hidden": "선택한 앱에서 데스크톱 펫을 숨겼습니다.",
+          "bypassed": "현재 방문에서는 펫을 직접 표시했습니다.",
+          "unavailable": "앞에 있는 앱을 확인할 수 없습니다.",
+          "invalid": "저장된 자동 숨기기 설정을 확인해 주세요."
+        },
+        "errors": {
+          "limit": "앱은 {count}개까지 추가할 수 있습니다. 기존 앱을 제거한 뒤 추가하세요.",
+          "applicationsUnavailable": "설치된 앱을 불러오지 못했습니다. PC에서 앱 선택으로 실행 파일을 직접 지정하세요.",
+          "applicationsIncomplete": "일부 등록 정보를 읽지 못했거나 목록 한도에 도달했습니다. 표시된 앱을 선택하거나 PC에서 실행 파일을 직접 지정하세요.",
+          "selectionUnavailable": "앱을 선택하지 못했습니다. 실행 파일을 다시 선택해 주세요."
         }
       },
       "broadcast": {

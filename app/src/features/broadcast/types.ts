@@ -25,6 +25,8 @@ export interface BroadcastStatus {
   enabled: boolean
   url?: string
   clients: number
+  sceneRevision?: number
+  confirmedClients?: number
   error?: string
   warning?: string
 }
@@ -41,6 +43,9 @@ export function isBroadcastStatus(value: unknown): value is BroadcastStatus {
   const status = value as BroadcastStatus
   return typeof status.enabled === 'boolean'
     && Number.isSafeInteger(status.clients) && status.clients >= 0
+    && (status.sceneRevision === undefined || (Number.isSafeInteger(status.sceneRevision) && status.sceneRevision >= 1))
+    && (status.confirmedClients === undefined || (Number.isSafeInteger(status.confirmedClients) && status.confirmedClients >= 0 && status.confirmedClients <= status.clients))
+    && (status.sceneRevision !== undefined || !status.confirmedClients)
     && (status.url === undefined || /^http:\/\/127\.0\.0\.1:\d+\/[a-f0-9]{64}\/$/.test(status.url))
     && (status.error === undefined || typeof status.error === 'string')
     && (status.warning === undefined || status.warning === 'endpoint_backup_unavailable')

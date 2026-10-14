@@ -398,7 +398,7 @@ fn valid_rollback(previous: &PreviousPresetState, expected: &PreviousPresetState
             return false;
         };
         // A new monitor can reduce the crop while preserving its center. No other
-        // appearance/settings change may be excused as rollback normalization.
+        // existing appearance/settings change may be excused as normalization.
         if nw < 100.0
             || nh < 100.0
             || nw > ow
@@ -412,6 +412,25 @@ fn valid_rollback(previous: &PreviousPresetState, expected: &PreviousPresetState
         }
         snapshot["preset"]["manualViewportRect"] = new.clone();
     }
+    // Compare against the same known migrations as the executable reader, but
+    // accept additions only. Retired/invalid/existing fields stay exact in the
+    // receipt and may never be rewritten under a normalization exemption.
+    fn acknowledge_missing(raw: &mut Value, acknowledged: &Value, migrated: &Value) {
+        if let (Some(raw), Some(acknowledged), Some(migrated)) =
+            (raw.as_object_mut(), acknowledged.as_object(), migrated.as_object()) {
+            for (key, default) in migrated {
+                if let Some(existing) = raw.get_mut(key) {
+                    if let Some(reply) = acknowledged.get(key) {
+                        acknowledge_missing(existing, reply, default);
+                    }
+                } else if acknowledged.get(key) == Some(default) {
+                    raw.insert(key.clone(), default.clone());
+                }
+            }
+        }
+    }
+    let migrated = crate::preset_compatibility::migrate(&previous.snapshot);
+    acknowledge_missing(&mut snapshot, &expected.snapshot, &migrated);
     snapshot == expected.snapshot
 }
 

@@ -52,6 +52,8 @@ function trayHarness(existingTray = false, legacyTrayVisible?: boolean, systemLa
   const language = vue.computed(() => resolveLanguage(general.appearance.language, systemLanguage))
   if (legacyTrayVisible !== undefined) general.app.trayVisible = legacyTrayVisible
   const locked = vue.ref(false)
+  const foregroundHidingSuppressed = vue.ref(false)
+  const foregroundHidingStatus = vue.ref<{ matchedRule: object | null }>({ matchedRule: null })
   const editable = vue.ref(true)
   const created: MockMenu[] = []
   const attached: MockMenu[] = []
@@ -116,6 +118,8 @@ function trayHarness(existingTray = false, legacyTrayVisible?: boolean, systemLa
     '@/stores/block': { useBlockStore: () => block },
     '@/stores/general': { useGeneralStore: () => general },
     '@/features/stateSafety': { editorsLocked: locked },
+    '@/services/foregroundHiding': { foregroundHidingSuppressed, foregroundHidingStatus, showForegroundHidingVisit: async () => {} },
+    '@/services/diagnostics': { reportDiagnostic: () => {} },
     '@/utils/latestAsyncTask': { createLatestAsyncTaskQueue },
     './useAppLanguage': { useAppLanguage: () => ({ language }) },
     './useAppMenu': { useAppMenu: () => ({
@@ -150,6 +154,8 @@ function trayHarness(existingTray = false, legacyTrayVisible?: boolean, systemLa
   return {
     state,
     locked,
+    foregroundHidingSuppressed,
+    foregroundHidingStatus,
     editable,
     block,
     general,
@@ -500,6 +506,25 @@ describe('live shared tray menu', () => {
       assert.equal(h.attached.at(-1), menu)
       assert.equal(menu.closed, false)
       assert.deepEqual(h.errors, [])
+    } finally {
+      h.stop()
+    }
+  })
+
+  it('routes an automatically hidden pet through the owner and refreshes its menu', async () => {
+    const h = trayHarness()
+    try {
+      await flush()
+      const count = h.created.length
+      h.foregroundHidingStatus.value = { matchedRule: { kind: 'site', index: 0 } }
+      h.foregroundHidingSuppressed.value = true
+      await flush()
+      assert.ok(h.created.length > count)
+      h.click('Left', 'Up')
+      await flush()
+      assert.deepEqual(h.requests, [{ label: WINDOW_LABEL.PREFERENCE, event: PRESET_EDIT_REQUEST, visible: true }])
+      assert.deepEqual(h.shown, [])
+      assert.equal(h.block.window.visible, true)
     } finally {
       h.stop()
     }

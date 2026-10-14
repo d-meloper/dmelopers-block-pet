@@ -2,6 +2,74 @@
   "version": 1,
   "fields": [
     {
+      "path": ["preset", "petTypingMaxRadiusOffset"],
+      "type": "number",
+      "label": "petTypingRadius",
+      "rangeRef": ["preset", "petTypingMaxRadiusOffset"]
+    },
+    {
+      "path": ["preset", "petHeadbuttMaxRadiusOffset"],
+      "type": "number",
+      "label": "petHeadbuttMaxRadius",
+      "rangeRef": ["preset", "petHeadbuttMaxRadiusOffset"]
+    },
+    {
+      "path": ["preset", "petHeadbuttRecoilEnabled"],
+      "type": "boolean",
+      "label": "petHeadbuttRecoilEnabled"
+    },
+    {
+      "path": ["preset", "petHeadbuttRecoilStrengthPercent"],
+      "type": "number",
+      "label": "petHeadbuttRecoilStrength",
+      "rangeRef": ["preset", "petHeadbuttRecoilStrengthPercent"]
+    },
+    {
+      "path": ["preset", "petHeadbuttRecoilWobblePercent"],
+      "type": "number",
+      "label": "petHeadbuttRecoilWobble",
+      "rangeRef": ["preset", "petHeadbuttRecoilWobblePercent"]
+    },
+    {
+      "path": ["preset", "petTypingHandLiftPercent"],
+      "type": "number",
+      "label": "petTypingHandLift",
+      "rangeRef": ["preset", "petTypingHandLiftPercent"]
+    },
+    {
+      "path": ["preset", "petTypingBodyMotionPercent"],
+      "type": "number",
+      "label": "petTypingBodyMotion",
+      "rangeRef": ["preset", "petTypingBodyMotionPercent"]
+    },
+    {
+      "path": ["preset", "petTypingReturnSpeedPercent"],
+      "type": "number",
+      "label": "petTypingReturnSpeed",
+      "rangeRef": ["preset", "petTypingReturnSpeedPercent"]
+    },
+    {
+      "path": ["preset", "petRightArmDisabled"],
+      "type": "boolean",
+      "label": "petRightArmDisabled"
+    },
+    {
+      "path": ["preset", "petLeftArmDisabled"],
+      "type": "boolean",
+      "label": "petLeftArmDisabled"
+    },
+    {
+      "path": ["preset", "petShoulderTorsoConnected"],
+      "type": "boolean",
+      "label": "petShoulderTorsoConnected"
+    },
+    {
+      "path": ["preset", "petAnimationMode"],
+      "type": "enum",
+      "label": "petAnimationMode",
+      "values": ["default", "headbutt"]
+    },
+    {
       "path": [
         "preset",
         "lighting",
@@ -547,6 +615,12 @@
   "migrations": [
     "legacy-desk-v1",
     "eyebrow-depth-v1",
-    "lighting-v1"
+    "lighting-v1",
+    "pet-animation-v1",
+    "pet-shoulder-connection-v1",
+    "pet-arm-visibility-v1",
+    "pet-motion-controls-v1",
+    "pet-headbutt-radius-v1",
+    "pet-typing-radius-v1"
   ]
 }

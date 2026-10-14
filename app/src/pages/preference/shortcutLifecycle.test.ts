@@ -177,6 +177,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
   }
   function resolve(id: string): unknown {
     if (id === '@/services/diagnostics') return { reportDiagnostic: (level: string, operation: string) => diagnostics.push({ level, operation }) }
+    if (id === '@/services/foregroundHiding') return { foregroundHidingSuppressed: Vue.ref(false), foregroundHidingStatus: Vue.ref(), showForegroundHidingVisit: async () => {} }
     if (id === '@/utils/shortcutIdentity') return { shortcutIdentity }
     if (id === 'vue') return mockVue
     if (id === 'vue-i18n') return { useI18n: () => languageIntegration ? i18n.global : { t: (key: string) => key } }
@@ -291,9 +292,9 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
         checkApp: unexpectedUpdate,
         install: unexpectedUpdate,
         cancel: unexpectedUpdate,
-        hiddenUntil: () => generalStore.app.updateReminderHiddenUntil,
-        hideUntil: (deadline) => {
-          generalStore.app.updateReminderHiddenUntil = deadline
+        reminderSnooze: () => generalStore.app.updateReminderSnooze,
+        snoozeReminder: (value) => {
+          generalStore.app.updateReminderSnooze = value
         },
         report: (_operation, error) => {
           throw error
@@ -810,7 +811,7 @@ describe('preference shortcut lifetime', () => {
       h.fire('Control+KeyK')
       h.fire('Control+KeyL')
       await flush()
-      assert.ok(h.emitted.some(value => value.event === PRESET_EDIT_REQUEST && (value.payload as { visible?: boolean }).visible === false))
+      assert.ok(h.emitted.some(value => value.event === PRESET_EDIT_REQUEST && (value.payload as { toggleVisibility?: boolean }).toggleVisibility === true))
       assert.ok(h.emitted.some(value => value.event === PRESET_EDIT_REQUEST && (value.payload as { mirror?: boolean }).mirror === true))
       assert.ok(h.emitted.some(value => value.event === PRESET_EDIT_REQUEST && (value.payload as { cycle?: string }).cycle === 'cameraZoomPercent'))
       assert.ok(h.emitted.some(value => value.event === PRESET_EDIT_REQUEST && (value.payload as { cycle?: string }).cycle === 'sceneRotationOffsetDegrees'))

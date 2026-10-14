@@ -38,6 +38,7 @@ function createMenuHarness(language = 'ko-KR', acknowledgeEdits = true, windowLa
   }
   const requests: Array<{ label: string, event: string, payload: unknown }> = []
   const editorsLocked = { value: false }
+  const foregroundHidingSuppressed = { value: false }
   const shown: unknown[] = []
   const processCalls: string[] = []
   let quitFails = false
@@ -96,18 +97,28 @@ function createMenuHarness(language = 'ko-KR', acknowledgeEdits = true, windowLa
     '@/stores/general': { useGeneralStore: () => general },
     '@/features/broadcast/visibility': { isDesktopPetVisible },
     '@/features/stateSafety': { editorsLocked },
+    '@/services/foregroundHiding': { foregroundHidingSuppressed },
     './menuViewportSetting': menuViewportSetting,
   }
   const source = readFileSync(new URL('./useAppMenu.ts', import.meta.url), 'utf8')
   runInNewContext(ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, { exports, require: (name: string) => mocks[name] })
-  return { block, general, menus, requests, shown, processCalls, editorsLocked, failQuit: () => {
+  return { block, general, menus, requests, shown, processCalls, editorsLocked, foregroundHidingSuppressed, failQuit: () => {
     quitFails = true
   }, create: exports.useAppMenu }
 }
 
 describe('shared pet and tray native menu', () => {
+  it('offers manual Show while automatic hiding preserves the basic visibility flag', async () => {
+    const h = createMenuHarness('en-US')
+    h.foregroundHidingSuppressed.value = true
+    const { items } = await h.create().getAppMenu()
+    assert.equal(items[0].text, 'Show Pet')
+    await items[0].action!()
+    assert.equal(JSON.stringify(h.requests[0].payload), '{"desktopVisible":true}')
+    assert.equal(h.block.window.visible, true)
+  })
   it('labels the effective desktop state and sets both display choices during broadcast', async () => {
     for (const language of ['ko-KR', 'en-US']) {
       for (const enabled of [false, true]) {

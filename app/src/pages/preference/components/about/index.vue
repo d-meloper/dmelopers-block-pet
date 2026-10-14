@@ -5,7 +5,7 @@ import { appLogDir } from '@tauri-apps/api/path'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 import { openPath, openUrl } from '@tauri-apps/plugin-opener'
 import { Button, message, Modal, Switch } from 'ant-design-vue'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { ProgramSettingsResetOptions } from '@/utils/programSettingsReset'
@@ -13,6 +13,7 @@ import type { ProgramSettingsResetOptions } from '@/utils/programSettingsReset'
 import PreferenceSections from '@/components/preference-sections/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
+import RecoveryFeedback from '@/components/recovery-feedback/index.vue'
 import { useAppLanguage } from '@/composables/useAppLanguage'
 import { useProgramSettingsReset } from '@/composables/useProgramSettingsReset'
 import externalLinks from '@/config/externalLinks.json'
@@ -23,6 +24,7 @@ import { DEFAULT_PROGRAM_SETTINGS_RESET_OPTIONS, ProgramSettingsResetError } fro
 import AutomaticUpdates from './AutomaticUpdates.vue'
 import MicrosoftStoreIcon from './MicrosoftStoreIcon.vue'
 import NotionIcon from './NotionIcon.vue'
+import { createSupportRecovery } from './supportRecovery'
 
 const copyingInfo = ref(false)
 const logDir = ref('')
@@ -43,96 +45,104 @@ const developerEmail = 'dmeloper@gmail.com'
 // Every localized destination follows the same effective application language.
 const resourceLinks = computed(() => select(externalLinks.korean, externalLinks.global))
 const { resetProgramSettings } = useProgramSettingsReset()
+const supportRecovery = createSupportRecovery()
+const { report: supportReport, busy: supportBusy } = supportRecovery
+let disposed = false
+onBeforeUnmount(() => {
+  disposed = true
+  supportRecovery.dispose()
+})
+
+function runSupport(action: 'open' | 'copy' | 'notice', operation: string, errorKey: string, work: (current: () => boolean) => Promise<void>) {
+  return supportRecovery.run(action, work, (error) => {
+    reportDiagnostic('error', operation, error)
+    message.error(t(`pages.preference.about.errors.${errorKey}`))
+  })
+}
 
 onMounted(async () => {
   try {
-    logDir.value = await appLogDir()
+    const directory = await appLogDir()
+    if (!disposed) logDir.value = directory
   } catch (error) {
-    reportDiagnostic('warn', 'about.log_directory', error)
+    if (!disposed) reportDiagnostic('warn', 'about.log_directory', error)
   }
 })
 
 async function openAboutLink(url: string) {
-  try {
+  await runSupport('open', 'about.open_link', 'openLink', async () => {
     await openUrl(url)
-  } catch (error) {
-    reportDiagnostic('error', 'about.open_link', error)
-    message.error(t('pages.preference.about.errors.openLink'))
-  }
+  })
 }
 
 async function openLogs() {
-  try {
-    logDir.value = await invoke<string>('prepare_log_directory')
-    await openPath(logDir.value)
-  } catch (error) {
-    reportDiagnostic('error', 'about.open_logs', error)
-    message.error(t('pages.preference.about.errors.openLog'))
-  }
+  await runSupport('open', 'about.open_logs', 'openLog', async (current) => {
+    const directory = await invoke<string>('prepare_log_directory')
+    if (!current()) return
+    logDir.value = directory
+    await openPath(directory)
+  })
 }
 
 async function openDeveloperLink() {
-  try {
+  await runSupport('open', 'about.open_developer_link', 'openDeveloperLink', async () => {
     await openUrl(resourceLinks.value.developer)
-  } catch (error) {
-    reportDiagnostic('error', 'about.open_developer_link', error)
-    message.error(t('pages.preference.about.errors.openDeveloperLink'))
-  }
+  })
 }
 
 async function copyDeveloperEmail() {
-  try {
+  const copied = await runSupport('copy', 'about.copy_email', 'copyEmail', async () => {
     await writeText(developerEmail)
-    message.success(t('pages.preference.about.hints.copySuccess'))
-  } catch (error) {
-    reportDiagnostic('error', 'about.copy_email', error)
-    message.error(t('pages.preference.about.errors.copyEmail'))
-  }
+  })
+  if (copied && !disposed) message.success(t('pages.preference.about.hints.copySuccess'))
 }
 
 async function copyInfo() {
-  if (copyingInfo.value) return
+  if (disposed || copyingInfo.value || supportBusy.value) return
   copyingInfo.value = true
   try {
-    const info = await collectEnvironmentInfo()
-    await writeText(JSON.stringify(info, null, 2))
-    message.success(t('pages.preference.about.hints.copySuccess'))
-  } catch (error) {
-    reportDiagnostic('error', 'about.copy_info', error)
-    message.error(t('pages.preference.about.errors.copyInfo'))
+    const copied = await runSupport('copy', 'about.copy_info', 'copyInfo', async (current) => {
+      const info = await collectEnvironmentInfo()
+      if (!current()) return
+      await writeText(JSON.stringify(info, null, 2))
+    })
+    if (copied && !disposed) message.success(t('pages.preference.about.hints.copySuccess'))
   } finally {
-    copyingInfo.value = false
+    if (!disposed) copyingInfo.value = false
   }
 }
 
 async function showLegalNotices() {
+  if (disposed || legalLoading.value || supportBusy.value) return
   legalLoading.value = true
   try {
-    legalNotices.value ||= (await import('@/legal/notices.txt?raw')).default
-    legalOpen.value = true
-  } catch (error) {
-    reportDiagnostic('error', 'about.legal_notices', error)
-    message.error(t('pages.preference.about.errors.legalNotices'))
+    await runSupport('notice', 'about.legal_notices', 'legalNotices', async (current) => {
+      const content = legalNotices.value || (await import('@/legal/notices.txt?raw')).default
+      if (!current()) return
+      legalNotices.value = content
+      legalOpen.value = true
+    })
   } finally {
-    legalLoading.value = false
+    if (!disposed) legalLoading.value = false
   }
 }
 
 async function showDataNotice() {
-  if (dataNoticeLoading.value) return
+  if (disposed || dataNoticeLoading.value || supportBusy.value) return
   dataNoticeLoading.value = true
   try {
-    const load = select(
-      () => import('@/legal/data-permissions.ko-KR.txt?raw'),
-      () => import('@/legal/data-permissions.en-US.txt?raw'),
-    )
-    dataNotice.value = (await load()).default
-    dataNoticeOpen.value = true
-  } catch (error) {
-    reportDiagnostic('error', 'about.data_notice', error)
-    message.error(t('pages.preference.about.errors.legalNotices'))
+    await runSupport('notice', 'about.data_notice', 'legalNotices', async (current) => {
+      const load = select(
+        () => import('@/legal/data-permissions.ko-KR.txt?raw'),
+        () => import('@/legal/data-permissions.en-US.txt?raw'),
+      )
+      const content = (await load()).default
+      if (!current()) return
+      dataNotice.value = content
+      dataNoticeOpen.value = true
+    })
   } finally {
-    dataNoticeLoading.value = false
+    if (!disposed) dataNoticeLoading.value = false
   }
 }
 
@@ -176,6 +186,7 @@ async function submitProgramReset() {
         <template #developer>
           <Button
             class="about-developer"
+            :disabled="supportBusy"
             :title="$t('pages.preference.about.labels.developer')"
             type="text"
             @click="openDeveloperLink"
@@ -202,6 +213,7 @@ async function submitProgramReset() {
             <Button
               :aria-label="$t('pages.preference.about.buttons.notion')"
               class="about-brand-action"
+              :disabled="supportBusy"
               :title="$t('pages.preference.about.buttons.notion')"
               type="text"
               @click="openAboutLink(resourceLinks.introduction)"
@@ -211,6 +223,7 @@ async function submitProgramReset() {
             <Button
               :aria-label="$t('pages.preference.about.buttons.github')"
               class="about-brand-action"
+              :disabled="supportBusy"
               :title="$t('pages.preference.about.buttons.github')"
               type="text"
               @click="openAboutLink('https://github.com/d-meloper/dmelopers-block-pet')"
@@ -223,6 +236,7 @@ async function submitProgramReset() {
             <Button
               :aria-label="$t('pages.preference.about.buttons.microsoftStore')"
               class="about-brand-action"
+              :disabled="supportBusy"
               :title="$t('pages.preference.about.buttons.microsoftStore')"
               type="text"
               @click="openAboutLink(resourceLinks.microsoftStore)"
@@ -243,6 +257,7 @@ async function submitProgramReset() {
             <Button
               :aria-label="$t('pages.preference.about.buttons.notion')"
               class="about-brand-action"
+              :disabled="supportBusy"
               :title="$t('pages.preference.about.buttons.notion')"
               type="text"
               @click="openAboutLink(resourceLinks.releaseNotes)"
@@ -252,6 +267,7 @@ async function submitProgramReset() {
             <Button
               :aria-label="$t('pages.preference.about.buttons.github')"
               class="about-brand-action"
+              :disabled="supportBusy"
               :title="$t('pages.preference.about.buttons.github')"
               type="text"
               @click="openAboutLink('https://github.com/d-meloper/dmelopers-block-pet/releases')"
@@ -264,6 +280,7 @@ async function submitProgramReset() {
             <Button
               :aria-label="$t('pages.preference.about.buttons.microsoftStore')"
               class="about-brand-action"
+              :disabled="supportBusy"
               :title="$t('pages.preference.about.buttons.microsoftStore')"
               type="text"
               @click="openAboutLink(resourceLinks.microsoftStore)"
@@ -276,6 +293,7 @@ async function submitProgramReset() {
       <div class="about-policy-links">
         <Button
           class="about-policy-action"
+          :disabled="supportBusy"
           :loading="legalLoading"
           :title="$t('pages.preference.about.hints.legalNotices')"
           type="text"
@@ -285,6 +303,7 @@ async function submitProgramReset() {
         </Button>
         <Button
           class="about-policy-action"
+          :disabled="supportBusy"
           :loading="dataNoticeLoading"
           :title="$t('pages.preference.about.hints.dataNotice')"
           type="text"
@@ -304,6 +323,7 @@ async function submitProgramReset() {
     </ProList>
 
     <ProList :title="$t('pages.preference.about.labels.troubleshootingSupport')">
+      <RecoveryFeedback :report="supportReport" />
       <div class="about-support-content">
         <div class="about-support-grid">
           <ProListItem
@@ -313,6 +333,7 @@ async function submitProgramReset() {
             <template #title>
               <Button
                 class="about-contact-link"
+                :disabled="supportBusy"
                 type="text"
                 @click="openAboutLink(resourceLinks.support)"
               >
@@ -331,6 +352,7 @@ async function submitProgramReset() {
           >
             <Button
               class="about-support-action"
+              :disabled="supportBusy"
               type="text"
               @click="copyDeveloperEmail"
             >
@@ -348,6 +370,7 @@ async function submitProgramReset() {
           >
             <Button
               class="about-support-action"
+              :disabled="supportBusy"
               :loading="copyingInfo"
               type="text"
               @click="copyInfo"
@@ -366,6 +389,7 @@ async function submitProgramReset() {
           >
             <Button
               class="about-support-action"
+              :disabled="supportBusy"
               type="text"
               @click="openLogs"
             >

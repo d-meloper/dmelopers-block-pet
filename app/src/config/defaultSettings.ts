@@ -24,6 +24,7 @@ export const DEFAULT_SKIN_APPEARANCE = {
 
 export const DEFAULT_PET_PRESET = {
   ...defaults.preset,
+  petAnimationMode: defaults.preset.petAnimationMode as Pet3dPreset['petAnimationMode'],
   keyboardLegendLanguage: defaults.preset.keyboardLegendLanguage as Pet3dPreset['keyboardLegendLanguage'],
 } as const satisfies Pet3dPreset
 

@@ -21,6 +21,29 @@ function fixture() {
 }
 
 describe('broadcast settings and projection', () => {
+  it('projects approved animation and arm choices without changing their meanings', () => {
+    const { block } = fixture()
+    for (const mode of ['default', 'headbutt'] as const) {
+      for (const connected of [false, true]) {
+        for (const rightDisabled of [false, true]) {
+          for (const leftDisabled of [false, true]) {
+            Object.assign(block.customization3d.preset, {
+              petAnimationMode: mode,
+              petShoulderTorsoConnected: connected,
+              petRightArmDisabled: rightDisabled,
+              petLeftArmDisabled: leftDisabled,
+            })
+            const { preset } = captureBroadcastScene(block)
+            assert.equal(preset.petAnimationMode, mode)
+            assert.equal(preset.petShoulderTorsoConnected, connected)
+            assert.equal(preset.petRightArmDisabled, rightDisabled)
+            assert.equal(preset.petLeftArmDisabled, leftDisabled)
+          }
+        }
+      }
+    }
+  })
+
   it('delivers high shadows without adding them to presets', () => {
     const { block } = fixture()
     block.shadowQualitySelection = 'high'
@@ -105,7 +128,7 @@ describe('broadcast settings and projection', () => {
     Object.assign(block.customization3d.preset.dmeloperEyebrows, { legacyPrivateName: 'private-name' })
     Object.assign(block.customization3d.preset.lighting.key, { legacyPrivateName: 'private-light-name' })
     assert.deepEqual(captureBroadcastScene(block), before)
-    assert.equal(Object.keys(before.preset).length, 39)
+    assert.equal(Object.keys(before.preset).length, 51)
     assert.equal('pixelFilterEnabled' in before.preset, false)
     assert.equal('antialiasEnabled' in before.preset, false)
     assert.equal(before.preset.showDisplayArea, false)
@@ -124,6 +147,25 @@ describe('broadcast settings and projection', () => {
   it('fits portrait and landscape outputs without stretching or overflow', () => {
     assert.deepEqual(fitBroadcastOutput({ width: 500, height: 250 }, { width: 800, height: 600 }), { width: 800, height: 400 })
     assert.deepEqual(fitBroadcastOutput({ width: 300, height: 600 }, { width: 800, height: 600 }), { width: 300, height: 600 })
+  })
+
+  it('projects saved motion controls independently without private or transient fields', () => {
+    const { block } = fixture()
+    const motion = {
+      petHeadbuttMaxRadiusOffset: -0.8,
+      petTypingMaxRadiusOffset: 0.6,
+      petHeadbuttRecoilEnabled: false,
+      petHeadbuttRecoilStrengthPercent: 185.5,
+      petHeadbuttRecoilWobblePercent: 0,
+      petTypingHandLiftPercent: 300,
+      petTypingBodyMotionPercent: 0,
+      petTypingReturnSpeedPercent: 400,
+    }
+    Object.assign(block.customization3d.preset, motion)
+    const captured = captureBroadcastScene(block)
+    for (const [key, value] of Object.entries(motion)) assert.equal(Reflect.get(captured.preset, key), value)
+    block.customization3d.preset.petTypingHandLiftPercent = 100
+    assert.equal(captured.preset.petTypingHandLiftPercent, 300)
   })
 
   it('publishes both independent performance choices outside presets', () => {

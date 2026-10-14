@@ -645,7 +645,7 @@ describe('Dmeloper skin-model persistence', () => {
   it('defaults new settings to Wide', () => {
     const store = createStore()
     store.init()
-    assert.equal(store.customization3d.schemaVersion, 13)
+    assert.equal(store.customization3d.schemaVersion, 14)
     assert.equal(store.customization3d.dmeloperSkinModel, 'wide')
     assert.deepEqual(
       store.customization3d.preset.dmeloperEyebrows,
@@ -664,7 +664,7 @@ describe('Dmeloper skin-model persistence', () => {
     })
 
     store.init()
-    assert.equal(store.customization3d.schemaVersion, 13)
+    assert.equal(store.customization3d.schemaVersion, 14)
     assert.equal(store.customization3d.dmeloperSkinModel, 'auto')
     assert.equal(
       store.customization3d.dmeloperSkinDataUrl,
@@ -686,7 +686,7 @@ describe('Dmeloper skin-model persistence', () => {
     })
 
     store.init()
-    assert.equal(store.customization3d.schemaVersion, 13)
+    assert.equal(store.customization3d.schemaVersion, 14)
     assert.equal(store.customization3d.selectedModelId, DEFAULT_PET_MODEL_ID)
     assert.equal(store.customization3d.dmeloperSkinModel, 'slim')
     assert.equal(store.customization3d.preset.dmeloperEyebrows.color, '#123aBC')
@@ -727,7 +727,7 @@ describe('Dmeloper skin-model persistence', () => {
 
     store.init()
 
-    assert.equal(store.customization3d.schemaVersion, 13)
+    assert.equal(store.customization3d.schemaVersion, 14)
     assert.equal(store.customization3d.selectedModelId, DEFAULT_PET_MODEL_ID)
     assert.equal(
       store.customization3d.dmeloperSkinDataUrl,
@@ -1084,7 +1084,7 @@ describe('3D preset sanitization', () => {
 
     store.init()
 
-    assert.equal(store.customization3d.schemaVersion, 13)
+    assert.equal(store.customization3d.schemaVersion, 14)
     assert.equal(store.customization3d.selectedModelId, 'dmeloper')
     assert.equal(store.customization3d.dmeloperSkinDataUrl, 'data:image/png;base64,preserved')
     assert.equal(store.customization3d.minecraftSkinUsername, 'jeb_')
@@ -1205,7 +1205,7 @@ describe('3D preset sanitization', () => {
 
     store.init()
 
-    assert.equal(store.customization3d.schemaVersion, 13)
+    assert.equal(store.customization3d.schemaVersion, 14)
     assert.equal(store.customization3d.preset.dmeloperEyebrows.color, '#123456')
     assert.equal(store.model.maxFPS, 80)
     assert.equal(store.model.renderScalePercent, 50)
@@ -1309,7 +1309,7 @@ describe('persistent skin-library state', () => {
 
     store.init()
 
-    assert.equal(store.customization3d.schemaVersion, 13)
+    assert.equal(store.customization3d.schemaVersion, 14)
     assert.equal(store.customization3d.skinLibraryMigrationCompleted, false)
     assert.deepEqual(store.getPendingSkinLibraryMigration(), {
       source: 'java',
@@ -1649,4 +1649,42 @@ it('resets desk, keyboard and mouse independently while preserving other state a
     reset()
     assert.deepEqual(JSON.parse(JSON.stringify(source.$state)), expected)
   }
+})
+
+describe('preset-owned animation selection', () => {
+  it('fills only missing legacy sync fields before deep merge and preserves saved modes', () => {
+    for (const mode of [undefined, 'default', 'headbutt', 'future-mode', null]) {
+      const incoming = { customization3d: { schemaVersion: 13, preset: { cameraZoomPercent: 137, ...(mode === undefined ? {} : { petAnimationMode: mode }) } } }
+      const before = JSON.stringify(incoming)
+      const prepared = preparePetStateForSync(incoming) as typeof incoming
+      assert.equal(prepared.customization3d.preset.petAnimationMode, mode === undefined ? 'default' : mode)
+      const store = createStore()
+      store.activePet3dPreset.petAnimationMode = 'headbutt'
+      store.$patch(prepared as any)
+      store.init()
+      assert.equal(store.activePet3dPreset.petAnimationMode, mode === 'headbutt' ? 'headbutt' : 'default')
+      assert.equal(store.activePet3dPreset.cameraZoomPercent, 137)
+      assert.equal(store.customization3d.schemaVersion, 14)
+      const restored = createStore()
+      restored.$patch(preparePetStateForSync(JSON.parse(JSON.stringify(store.$state))))
+      restored.init()
+      assert.equal(restored.activePet3dPreset.petAnimationMode, store.activePet3dPreset.petAnimationMode)
+      assert.equal(JSON.stringify(incoming), before)
+    }
+  })
+
+  it('keeps animation selection through category resets and returns to default on whole resets', () => {
+    const store = createStore()
+    store.init()
+    for (const reset of [store.resetPetBehavior, store.resetDmeloperEyebrows, store.resetDmeloperPalmColor, store.resetScene3d, store.resetEnvironment3d]) {
+      store.activePet3dPreset.petAnimationMode = 'headbutt'
+      reset()
+      assert.equal(store.activePet3dPreset.petAnimationMode, 'headbutt')
+    }
+    for (const reset of [store.resetActivePet3dPreset, store.resetAllSettings]) {
+      store.activePet3dPreset.petAnimationMode = 'headbutt'
+      reset()
+      assert.equal(store.activePet3dPreset.petAnimationMode, 'default')
+    }
+  })
 })

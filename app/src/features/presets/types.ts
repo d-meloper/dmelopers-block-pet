@@ -3,6 +3,7 @@ import type { VoxelSkinModel, VoxelSkinModelPreference } from '@/utils/three3d/v
 
 import { DESK_SETTING_KEYS } from '@/config/desk'
 import { DEVICE_COLOR_KEYS } from '@/config/deviceColors'
+import { PET_MOTION_SETTING_KEYS } from '@/config/petMotion'
 
 import type { PresetSourceSettings } from './compatibility'
 
@@ -42,6 +43,11 @@ export const PRESET_APPEARANCE_KEYS = [
 // Tab-owned settings are explicit: new common/runtime fields never opt in by accident.
 export const PRESET_SETTING_KEYS = [
   // 3D Pet
+  'petAnimationMode',
+  ...PET_MOTION_SETTING_KEYS,
+  'petShoulderTorsoConnected',
+  'petRightArmDisabled',
+  'petLeftArmDisabled',
   'petRightArmBendPercent',
   'petRightArmSpreadDegrees',
   'petLeftArmBendPercent',

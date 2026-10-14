@@ -18,6 +18,7 @@ use tokio::sync::{Mutex as AsyncMutex, broadcast, watch};
 const MAX_CLIENTS: usize = 8;
 const STATUS_EVENT: &str = "broadcast-status";
 const PREFERENCE_WINDOW: &str = "preference";
+const INPUT_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +27,10 @@ pub struct BroadcastStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<String>,
     clients: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scene_revision: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confirmed_clients: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -38,12 +43,11 @@ pub struct BroadcastState {
 
 impl BroadcastState {
     pub fn new(app: &tauri::AppHandle) -> Self {
-        let root = crate::data_paths::durable_root(app)
-            .map_err(|_| "endpoint_unavailable".to_string());
+        let identity_app = app.clone();
         let loader: IdentityLoader = Arc::new(move |expected| {
-            root.as_ref()
-                .map_err(Clone::clone)
-                .and_then(|root| identity::load_known(root, expected))
+            crate::data_paths::durable_root(&identity_app)
+                .map_err(|_| "endpoint_unavailable".to_string())
+                .and_then(|root| identity::load_known(&root, expected))
         });
         let status_app = app.clone();
         let input_app = app.clone();
@@ -112,6 +116,22 @@ fn require_preference(label: &str) -> Result<(), String> {
     }
 }
 
+fn io_reason(kind: std::io::ErrorKind) -> &'static str {
+    use std::io::ErrorKind;
+    match kind {
+        ErrorKind::AddrInUse => "address_in_use",
+        ErrorKind::AddrNotAvailable => "address_unavailable",
+        ErrorKind::PermissionDenied => "permission_denied",
+        ErrorKind::ConnectionAborted => "connection_aborted",
+        ErrorKind::ConnectionReset => "connection_reset",
+        ErrorKind::ConnectionRefused => "connection_refused",
+        ErrorKind::TimedOut => "timeout",
+        ErrorKind::Interrupted => "interrupted",
+        ErrorKind::OutOfMemory => "resource_unavailable",
+        _ => "io_failure",
+    }
+}
+
 type IdentityLoader =
     Arc<dyn Fn(Option<&Identity>) -> Result<identity::LoadedIdentity, String> + Send + Sync>;
 type StatusSink = Arc<dyn Fn(BroadcastStatus) + Send + Sync>;
@@ -122,16 +142,36 @@ struct Running {
     task: tokio::task::JoinHandle<()>,
 }
 
+struct PendingInput {
+    demand: Option<bool>,
+    task: tokio::task::JoinHandle<Result<(), String>>,
+}
+
+struct ServerLease {
+    service: Arc<Service>,
+    generation: u64,
+}
+
+impl Drop for ServerLease {
+    fn drop(&mut self) {
+        self.service.server_stopped(self.generation);
+    }
+}
+
 #[derive(Default)]
 struct Inner {
     enabled: bool,
     error: Option<String>,
+    input_error: Option<String>,
     endpoint_error: Option<String>,
     endpoint_warning: Option<String>,
-    clients: HashMap<u64, bool>,
+    // A successful older frame keeps its input lease when a new scene arrives.
+    // Its last acknowledged revision independently proves current-scene readiness.
+    clients: HashMap<u64, Option<u64>>,
     render_failures: HashSet<u64>,
     next_client_id: u64,
     shutdown: Option<watch::Sender<bool>>,
+    server_generation: u64,
 }
 
 struct ScenePacket {
@@ -147,6 +187,9 @@ struct Service {
     // Configure, initial readiness and disconnect share one native input gate.
     // No synchronous mutex is held while hook-thread acknowledgements are awaited.
     control: AsyncMutex<Option<Running>>,
+    // A blocking hook request survives cancellation/timeout of its async owner.
+    // Retain it until acknowledgement before issuing any newer input demand.
+    pending_input: AsyncMutex<Option<PendingInput>>,
     scenes: watch::Sender<Option<Arc<ScenePacket>>>,
     inputs: broadcast::Sender<String>,
     status_sink: StatusSink,
@@ -184,6 +227,7 @@ impl Service {
                 ..Inner::default()
             }),
             control: AsyncMutex::new(None),
+            pending_input: AsyncMutex::new(None),
             scenes,
             inputs,
             status_sink,
@@ -192,16 +236,33 @@ impl Service {
     }
 
     fn status(&self) -> BroadcastStatus {
+        let scene = self.scenes.borrow();
+        let scene_revision = scene.as_ref().map(|packet| packet.revision);
         let inner = self.inner.lock().unwrap_or_else(|error| error.into_inner());
         BroadcastStatus {
             enabled: inner.enabled,
             url: self.identity.get().map(Identity::url),
-            clients: inner.clients.values().filter(|ready| **ready).count(),
+            clients: inner
+                .clients
+                .values()
+                .filter(|ready| ready.is_some())
+                .count(),
+            scene_revision,
+            confirmed_clients: scene_revision.map(|revision| {
+                inner
+                    .clients
+                    .iter()
+                    .filter(|entry| {
+                        *entry.1 == Some(revision) && !inner.render_failures.contains(entry.0)
+                    })
+                    .count()
+            }),
             warning: inner.endpoint_warning.clone(),
             error: inner
                 .endpoint_error
                 .clone()
                 .or_else(|| inner.error.clone())
+                .or_else(|| inner.input_error.clone())
                 .or_else(|| (!inner.render_failures.is_empty()).then(|| "render_failed".into())),
         }
     }
@@ -218,6 +279,66 @@ impl Service {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .error = error;
+    }
+
+    fn server_stopped(self: &Arc<Self>, generation: u64) {
+        {
+            let mut inner = self.inner.lock().unwrap_or_else(|error| error.into_inner());
+            if inner.server_generation != generation || inner.shutdown.is_none() {
+                return;
+            }
+            if let Some(shutdown) = inner.shutdown.take() {
+                let _ = shutdown.send(true);
+            }
+            inner.clients.clear();
+            inner.render_failures.clear();
+            if inner.enabled {
+                inner.error = Some("server_unavailable".into());
+                crate::diagnostics::error("broadcast.server", "task_stopped");
+            }
+        }
+        self.emit_status();
+        // The server task must finish without waiting for the configure gate:
+        // disable holds that gate while awaiting the server's close handshake.
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let service = Arc::clone(self);
+            runtime.spawn(async move {
+                let _control = service.control.lock().await;
+                if service
+                    .inner
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .server_generation
+                    != generation
+                {
+                    return;
+                }
+                service.refresh_input().await;
+                service.emit_status();
+            });
+        }
+    }
+
+    async fn stop_server(running: &mut Option<Running>) -> bool {
+        if let Some(current) = running.as_mut() {
+            let _ = current.shutdown.send(true);
+            match tokio::time::timeout(Duration::from_secs(3), &mut current.task).await {
+                Err(_) => {
+                    crate::diagnostics::warn("broadcast.shutdown", "timeout");
+                    current.task.abort();
+                    if tokio::time::timeout(Duration::from_millis(250), &mut current.task)
+                        .await
+                        .is_err()
+                    {
+                        return false;
+                    }
+                }
+                Ok(Err(_)) => crate::diagnostics::error("broadcast.server", "task_failed"),
+                Ok(Ok(())) => {}
+            }
+        }
+        *running = None;
+        true
     }
 
     // A successful identity never changes during the process. Failed startup
@@ -277,9 +398,11 @@ impl Service {
             .is_some_and(|packet| packet.scene.mouse_enabled())
             && scene.as_ref().is_some_and(|scene| !scene.mouse_enabled());
         if let Some(scene) = &scene {
-            scene.validate(previous.as_ref().map(|packet| &packet.scene)).inspect_err(|code| {
-                crate::diagnostics::warn("broadcast.scene_validation", code);
-            })?;
+            scene
+                .validate(previous.as_ref().map(|packet| &packet.scene))
+                .inspect_err(|code| {
+                    crate::diagnostics::warn("broadcast.scene_validation", code);
+                })?;
         }
         if enabled && scene.is_none() && previous.is_none() {
             crate::diagnostics::warn("broadcast.configure", "scene_required");
@@ -332,87 +455,100 @@ impl Service {
                 inner.render_failures.clear();
                 inner.shutdown = None;
             }
-            if let Some(mut current) = running.take() {
-                let _ = current.shutdown.send(true);
-                match tokio::time::timeout(Duration::from_secs(3), &mut current.task).await {
-                    Err(_) => {
-                        crate::diagnostics::warn("broadcast.shutdown", "timeout");
-                        current.task.abort();
-                    }
-                    Ok(Err(_)) => crate::diagnostics::error("broadcast.server", "task_failed"),
-                    Ok(Ok(())) => {}
-                }
-            }
+            let stopped = Self::stop_server(&mut running).await;
             let endpoint_error = self
                 .inner
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .endpoint_error
                 .clone();
-            self.set_error(endpoint_error);
-            self.refresh_input().await;
+            self.set_error(if stopped {
+                endpoint_error
+            } else {
+                Some("server_unavailable".into())
+            });
         } else if running.is_none()
             || running
                 .as_ref()
                 .is_some_and(|current| current.task.is_finished())
+            || self
+                .inner
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .shutdown
+                .is_none()
         {
-            if let Some(old) = running.take() {
-                let _ = old.shutdown.send(true);
+            {
+                let mut inner = self.inner.lock().unwrap_or_else(|error| error.into_inner());
+                inner.shutdown = None;
+                inner.clients.clear();
+                inner.render_failures.clear();
             }
+            let stopped = Self::stop_server(&mut running).await;
             let endpoint_error = self
                 .inner
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .endpoint_error
                 .clone();
-            match (endpoint_error, self.identity.get()) {
-                (Some(error), _) => self.set_error(Some(error)),
-                (None, None) => self.set_error(Some("endpoint_unavailable".into())),
-                (None, Some(identity)) => match tokio::net::TcpListener::bind((
-                    std::net::Ipv4Addr::LOCALHOST,
-                    identity.port,
-                ))
-                .await
-                {
-                    Err(error) => self.set_error(Some(
-                        if error.kind() == std::io::ErrorKind::AddrInUse {
-                            "port_in_use"
-                        } else {
-                            "server_unavailable"
+            match (stopped, endpoint_error, self.identity.get()) {
+                (false, _, _) => self.set_error(Some("server_unavailable".into())),
+                (true, Some(error), _) => self.set_error(Some(error)),
+                (true, None, None) => self.set_error(Some("endpoint_unavailable".into())),
+                (true, None, Some(identity)) => {
+                    match tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, identity.port))
+                        .await
+                    {
+                        Err(error) => {
+                            crate::diagnostics::error("broadcast.bind", io_reason(error.kind()));
+                            self.set_error(Some(
+                                if error.kind() == std::io::ErrorKind::AddrInUse {
+                                    "port_in_use"
+                                } else {
+                                    "server_unavailable"
+                                }
+                                .into(),
+                            ));
                         }
-                        .into(),
-                    )),
-                    Ok(listener) => {
-                        let (shutdown, receiver) = watch::channel(false);
-                        self.inner
-                            .lock()
-                            .unwrap_or_else(|error| error.into_inner())
-                            .shutdown = Some(shutdown.clone());
-                        self.set_error(None);
-                        let service = Arc::clone(self);
-                        let router = server::router(Arc::clone(self));
-                        let task = tokio::spawn(async move {
-                            let mut receiver = receiver;
-                            let result = axum::serve(listener, router)
-                                .with_graceful_shutdown(async move {
-                                    if !*receiver.borrow() {
-                                        let _ = receiver.changed().await;
-                                    }
-                                })
-                                .await;
-                            if result.is_err() {
-                                service.set_error(Some("server_unavailable".into()));
-                                service.emit_status();
-                            }
-                        });
-                        *running = Some(Running { shutdown, task });
-                        self.refresh_input().await;
+                        Ok(listener) => {
+                            let (shutdown, receiver) = watch::channel(false);
+                            let generation = {
+                                let mut inner =
+                                    self.inner.lock().unwrap_or_else(|error| error.into_inner());
+                                inner.server_generation += 1;
+                                inner.shutdown = Some(shutdown.clone());
+                                inner.server_generation
+                            };
+                            self.set_error(None);
+                            let router = server::router(Arc::clone(self));
+                            let lease = ServerLease {
+                                service: Arc::clone(self),
+                                generation,
+                            };
+                            let task = tokio::spawn(async move {
+                                let _lease = lease;
+                                let mut receiver = receiver;
+                                let result = axum::serve(listener, router)
+                                    .with_graceful_shutdown(async move {
+                                        if !*receiver.borrow() {
+                                            let _ = receiver.changed().await;
+                                        }
+                                    })
+                                    .await;
+                                if let Err(error) = result {
+                                    crate::diagnostics::error(
+                                        "broadcast.server_io",
+                                        io_reason(error.kind()),
+                                    );
+                                }
+                            });
+                            *running = Some(Running { shutdown, task });
+                        }
                     }
-                },
+                }
             }
-        } else {
-            self.refresh_input().await;
         }
+        self.refresh_input().await;
         if release_mouse {
             // Scene snapshots may coalesce OFF -> ON. Ordered releases in the
             // event queue still clear older button presses, preserving typing.
@@ -433,23 +569,66 @@ impl Service {
     async fn refresh_input(&self) {
         let active = {
             let inner = self.inner.lock().unwrap_or_else(|error| error.into_inner());
-            inner.enabled && inner.clients.values().any(|ready| *ready)
+            inner.enabled && inner.clients.values().any(Option::is_some)
         };
         let mouse_enabled = self
             .scenes
             .borrow()
             .as_ref()
             .is_some_and(|packet| packet.scene.mouse_enabled());
-        let callback = Arc::clone(&self.input_control);
-        let result =
-            tokio::task::spawn_blocking(move || callback(active.then_some(mouse_enabled))).await;
-        if !matches!(result, Ok(Ok(()))) {
-            self.set_error(Some("input_unavailable".into()));
-        } else {
-            let mut inner = self.inner.lock().unwrap_or_else(|error| error.into_inner());
-            if inner.error.as_deref() == Some("input_unavailable") {
-                inner.error = None;
+        let demand = active.then_some(mouse_enabled);
+        let deadline = tokio::time::Instant::now() + INPUT_TIMEOUT;
+        let mut pending = self.pending_input.lock().await;
+        // Readback during a cancelled owner must not present an unacknowledged
+        // hook change as success. Pending work itself produces no diagnostic.
+        self.inner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .input_error = Some("input_unavailable".into());
+        if let Some(current) = pending.as_mut() {
+            // Never overlap a timed-out/cancelled hook request. A completed old
+            // demand can acknowledge only that same current demand.
+            match tokio::time::timeout_at(deadline, &mut current.task).await {
+                Err(_) => {
+                    self.input_result(false, "timeout");
+                    return;
+                }
+                Ok(result) => {
+                    let acknowledged = current.demand == demand && matches!(result, Ok(Ok(())));
+                    *pending = None;
+                    if acknowledged {
+                        self.input_result(true, "");
+                        return;
+                    }
+                }
             }
+        }
+        let callback = Arc::clone(&self.input_control);
+        *pending = Some(PendingInput {
+            demand,
+            task: tokio::task::spawn_blocking(move || callback(demand)),
+        });
+        let current = pending.as_mut().unwrap();
+        match tokio::time::timeout_at(deadline, &mut current.task).await {
+            Err(_) => self.input_result(false, "timeout"),
+            Ok(result) => {
+                *pending = None;
+                match result {
+                    Ok(Ok(())) => self.input_result(true, ""),
+                    Ok(Err(_)) => self.input_result(false, "operation_failed"),
+                    Err(_) => self.input_result(false, "task_failed"),
+                }
+            }
+        }
+    }
+
+    fn input_result(&self, acknowledged: bool, reason: &'static str) {
+        self.inner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .input_error = (!acknowledged).then(|| "input_unavailable".into());
+        if !acknowledged {
+            crate::diagnostics::error("broadcast.input", reason);
         }
     }
 
@@ -465,7 +644,7 @@ impl Service {
         let shutdown = inner.shutdown.as_ref()?.subscribe();
         inner.next_client_id += 1;
         let id = inner.next_client_id;
-        inner.clients.insert(id, false);
+        inner.clients.insert(id, None);
         Some((id, shutdown))
     }
 
@@ -484,8 +663,8 @@ impl Service {
             let Some(ready) = inner.clients.get_mut(&id) else {
                 return false;
             };
-            let changed = !*ready;
-            *ready = true;
+            let changed = ready.is_none();
+            *ready = Some(revision);
             changed
         };
         if changed {
@@ -531,10 +710,10 @@ impl Service {
             let mut inner = self.inner.lock().unwrap_or_else(|error| error.into_inner());
             (inner.clients.remove(&id), inner.render_failures.remove(&id))
         };
-        if removed == Some(true) {
+        if removed.flatten().is_some() {
             self.refresh_input().await;
         }
-        if removed == Some(true) || failed {
+        if removed.flatten().is_some() || failed {
             self.emit_status();
         }
     }
@@ -545,7 +724,7 @@ impl Service {
         }
         let accepting = {
             let inner = self.inner.lock().unwrap_or_else(|error| error.into_inner());
-            inner.enabled && inner.clients.values().any(|ready| *ready)
+            inner.enabled && inner.clients.values().any(Option::is_some)
         };
         if accepting {
             match serde_json::to_string(&serde_json::json!({"type":"input", "event":event})) {

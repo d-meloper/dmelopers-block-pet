@@ -11,6 +11,8 @@ import { APP_DISPLAY_NAME, WINDOW_LABEL } from '@/constants'
 import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import { editorsLocked } from '@/features/stateSafety'
 import { showWindow } from '@/plugins/window'
+import { reportDiagnostic } from '@/services/diagnostics'
+import { foregroundHidingStatus, foregroundHidingSuppressed, showForegroundHidingVisit } from '@/services/foregroundHiding'
 import { useBlockStore } from '@/stores/block'
 import { useGeneralStore } from '@/stores/general'
 import { createLatestAsyncTaskQueue } from '@/utils/latestAsyncTask'
@@ -54,6 +56,7 @@ export function useTray(canEdit: () => boolean = () => true) {
     // Its existing persistence and main-window watchers restore the renderer.
     generalStore.broadcast.showOnDesktop = true
     blockStore.window.visible = true
+    void showForegroundHidingVisit().catch(() => reportDiagnostic('warn', 'foreground_hiding.manual_show'))
     cancelBroadcastRestore()
   }
 
@@ -73,7 +76,7 @@ export function useTray(canEdit: () => boolean = () => true) {
     }
 
     // Hidden pets must restore their renderer through the visibility owner first.
-    const request = blockStore.window.visible
+    const request = blockStore.window.visible && foregroundHidingStatus.value?.matchedRule == null
       ? showWindow(WINDOW_LABEL.MAIN)
       : emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { visible: true })
     void request.catch(error => console.error('Failed to focus the pet from the tray.', error))
@@ -120,6 +123,7 @@ export function useTray(canEdit: () => boolean = () => true) {
 
   watch([
     () => blockStore.window.visible,
+    () => foregroundHidingSuppressed.value,
     () => generalStore.broadcast.enabled,
     () => generalStore.broadcast.showOnDesktop,
     () => blockStore.activePet3dPreset.cameraZoomPercent,

@@ -6,6 +6,9 @@ fn fill_missing(actual: &mut Value, defaults: &Value) {
     if let (Value::Object(actual), Value::Object(defaults)) = (actual, defaults) {
         for (key, default) in defaults {
             match actual.get_mut(key) {
+                // This additive record is atomic. A partial/malformed saved
+                // rule set must stay raw and invalid, not borrow valid defaults.
+                Some(_) if key == "foregroundHiding" => {}
                 Some(value) => fill_missing(value, default),
                 None => {
                     actual.insert(key.clone(), default.clone());

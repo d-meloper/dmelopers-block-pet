@@ -10,11 +10,14 @@ import { createPinia } from 'pinia'
 import ts from 'typescript'
 import { createSSRApp, nextTick } from 'vue'
 
+import type { PreferenceUpdates } from '@/features/updates/preferenceUpdates'
 import type { Language } from '@/locales/languageBranch'
+import type { UpdateReminderSnooze } from '@/stores/general'
 import type { SettingsPersistenceSteps } from '@/utils/settingsPersistence'
 
 import { DEFAULT_GENERAL_SETTINGS } from '@/config/defaultSettings'
 import { serializeSettingsState } from '@/config/persistedNames'
+import { isForegroundHidingSettings } from '@/features/foregroundHiding/settings'
 import { reconcileAppWindowState } from '@/stores/app'
 
 type State = Record<string, any>
@@ -40,6 +43,13 @@ const defaultsPath = nativeSource.match(/include_str!\("([^"]+)"\)/)?.[1]
 assert.ok(defaultsPath, 'the native reader must embed the authored defaults file')
 const nativeDefaults = JSON.parse(readFileSync(new URL(defaultsPath, nativeSourceUrl), 'utf8')).general as State
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
+// Exact shared General/reminder readers from the retained v1.1.1/v1.1.2
+// producer SHAs and their authored defaults, captured before this correction.
+const legacyReminder = JSON.parse(readFileSync(new URL('./fixtures/updateReminderLegacy.json', import.meta.url), 'utf8')) as {
+  generalSource: string
+  reminderSource: string
+  generalDefaults: State
+}
 
 async function settle() {
   for (let index = 0; index < 20; index++) await nextTick()
@@ -52,7 +62,7 @@ function harness(systemLanguage: Language = 'ko-KR') {
   const heldPatches: Array<() => void> = []
   let heldOwner: string | undefined
   let saves = 0
-  function window(label: string) {
+  function window(label: string, legacyReader = false) {
     let syncFrozen = false
     const modules = new Map<string, { exports: any }>()
     const invoke = async (command: string, args: { id: string, state: State }) => {
@@ -113,15 +123,21 @@ function harness(systemLanguage: Language = 'ko-KR') {
       const module = { exports: {} }
       modules.set(file, module)
       if (file.endsWith('.json')) {
-        module.exports = { default: JSON.parse(readFileSync(file, 'utf8')) }
+        const defaults = JSON.parse(readFileSync(file, 'utf8'))
+        if (legacyReader && file === path.join(root, 'src/config/defaultSettings.json')) defaults.general = clone(legacyReminder.generalDefaults)
+        module.exports = { default: defaults }
         return module.exports
       }
-      let source = transpiled.get(file)
+      const cacheKey = `${file}:${legacyReader}`
+      let source = transpiled.get(cacheKey)
       if (!source) {
-        source = ts.transpileModule(readFileSync(file, 'utf8'), {
+        let raw = readFileSync(file, 'utf8')
+        if (legacyReader && file === path.join(root, 'src/stores/general.ts')) raw = legacyReminder.generalSource
+        if (legacyReader && file === path.join(root, 'src/features/updates/preferenceUpdates.ts')) raw = legacyReminder.reminderSource
+        source = ts.transpileModule(raw, {
           compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, allowJs: true },
         }).outputText
-        transpiled.set(file, source)
+        transpiled.set(cacheKey, source)
       }
       // Isolate each webview's actual plugin and store module instances.
       // eslint-disable-next-line no-new-func
@@ -147,6 +163,25 @@ function harness(systemLanguage: Language = 'ko-KR') {
     })
     return {
       stores,
+      reminder: (version: string, currentVersion = '1.1.2', time = 1_800_000_000_000): PreferenceUpdates => {
+        const general = stores.find(store => store.$id === 'general')!.$state
+        return load('@/features/updates/preferenceUpdates').createPreferenceUpdates({
+          channel: async () => 'github',
+          checkApp: async () => ({ available: true, version, currentVersion, bytes: 123 }),
+          install: async () => {},
+          cancel: async () => {},
+          hiddenUntil: () => general.app.updateReminderHiddenUntil,
+          hideUntil: (deadline: number) => {
+            general.app.updateReminderHiddenUntil = deadline
+          },
+          reminderSnooze: () => general.app.updateReminderSnooze,
+          snoozeReminder: (value: UpdateReminderSnooze) => {
+            general.app.updateReminderSnooze = value
+          },
+          now: () => time,
+          report: () => assert.fail('unexpected reminder failure'),
+        })
+      },
       freeze: (frozen: boolean) => {
         syncFrozen = frozen
       },
@@ -413,6 +448,148 @@ describe('general defaults and real two-window Pinia persistence', () => {
     }
   })
 
+  it('persists the offered-version pair through two windows, save, upgrade/restart and reset', async () => {
+    const h = await seededHarness()
+    const main = h.window('main')
+    const preference = h.window('preference')
+    const deadline = 1_800_604_800_000
+    try {
+      await main.initialize()
+      await preference.initialize()
+      preference.general.app.updateReminderHiddenUntil = deadline + 100
+      const reminder = preference.reminder('1.1.3')
+      await reminder.setVisible(true)
+      reminder.snooze()
+      await settle()
+      await preference.save()
+      await main.save()
+      const pair = { version: '1.1.3', hiddenUntil: deadline }
+      assert.deepEqual(clone(main.general.app.updateReminderSnooze), pair)
+      assert.deepEqual(h.backend.get('general')!.app.updateReminderSnooze, pair)
+      assert.equal(h.backend.get('general')!.app.updateReminderHiddenUntil, deadline + 100)
+      preference.dispose()
+      const restarted = h.window('preference')
+      try {
+        await restarted.initialize()
+        const same = restarted.reminder('1.1.3', '1.1.2', deadline - 1)
+        await same.setVisible(true)
+        assert.equal(same.reminderVersion.value, undefined)
+        const boundary = restarted.reminder('1.1.3', '1.1.2', deadline)
+        await boundary.setVisible(true)
+        assert.equal(boundary.reminderVersion.value, '1.1.3')
+        const upgraded = restarted.reminder('1.1.4', '1.1.3', deadline - 1)
+        await upgraded.setVisible(true)
+        assert.equal(upgraded.reminderVersion.value, '1.1.4')
+        assert.deepEqual(clone(restarted.general.app.updateReminderSnooze), pair)
+        restarted.stores.find(store => store.$id === 'general')!.reset!()
+        await settle()
+        await restarted.save()
+        assert.deepEqual(h.backend.get('general')!.app.updateReminderSnooze, { version: '', hiddenUntil: 0 })
+        assert.deepEqual(clone(main.general.app.updateReminderSnooze), { version: '', hiddenUntil: 0 })
+        const afterReset = restarted.reminder('1.1.3')
+        await afterReset.setVisible(true)
+        assert.equal(afterReset.reminderVersion.value, '1.1.3')
+      } finally {
+        restarted.dispose()
+      }
+    } finally {
+      main.dispose()
+      preference.dispose()
+    }
+  })
+
+  it('new readers preserve legacy deadlines without guessing their target; old readers preserve the new pair', async () => {
+    const h = await seededHarness()
+    const deadline = 1_800_604_800_000
+    const persisted = h.backend.get('general')!
+    delete persisted.app.updateReminderSnooze
+    persisted.app.updateReminderHiddenUntil = deadline
+    // The unchanged native initializer recursively adds only missing defaults.
+    persisted.app.updateReminderSnooze = clone(nativeDefaults.app.updateReminderSnooze)
+    const current = h.window('preference')
+    try {
+      await current.initialize()
+      const offered = current.reminder('1.1.3')
+      await offered.setVisible(true)
+      assert.equal(offered.reminderVersion.value, '1.1.3')
+      assert.equal(current.general.app.updateReminderHiddenUntil, deadline)
+      offered.snooze()
+      await settle()
+      await current.save()
+      current.dispose()
+      const old = h.window('older-reader', true)
+      const pair = { version: '1.1.3', hiddenUntil: deadline }
+      try {
+        await old.initialize()
+        assert.deepEqual(clone(old.general.app.updateReminderSnooze), pair)
+        const hidden = old.reminder('1.1.4')
+        await hidden.setVisible(true)
+        assert.equal(hidden.reminderVersion.value, undefined, 'old reader retains its global legacy deadline')
+        old.general.app.taskbarVisible = true
+        await settle()
+        await old.save()
+        old.stores.find(store => store.$id === 'general')!.reset!()
+        await settle()
+        await old.save()
+        assert.deepEqual(h.backend.get('general')!.app.updateReminderSnooze, pair, 'old reset preserves unknown new data')
+        const visible = old.reminder('1.1.3')
+        await visible.setVisible(true)
+        assert.equal(visible.reminderVersion.value, '1.1.3', 'old reader cannot apply the new-only snooze')
+        visible.snooze()
+        await settle()
+        await old.save()
+        assert.deepEqual(h.backend.get('general')!.app.updateReminderSnooze, pair)
+      } finally {
+        old.dispose()
+      }
+      const upgraded = h.window('re-upgrade')
+      try {
+        await upgraded.initialize()
+        const same = upgraded.reminder('1.1.3')
+        await same.setVisible(true)
+        assert.equal(same.reminderVersion.value, undefined)
+        const different = upgraded.reminder('1.1.4', '1.1.3')
+        await different.setVisible(true)
+        assert.equal(different.reminderVersion.value, '1.1.4')
+        await upgraded.save()
+        assert.deepEqual(h.backend.get('general')!.app.updateReminderSnooze, pair)
+      } finally {
+        upgraded.dispose()
+      }
+    } finally {
+      current.dispose()
+    }
+  })
+
+  it('normalizes malformed incoming pairs before merge without borrowing a previous target or deadline', async () => {
+    const h = await seededHarness()
+    const current = h.window('preference')
+    const old = h.window('legacy-writer', true)
+    try {
+      await current.initialize()
+      await old.initialize()
+      const initial = current.reminder('1.1.3')
+      await initial.setVisible(true)
+      initial.snooze()
+      await settle()
+      for (const malformed of [null, [], '1.1.3', { version: '1.1.4' }, { hiddenUntil: 1_800_604_800_000 }, { version: 13, hiddenUntil: 1_800_604_800_000 }, { version: ' ', hiddenUntil: 1_800_604_800_000 }, { version: '1.1.3', hiddenUntil: '1800604800000' }, { version: '1.1.3', hiddenUntil: -1 }]) {
+        old.general.app.updateReminderSnooze = malformed
+        await settle()
+        assert.deepEqual(clone(current.general.app.updateReminderSnooze), { version: '', hiddenUntil: 0 })
+        const offer = current.reminder('1.1.4')
+        await offer.setVisible(true)
+        assert.equal(offer.reminderVersion.value, '1.1.4')
+        offer.snooze()
+        await settle()
+        await current.save()
+        assert.deepEqual(h.backend.get('general')!.app.updateReminderSnooze, { version: '1.1.4', hiddenUntil: 1_800_604_800_000 })
+      }
+    } finally {
+      current.dispose()
+      old.dispose()
+    }
+  })
+
   it('persists both modal choices through real two-window sync, restart and General reset', async () => {
     const h = await seededHarness()
     const main = h.window('main')
@@ -490,8 +667,10 @@ describe('general defaults and real two-window Pinia persistence', () => {
       ['app', 'taskbarVisible'],
       ['app', 'autoUpdateCheck'],
       ['app', 'updateReminderHiddenUntil'],
+      ['app', 'updateReminderSnooze'],
       ['app', 'broadcastRestorePromptDismissed'],
       ['app', 'applyPresetSkin'],
+      ['app', 'foregroundHiding'],
       ['appearance', 'language'],
       ['appearance', 'isDark'],
     ]) {
@@ -559,4 +738,184 @@ describe('general defaults and real two-window Pinia persistence', () => {
       preference.dispose()
     }
   })
+})
+
+describe('foreground hiding through current and retained v1.1.2 general readers', () => {
+  const configured = {
+    enabled: true,
+    applications: ['C:\\Program Files\\Browser\\chrome.exe'],
+    sites: ['example.com', 'sub.example.org'],
+    future: { empty: '', explicitNull: null, choice: false },
+  }
+
+  it('loads old stores using native missing-only defaults, then retains new choices through old load/edit/save/reset/reload', async () => {
+    const h = await seededHarness()
+    const persisted = h.backend.get('general')!
+    delete persisted.app.foregroundHiding
+    // Feed the existing native bootstrap's declared missing-only result. Its
+    // actual JSON/disk behavior is covered by the parent's native defaults test.
+    persisted.app.foregroundHiding = clone(nativeDefaults.app.foregroundHiding)
+    const current = h.window('new-reader')
+    try {
+      await current.initialize()
+      assert.deepEqual(clone(current.general.app.foregroundHiding), { enabled: false, applications: [] })
+      current.general.app.foregroundHiding = clone(configured)
+      await settle()
+      await current.save()
+    } finally {
+      current.dispose()
+    }
+    const old = h.window('retained-v1.1.2', true)
+    try {
+      await old.initialize()
+      assert.deepEqual(clone(old.general.app.foregroundHiding), configured)
+      old.general.app.taskbarVisible = true
+      await settle()
+      await old.save()
+      old.stores.find(store => store.$id === 'general')!.reset!()
+      await settle()
+      await old.save()
+      assert.deepEqual(h.backend.get('general')!.app.foregroundHiding, configured, 'the old reader and its reset preserve unknown nested app fields')
+    } finally {
+      old.dispose()
+    }
+    const oldReload = h.window('old-reload', true)
+    try {
+      await oldReload.initialize()
+      assert.deepEqual(clone(oldReload.general.app.foregroundHiding), configured)
+      await oldReload.save()
+    } finally {
+      oldReload.dispose()
+    }
+    const upgraded = h.window('new-reload')
+    const peer = h.window('main')
+    try {
+      await upgraded.initialize()
+      await peer.initialize()
+      assert.deepEqual(clone(upgraded.general.app.foregroundHiding), configured)
+      upgraded.general.app.foregroundHiding.enabled = false
+      upgraded.general.app.foregroundHiding.applications.push('C:\\Apps\\Another.exe')
+      await settle()
+      await upgraded.save()
+      await peer.save()
+      assert.equal(peer.general.app.foregroundHiding.enabled, false)
+      assert.deepEqual(peer.general.app.foregroundHiding.applications, [...configured.applications, 'C:\\Apps\\Another.exe'])
+      upgraded.stores.find(store => store.$id === 'general')!.reset!()
+      await settle()
+      await upgraded.save()
+      assert.deepEqual(h.backend.get('general')!.app.foregroundHiding, { enabled: false, applications: [], sites: configured.sites, future: configured.future })
+      const restarted = h.window('after-new-reset')
+      try {
+        await restarted.initialize()
+        assert.deepEqual(clone(restarted.general.app.foregroundHiding), { enabled: false, applications: [], sites: configured.sites, future: configured.future })
+        await restarted.save()
+      } finally {
+        restarted.dispose()
+      }
+    } finally {
+      upgraded.dispose()
+      peer.dispose()
+    }
+  })
+
+  it('preserves malformed raw records at startup and incoming sync without borrowing defaults or previous rules', async () => {
+    const malformed = [null, [], 'off', { enabled: true }, { ...configured, applications: ['relative.exe'] }, { ...configured, enabled: 'true' }]
+    for (const raw of malformed) {
+      const h = await seededHarness()
+      h.backend.get('general')!.app.foregroundHiding = clone(raw)
+      const current = h.window('new-reader')
+      const old = h.window('old-writer', true)
+      try {
+        await current.initialize()
+        assert.deepEqual(clone(current.general.app.foregroundHiding), raw)
+        assert.equal(isForegroundHidingSettings(current.general.app.foregroundHiding), false)
+        current.general.app.taskbarVisible = true
+        await settle()
+        await current.save()
+        assert.deepEqual(h.backend.get('general')!.app.foregroundHiding, raw)
+        await old.initialize()
+        old.general.app.foregroundHiding = clone(configured)
+        await settle()
+        assert.equal(isForegroundHidingSettings(current.general.app.foregroundHiding), true)
+        old.general.app.foregroundHiding = clone(raw)
+        await settle()
+        assert.deepEqual(clone(current.general.app.foregroundHiding), raw, 'a partial incoming object must replace the complete prior record')
+        assert.equal(isForegroundHidingSettings(current.general.app.foregroundHiding), false)
+        await old.save()
+        await current.save()
+        const restarted = h.window('malformed-reload')
+        try {
+          await restarted.initialize()
+          assert.deepEqual(clone(restarted.general.app.foregroundHiding), raw)
+          assert.equal(isForegroundHidingSettings(restarted.general.app.foregroundHiding), false)
+          await restarted.save()
+        } finally {
+          restarted.dispose()
+        }
+      } finally {
+        current.dispose()
+        old.dispose()
+      }
+    }
+  })
+
+  it('keeps rule edits behind the real two-window acknowledgement barrier', async () => {
+    const h = await seededHarness()
+    const current = h.window('preference')
+    const peer = h.window('main')
+    try {
+      await current.initialize()
+      await peer.initialize()
+      h.hold('preference')
+      current.general.app.foregroundHiding = clone(configured)
+      await settle()
+      await assert.rejects(current.save(), /synchronization was not acknowledged/i)
+      assert.deepEqual(clone(peer.general.app.foregroundHiding), { enabled: false, applications: [] })
+      assert.equal(h.saves(), 0)
+      await h.release()
+      await current.save()
+      await peer.save()
+      assert.deepEqual(clone(peer.general.app.foregroundHiding), configured)
+      assert.deepEqual(h.backend.get('general')!.app.foregroundHiding, configured)
+    } finally {
+      current.dispose()
+      peer.dispose()
+    }
+  })
+})
+
+it('synchronizes legacy and explicit animation choices through the installed two-window plugin and acknowledged save barrier', async () => {
+  for (const mode of [undefined, 'default', 'headbutt'] as const) {
+    const h = await seededHarness()
+    const backend = h.backend.get('cat')!
+    backend.customization3d.schemaVersion = 13
+    if (mode === undefined) delete backend.customization3d.preset.petAnimationMode
+    else backend.customization3d.preset.petAnimationMode = mode
+    const main = h.window('main')
+    const preference = h.window('preference')
+    const mainBlock = main.stores.find(store => store.$id === 'cat')!.$state
+    const preferenceBlock = preference.stores.find(store => store.$id === 'cat')!.$state
+    try {
+      await preference.initialize()
+      await main.initialize()
+      assert.equal(preferenceBlock.customization3d.preset.petAnimationMode, mode ?? 'default')
+      assert.equal(mainBlock.customization3d.preset.petAnimationMode, mode ?? 'default')
+      const next = mode === 'headbutt' ? 'default' : 'headbutt'
+      h.hold('preference')
+      preferenceBlock.customization3d.preset.petAnimationMode = next
+      await settle()
+      await assert.rejects(preference.save(), /synchronization was not acknowledged/i)
+      assert.equal(h.saves(), 0)
+      assert.equal(mainBlock.customization3d.preset.petAnimationMode, mode ?? 'default')
+      await h.release()
+      assert.equal(mainBlock.customization3d.preset.petAnimationMode, next)
+      await preference.save()
+      await main.save()
+      assert.equal(h.saves(), 2)
+      assert.equal(h.backend.get('cat')!.customization3d.preset.petAnimationMode, next)
+    } finally {
+      main.dispose()
+      preference.dispose()
+    }
+  }
 })

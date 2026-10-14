@@ -1,4 +1,115 @@
 {
+  "recovery": {
+    "status": {
+      "running": "Trying recovery steps and checking the result.",
+      "recovered": "The retried operation has been verified.",
+      "unresolved": "Recovery was attempted, but the problem remains.",
+      "unknown": "The response could not be verified. Recovery is uncertain.",
+      "cancelled": "This check stopped because the settings or operation changed."
+    },
+    "step": {
+      "running": "In progress",
+      "passed": "Verified",
+      "failed": "Not verified",
+      "skipped": "Not checked"
+    },
+    "nextSteps": "Try these next steps in order.",
+    "guidance": {
+      "checkAppWindow": "Reopen Preferences and check that it responds. After saving finishes, restart the app. If it still fails, review logs in About.",
+      "logs": "Open Preferences → About → Open Logs and inspect the error recorded at the time of the problem.",
+      "support": "If the problem persists, use Contact in About and include the app version, time of the failure, and these recovery results.",
+      "restart": "Wait for current writes to finish, save your settings, then quit and reopen the app. Check the same operation again.",
+      "storage": "Check free disk space and read/write access to app data. Wait for other operations using those files to finish, then try again.",
+      "timeout": "The original request may still be running. Avoid starting duplicate work; wait briefly and check its status.",
+      "changed": "The settings or target changed during this attempt. Wait for the current state to settle, then try again.",
+      "lastResort": "If the cause remains unknown after following these steps, try rebooting your computer and reinstalling the app. Preserve existing settings and user data when reinstalling.",
+      "retryUpdateCheck": "After current work finishes, check for updates again for a fresh result. Do not launch installation twice.",
+      "contactSupport": "Use Support in the About tab to share the app version, incident time, failed step, and logs.",
+      "checkNetwork": "Check internet connectivity, VPN or proxy settings, and update server access, then check for updates again.",
+      "verifyUpdate": "Update verification failed. Check for updates again without manually running the file or bypassing verification. If it persists, contact support with logs.",
+      "checkStorage": "Check free disk space and read/write access to app data. If another operation is using the files, wait for it to finish before retrying.",
+      "waitForOperation": "The existing request may still be running. Confirm that it has finished before retrying.",
+      "preserveSettings": "Settings could not be confirmed as saved. Preserve current settings and original data, then check again after saving finishes.",
+      "manualUpdate": "Preserve settings and user data, and use the official download link in About to check the update method for your distribution.",
+      "confirmUpdate": "Confirm that the installer completed, reopen the app, and check its version in About. Do not launch another installer just because the app has not responded.",
+      "checkWindowsOpener": "Check that Windows can open folders and web links and that default browser and file associations work, then try again.",
+      "copySupportManually": "Try copying again. If it still fails, manually copy the displayed support information and error logs.",
+      "retrySupport": "Check internet connectivity and load the notice again. If it still fails, use Support in About.",
+      "checkPresetFile": "Preserve the original preset and check that its file and version are supported. Select it again and review the import result and each item error.",
+      "preserveData": "Keep original presets, skins, and app data. Review failed items without deleting or resetting data to troubleshoot.",
+      "retryDataRead": "After current save or import work finishes, retry the list or preview and check its result.",
+      "checkSkinFile": "Preserve the original skin and check that it is a supported Minecraft PNG. Select the failed file again and check the import result."
+    },
+    "broadcast": {
+      "configurationFailed": "The current broadcast settings were retried but rejected.",
+      "backupWarning": "Broadcast status was checked, but saving the address recovery copy still failed.",
+      "off": "The broadcast server is confirmed OFF.",
+      "connected": "The server and the connected browser source's current scene readiness have been checked.",
+      "renderUnconfirmed": "The server was checked, but current scene readiness could not be confirmed.",
+      "waiting": "The broadcast server is ready. It is waiting for an OBS browser source.",
+      "steps": {
+        "ready": "Check settings and scene readiness",
+        "subscribe": "Reconnect broadcast status notifications",
+        "configure": "Reapply the current broadcast settings",
+        "verify": "Read back the actual native broadcast state",
+        "render": "Wait for browser-source scene readiness"
+      },
+      "guidance": {
+        "port": "The broadcast port cannot be used. Check for duplicate app instances and another program using that port. Resolve the conflict, then retry.",
+        "address": "Check that the OBS browser-source URL matches the current address copied from the app. Recovery has kept the existing address.",
+        "identity": "The saved broadcast identities disagree or are damaged. Keep the original data, quit the app, and inspect the logs and recovery copy.",
+        "noReset": "Do not delete or reset app data or broadcast-address files. If the original address cannot be established, contact support with the logs.",
+        "scene": "The current scene settings were rejected. Save your settings, reopen the app, and retry. If it persists, check for app updates and inspect the error logs.",
+        "skin": "The current skin could not be sent as a broadcast scene. Preserve the original and check that it is a supported Minecraft PNG, then apply it again.",
+        "previousScene": "The previous scene is retained when possible. Inspect the logged failure before changing or deleting the skin original.",
+        "refresh": "Refresh the affected OBS browser source. Check that the source is active and broadcasting is ON.",
+        "acceleration": "Check OBS browser-source hardware acceleration. Restart OBS after changing it and check the source again.",
+        "input": "The input collector could not be prepared. Reopen the app and check keyboard and mouse reactions. If it persists, include the input errors when contacting support.",
+        "server": "The local broadcast server could not be started or maintained. Check the app and port state, reopen the app, then retry.",
+        "ready": "Wait for other settings operations or loading to finish. Retry after the scene is ready.",
+        "disabled": "Broadcasting is OFF, so no OBS connection is started. Turn broadcasting ON to connect.",
+        "bridge": "The app response or Preferences status notifications could not be confirmed. Finish current work, reopen the app, then retry."
+      }
+    },
+    "summary": {
+      "updateWindowUnknown": "The Preferences window state could not be confirmed. This update check result is also unconfirmed.",
+      "updateWaitUnknown": "The update request has not responded. Existing work may still be running.",
+      "updateFailed": "The update operation could not complete.",
+      "updateHandoffUnknown": "The installer launch request was acknowledged. Confirm installation completion and the new app version.",
+      "updateCheckComplete": "The update check returned a result.",
+      "supportWaitUnknown": "The open or copy request has not responded.",
+      "supportFailed": "The requested open, copy, or notice operation could not complete.",
+      "supportOpened": "The open request was acknowledged. Confirm that the window or webpage appeared.",
+      "supportCopied": "The copy request was acknowledged. Paste the content to confirm it.",
+      "dataRecoveryFailed": "The data operation still has a problem after checking again.",
+      "dataWaitUnknown": "The data operation has not responded. Wait for the existing work to finish.",
+      "presetsReady": "The preset operation result and current error state were checked.",
+      "presetImportComplete": "The preset import result was checked.",
+      "skinLibraryReady": "The skin library was reloaded and its result checked.",
+      "skinPreviewReady": "Skin preview readiness was checked.",
+      "skinCleanupPending": "Skin cleanup has not completed.",
+      "skinCleanupComplete": "Skin cleanup completion was acknowledged.",
+      "skinImportFailed": "Skin import could not complete."
+    },
+    "steps": {
+      "observeUpdateWindow": "Check the Preferences window state again",
+      "checkUpdates": "Check update information again",
+      "downloadUpdate": "Download the update",
+      "verifyUpdate": "Verify update integrity and signature",
+      "saveUpdate": "Confirm saved settings before installation",
+      "handoffUpdate": "Request installer launch",
+      "openSupport": "Request opening the log folder or webpage",
+      "copySupport": "Request copying support information",
+      "loadNotice": "Load the notice",
+      "restorePresets": "Check preset state again",
+      "createPreset": "Retry preset creation",
+      "retryPresetImport": "Retry preset import",
+      "loadSkins": "Reload the skin library",
+      "skinPreview": "Prepare the skin preview again",
+      "cleanupSkins": "Retry pending skin cleanup",
+      "importSkins": "Check the skin import result"
+    }
+  },
   "pages": {
     "main": {
       "loading": "Loading…",
@@ -157,9 +268,14 @@
           "preview": "Could not create this preview.",
           "load": "Presets could not be loaded. Please try again."
         },
+        "warnings": {
+          "skinLibraryUnavailable": "Preset {name} was applied using its saved skin image. Skin-library restoration could not be confirmed. The original preset is preserved; apply it again to retry."
+        },
         "builtinNames": {
           "default": "Default",
           "sunset": "Default (Sunset)",
+          "headbutt": "Default (Headbutt)",
+          "torsoHeadbutt": "Torso Headbutt",
           "front": "Front",
           "bigHeadKeyboard": "Big Head Keyboard"
         },
@@ -191,6 +307,18 @@
             "structure": "Current setting structure"
           },
           "settings": {
+            "petAnimationMode": "Typing Motion",
+            "petHeadbuttRecoilEnabled": "Use Recoil",
+            "petHeadbuttMaxRadius": "Maximum Headbutt Reach",
+            "petTypingRadius": "Typing Reach",
+            "petHeadbuttRecoilStrength": "Recoil Strength",
+            "petHeadbuttRecoilWobble": "Wobble",
+            "petTypingHandLift": "Hand Lift",
+            "petTypingBodyMotion": "Body Movement",
+            "petTypingReturnSpeed": "Return Speed",
+            "petShoulderTorsoConnected": "Shoulder–torso connection",
+            "petRightArmDisabled": "Hide right arm",
+            "petLeftArmDisabled": "Hide left arm",
             "petRightArmBendPercent": "Right arm bend",
             "petLeftArmBendPercent": "Left arm bend",
             "petRightArmSpreadDegrees": "Right arm spread",
@@ -268,17 +396,20 @@
         "detailTabs": {
           "body": "Head & Body",
           "arms": "Arms & Palms",
-          "eyebrows": "Eyebrows"
+          "eyebrows": "Eyebrows",
+          "motion": "Motion"
         },
         "detailReset": {
           "body": "Reset Head & Body Settings",
           "arms": "Reset Arms & Palms Settings",
-          "eyebrows": "Reset Eyebrow Settings"
+          "eyebrows": "Reset Eyebrow Settings",
+          "motion": "Reset Motion Settings"
         },
         "detailResetConfirm": {
           "body": "Reset head and body settings to their defaults?",
           "arms": "Reset both arms and the palm color to their defaults?",
-          "eyebrows": "Reset eyebrow settings to their defaults?"
+          "eyebrows": "Reset eyebrow settings to their defaults?",
+          "motion": "Reset motion settings to their defaults?"
         },
         "labels": {
           "modelSettings": "Scene Settings",
@@ -304,7 +435,21 @@
           "dmeloperSkinModel": "Skin Type",
           "petHeadScale": "Head Size",
           "petBehaviorSettings": "Pet Appearance",
+          "petAnimationMode": "Typing Motion",
+          "petShoulderTorsoConnected": "Shoulder–Torso Connection",
+          "petRightArmDisabled": "Hide Right Arm",
+          "petLeftArmDisabled": "Hide Left Arm",
+          "petRightArmVisible": "Show Right Arm",
+          "petLeftArmVisible": "Show Left Arm",
           "petRightArmBend": "Right Arm Bend",
+          "petHeadbuttRecoilEnabled": "Use Recoil",
+          "petHeadbuttMaxRadius": "Maximum Headbutt Reach",
+          "petTypingRadius": "Typing Reach",
+          "petHeadbuttRecoilStrength": "Recoil Strength",
+          "petHeadbuttRecoilWobble": "Wobble",
+          "petTypingHandLift": "Hand Lift",
+          "petTypingBodyMotion": "Body Movement",
+          "petTypingReturnSpeed": "Return Speed",
           "petRightArmSpread": "Right Arm Spread",
           "petLeftArmBend": "Left Arm Bend",
           "petLeftArmSpread": "Left Arm Spread",
@@ -355,6 +500,17 @@
           "minecraftSkinUsername": "Look up the skin associated with a Minecraft: Java Edition username and apply it to the pet.",
           "dmeloperSkinModel": "Wide is available only when it is supported by the loaded skin.",
           "petHeadScale": "Adjust the pet's head size.",
+          "petShoulderTorsoConnected": "Connect the pet model’s shoulder junctions to its torso.",
+          "petHeadbuttRecoilEnabled": "Add a natural recoil when rising after a headbutt.",
+          "petHeadbuttMaxRadius": "Higher values let the headbutt reach farther.",
+          "petTypingRadius": "Higher values let the arms reach farther while typing.",
+          "petHeadbuttRecoilStrength": "Higher values tilt the neck farther back.",
+          "petHeadbuttRecoilWobble": "Higher values sway back and forth for longer. (This option is hidden when Recoil Strength is -0.7 or lower.)",
+          "petTypingHandLift": "Higher values lift the hands farther while typing.",
+          "petTypingBodyMotion": "Higher values increase body movement and bend the waist farther forward while typing.",
+          "petTypingReturnSpeed": "Higher values shorten the wait before returning and move the hands and body back to rest faster after typing.",
+          "petRightArmDisabled": "Hide the right arm and palm and turn off its animation.",
+          "petLeftArmDisabled": "Hide the left arm and palm and turn off its animation.",
           "petRightArmBend": "Adjust the right elbow bend.",
           "petRightArmSpread": "Rotate the right arm horizontally.",
           "petLeftArmBend": "Adjust the left elbow bend.",
@@ -381,6 +537,10 @@
           "minecraftSkinLoading": "Looking up the skin through Minecraft services…"
         },
         "options": {
+          "petAnimationMode": {
+            "default": "Default",
+            "headbutt": "Headbutt"
+          },
           "dmeloperSkinModel": {
             "wide": "Wide",
             "slim": "Slim"
@@ -835,6 +995,52 @@
           "copyInfo": "Could not copy the app information. Please try again.",
           "openLog": "Could not open the log folder. Please try again.",
           "copyEmail": "Could not copy the email address. Please try again."
+        }
+      },
+      "foregroundHiding": {
+        "title": "Pet Auto Hiding",
+        "faqLabel": "Pet Auto Hiding FAQ",
+        "faqQuestion": "Q. The pet does not hide when I open a registered app.",
+        "faqAnswer": "A. If a program is installed in different locations, such as a regular installation, a Store installation, or a portable version, this can happen when you select a different app from the one you actually run. Please check that you have selected the correct app.",
+        "enabled": "Pet Auto Hiding",
+        "enabledHint": "Temporarily hide the desktop pet while a registered app’s window is the foreground window.",
+        "applications": "Apps That Trigger Pet Auto Hiding",
+        "noApplications": "No applications added.",
+        "addApplication": "Add Application",
+        "removeApplication": "Remove {name}",
+        "applicationModalTitle": "Choose an Installed App",
+        "applicationModalHint": "Choose an installed app, or select its executable directly on your PC.",
+        "sharedExecutable": "Applies to the executable used by this shortcut, including other entries that share it.",
+        "unresolvedApplication": "The executable could not be identified. Choose App on PC to specify it.",
+        "requiresExecutable": "Choose EXE",
+        "selectFromPc": "Choose App on PC",
+        "searchApplications": "Search programs",
+        "noMatchingApplications": "No programs match your search.",
+        "loadingApplications": "Loading installed apps…",
+        "noInstalledApplications": "No apps could be listed. Use Choose App on PC to select an executable.",
+        "addNamedApplication": "Add {name}",
+        "add": "Add",
+        "added": "Added",
+        "remove": "Remove",
+        "invalidHint": "The saved auto-hiding settings are invalid. They are retained as saved, and automatic hiding is inactive. Reset this section to remove the invalid rules, or correct the saved settings before enabling it.",
+        "repair": "Reset Auto Hiding",
+        "repairTitle": "Reset auto-hiding settings?",
+        "repairHint": "This turns off auto hiding and removes its selected apps. Other preferences are retained.",
+        "unavailableHint": "The foreground app could not be identified. The pet is not automatically hidden while identification is unavailable. Check whether the app is running with higher permissions.",
+        "status": {
+          "off": "Auto hiding is off.",
+          "empty": "Add an application to start auto hiding.",
+          "observing": "Checking the foreground app.",
+          "hidden": "The desktop pet is hidden for a selected app.",
+          "bypassed": "The pet was shown manually for this visit.",
+          "unavailable": "The foreground app is unavailable.",
+          "invalid": "Saved auto-hiding settings need attention."
+        },
+        "errors": {
+          "limit": "You can add up to {count} apps. Remove an app before adding another.",
+          "applicationsUnavailable": "Could not load installed apps. Use Choose App on PC to select an executable.",
+          "applicationsIncomplete": "Some registrations could not be read, or the list limit was reached. Choose a listed app or select its executable on your PC.",
+          "selectionUnavailable": "Could not select the app. Try choosing its executable again."
         }
       },
       "broadcast": {

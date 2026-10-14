@@ -1,0 +1,45 @@
+{
+  "fixtureVersion": 1,
+  "sources": [
+    {
+      "version": "1.0.1",
+      "kind": "official-release",
+      "producerCommit": "d23a9ef8bd765c5cd7a279ffee81def4231c9ec6",
+      "publicCommit": "d8e05d2489dacaf4288f3fc6e156c9bfddab0537",
+      "file": "1.0.1.json",
+      "sha256": "1a1b1e2b95da87cfd34422b1480dedf25cec274ffa32e57a560060ccd52f609b"
+    },
+    {
+      "version": "1.1.0",
+      "kind": "official-release",
+      "producerCommit": "11ef429f009be7b537587f3406617a02e591f2ff",
+      "publicCommit": "6281f430c04cee0d0282b20c9411017a18c257da",
+      "file": "1.1.0.json",
+      "sha256": "ca55b47359d4b24d90d32c348e61bad0c484aff6b24e82a277af815f96c90981"
+    },
+    {
+      "version": "1.1.1",
+      "kind": "official-release",
+      "producerCommit": "cd7548c0edbe331e20a4c3b0d1c6d5919d0a392c",
+      "publicCommit": "7a11ca8ee364da43b58293288b5e5bd11e2783a7",
+      "file": "1.1.1.json",
+      "sha256": "ca060254deae91f2ba338988cf0cda31d0f4d462cc3b619e2d3c8c2ab89d5f24"
+    },
+    {
+      "version": "1.1.2",
+      "kind": "official-release",
+      "producerCommit": "e725c15b6fa6a0f52f20a8f29d09f024402348e1",
+      "publicCommit": "d4f2f109706b22e81fc8fc0444143ce5f8575c67",
+      "file": "1.1.2.json",
+      "sha256": "3611aa940879bb6a5c18754b41bccd6d27828eb82e44466e215c214209442baa"
+    },
+    {
+      "version": "fixed-development",
+      "kind": "fixed-development",
+      "producerCommit": "f99e9e6ae2a705355345ae9820d482b1ea386b54",
+      "publicCommit": null,
+      "file": "fixed-development.json",
+      "sha256": "fcd09f3812b9ab9014cc3fe4c7e28fcd62ecf919f72fec1214b7a674b1ebeba2"
+    }
+  ]
+}

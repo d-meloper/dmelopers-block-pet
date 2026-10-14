@@ -77,6 +77,84 @@ fn pixel_filter_is_additive_and_round_trips_with_msaa() {
     }
 }
 
+#[test]
+fn animation_and_arm_fields_accept_legacy_and_partial_scenes_but_reject_invalid_values() {
+    scene().validate(None).unwrap();
+    for (key, values) in [
+        ("petAnimationMode", vec![json!("default"), json!("headbutt")]),
+        ("petShoulderTorsoConnected", vec![json!(false), json!(true)]),
+        ("petRightArmDisabled", vec![json!(false), json!(true)]),
+        ("petLeftArmDisabled", vec![json!(false), json!(true)]),
+    ] {
+        for value in values {
+            let mut partial = scene();
+            partial.preset[key] = value.clone();
+            partial.validate(None).unwrap();
+            let restored: BroadcastScene =
+                serde_json::from_value(serde_json::to_value(&partial).unwrap()).unwrap();
+            restored.validate(None).unwrap();
+            assert_eq!(restored.preset[key], value);
+        }
+        let invalid = if key == "petAnimationMode" {
+            vec![json!("unknown"), json!("DEFAULT"), json!(true), json!(0), Value::Null]
+        } else {
+            vec![json!("false"), json!("true"), json!(0), json!(1), Value::Null]
+        };
+        for value in invalid {
+            let mut rejected = scene();
+            rejected.preset[key] = value;
+            assert_eq!(rejected.validate(None).unwrap_err(), "scene_invalid", "{key}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn current_default_and_animation_arm_choices_reach_authenticated_clients() {
+    let (_root, service, demands) = make_service();
+    let mut current = scene();
+    current.preset = crate::settings_defaults::section("preset").unwrap();
+    let status = service.configure(true, Some(current.clone())).await.unwrap();
+    assert!(status.enabled && status.error.is_none());
+    let original_url = status.url;
+    let mut socket = connect(&service).await;
+    let initial = next_type(&mut socket, "scene").await;
+    assert_eq!(initial["scene"]["preset"], current.preset);
+    acknowledge(&mut socket, initial["revision"].as_u64().unwrap()).await;
+    wait_status(&service, 1, None).await;
+    for mode in ["default", "headbutt"] {
+        for connected in [false, true] {
+            for right_disabled in [false, true] {
+                for left_disabled in [false, true] {
+                    current.preset["petAnimationMode"] = json!(mode);
+                    current.preset["petShoulderTorsoConnected"] = json!(connected);
+                    current.preset["petRightArmDisabled"] = json!(right_disabled);
+                    current.preset["petLeftArmDisabled"] = json!(left_disabled);
+                    // Each matrix row is a distinct scene, including the first row.
+                    current.preset["cameraHorizontalOffset"] =
+                        json!(current.preset["cameraHorizontalOffset"].as_f64().unwrap() + 1.0);
+                    let status = service.configure(true, Some(current.clone())).await.unwrap();
+                    assert!(status.error.is_none());
+                    assert_eq!(status.url, original_url);
+                    let packet = next_type(&mut socket, "scene").await;
+                    assert_eq!(packet["scene"]["preset"], current.preset);
+                }
+            }
+        }
+    }
+    let mut invalid = current.clone();
+    invalid.preset["petRightArmDisabled"] = json!("true");
+    assert_eq!(service.configure(true, Some(invalid)).await.unwrap_err(), "scene_invalid");
+    assert_eq!(service.scenes.borrow().as_ref().unwrap().scene, current);
+    assert!(service.status().error.is_none());
+    // An older producer can still update the same live transport without these fields.
+    let legacy = scene();
+    service.configure(true, Some(legacy.clone())).await.unwrap();
+    assert_eq!(next_type(&mut socket, "scene").await["scene"]["preset"], legacy.preset);
+    service.configure(false, None).await.unwrap();
+    assert_eq!(service.status().clients, 0);
+    assert_eq!(demands.lock().unwrap().last(), Some(&None));
+}
+
 fn make_service() -> (
     tempfile::TempDir,
     Arc<Service>,
@@ -157,6 +235,139 @@ async fn wait_status(service: &Service, clients: usize, error: Option<&str>) {
     })
     .await
     .unwrap_or_else(|_| panic!("unexpected status: {:?}", service.status()));
+}
+
+async fn wait_confirmation(service: &Service, revision: u64, confirmed: usize) {
+    tokio::time::timeout(Duration::from_secs(4), async {
+        loop {
+            let status = {
+                let _control = service.control.lock().await;
+                service.status()
+            };
+            if status.scene_revision == Some(revision)
+                && status.confirmed_clients == Some(confirmed)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+async fn peer_request_barrier(socket: &mut Socket) {
+    socket.send(Message::Ping(vec![42].into())).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(4), async {
+        loop {
+            match socket.next().await.unwrap().unwrap() {
+                Message::Pong(payload) if payload.as_ref() == [42] => break,
+                Message::Ping(payload) => socket.send(Message::Pong(payload)).await.unwrap(),
+                _ => {}
+            }
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn current_scene_confirmation_cannot_inherit_an_older_frame_or_input_lease() {
+    let (_root, service, demands) = make_service();
+    let initial_status = serde_json::to_value(service.status()).unwrap();
+    assert!(initial_status.get("sceneRevision").is_none());
+    assert!(initial_status.get("confirmedClients").is_none());
+    let prepared = service.configure(true, Some(scene())).await.unwrap();
+    let revision = prepared.scene_revision.unwrap();
+    assert_eq!(prepared.clients, 0);
+    assert_eq!(prepared.confirmed_clients, Some(0));
+    let mut first = connect(&service).await;
+    next_type(&mut first, "scene").await;
+    acknowledge(&mut first, revision).await;
+    wait_confirmation(&service, revision, 1).await;
+    let mut second = connect(&service).await;
+    next_type(&mut second, "scene").await;
+    acknowledge(&mut second, revision).await;
+    wait_confirmation(&service, revision, 2).await;
+    let old_ids: Vec<_> = service
+        .inner
+        .lock()
+        .unwrap()
+        .clients
+        .keys()
+        .copied()
+        .collect();
+    let generation = service.inner.lock().unwrap().server_generation;
+    let status = serde_json::to_value(service.status()).unwrap();
+    assert_eq!(status["sceneRevision"], revision);
+    assert_eq!(status["confirmedClients"], 2);
+    assert_eq!(status["clients"], 2);
+
+    let mut changed = scene();
+    changed.preset["cameraZoomPercent"] = json!(121);
+    let updated = service.configure(true, Some(changed)).await.unwrap();
+    let latest = updated.scene_revision.unwrap();
+    assert!(latest > revision);
+    assert_eq!(updated.clients, 2);
+    assert_eq!(updated.confirmed_clients, Some(0));
+    assert_eq!(service.inner.lock().unwrap().server_generation, generation);
+    assert_eq!(demands.lock().unwrap().last(), Some(&Some(true)));
+    for socket in [&mut first, &mut second] {
+        assert_eq!(next_type(socket, "scene").await["revision"], latest);
+    }
+    // An older frame remains useful for input, but cannot confirm the new scene.
+    service.publish_input(SemanticInputEvent::MousePrimary { active: true });
+    for socket in [&mut first, &mut second] {
+        assert_eq!(next_type(socket, "input").await["event"]["active"], true);
+    }
+    acknowledge(&mut first, revision).await;
+    peer_request_barrier(&mut first).await;
+    assert_eq!(service.status().confirmed_clients, Some(0));
+    acknowledge(&mut first, latest).await;
+    wait_confirmation(&service, latest, 1).await;
+    first
+        .send(Message::Text(
+            json!({"type":"render_error", "revision":latest})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    wait_status(&service, 2, Some("render_failed")).await;
+    assert_eq!(service.status().confirmed_clients, Some(0));
+
+    let retried = service.configure(true, None).await.unwrap();
+    let retry_revision = retried.scene_revision.unwrap();
+    assert!(retry_revision > latest);
+    assert_eq!(retried.clients, 2);
+    assert_eq!(retried.confirmed_clients, Some(0));
+    assert_eq!(retried.error.as_deref(), Some("render_failed"));
+    for socket in [&mut first, &mut second] {
+        assert_eq!(next_type(socket, "scene").await["revision"], retry_revision);
+    }
+    acknowledge(&mut first, latest).await;
+    peer_request_barrier(&mut first).await;
+    assert_eq!(service.status().error.as_deref(), Some("render_failed"));
+    assert_eq!(service.status().confirmed_clients, Some(0));
+    acknowledge(&mut first, retry_revision).await;
+    wait_confirmation(&service, retry_revision, 1).await;
+    assert_eq!(service.status().error, None);
+    acknowledge(&mut second, retry_revision).await;
+    wait_confirmation(&service, retry_revision, 2).await;
+    first.close(None).await.unwrap();
+    wait_status(&service, 1, None).await;
+    assert_eq!(service.status().confirmed_clients, Some(1));
+    let disabled = service.configure(false, None).await.unwrap();
+    assert_eq!(disabled.clients, 0);
+    assert_eq!(disabled.confirmed_clients, Some(0));
+    assert_eq!(disabled.scene_revision, Some(retry_revision));
+    let resumed = service.configure(true, None).await.unwrap();
+    assert_eq!(resumed.clients, 0);
+    assert_eq!(resumed.confirmed_clients, Some(0));
+    for id in old_ids {
+        assert!(!service.ready(id, retry_revision).await);
+    }
+    service.configure(false, None).await.unwrap();
 }
 
 #[tokio::test]
@@ -271,6 +482,256 @@ async fn disabled_default_port_conflict_and_stable_reactivation() {
     assert_eq!(demands.lock().unwrap().last(), Some(&None));
     assert!(service.configure(true, None).await.unwrap().error.is_none());
     service.configure(false, None).await.unwrap();
+}
+
+#[tokio::test]
+async fn healthy_retry_preserves_server_clients_endpoint_and_input() {
+    let (root, service, demands) = make_service();
+    service.configure(true, Some(scene())).await.unwrap();
+    let url = service.status().url;
+    let bytes = std::fs::read(root.path().join("broadcast-endpoint.json")).unwrap();
+    let mut socket = connect(&service).await;
+    let initial = next_type(&mut socket, "scene").await;
+    acknowledge(&mut socket, initial["revision"].as_u64().unwrap()).await;
+    wait_status(&service, 1, None).await;
+    let generation = service.inner.lock().unwrap().server_generation;
+
+    let status = service.configure(true, None).await.unwrap();
+    assert_eq!(status.clients, 1);
+    assert_eq!(status.error, None);
+    assert_eq!(status.url, url);
+    assert_eq!(service.inner.lock().unwrap().server_generation, generation);
+    assert_eq!(
+        service.scenes.borrow().as_ref().unwrap().revision,
+        initial["revision"].as_u64().unwrap()
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("broadcast-endpoint.json")).unwrap(),
+        bytes
+    );
+    assert_eq!(demands.lock().unwrap().last(), Some(&Some(true)));
+    service.publish_input(SemanticInputEvent::MousePrimary { active: true });
+    assert_eq!(
+        next_type(&mut socket, "input").await["event"],
+        json!({"kind":"mouse_primary", "active":true})
+    );
+    service.configure(false, None).await.unwrap();
+}
+
+#[tokio::test]
+async fn server_task_failure_retires_clients_and_input_before_failed_rebind_and_retry() {
+    let (_root, service, demands) = make_service();
+    service.configure(true, Some(scene())).await.unwrap();
+    let url = service.status().url;
+    let mut socket = connect(&service).await;
+    let initial = next_type(&mut socket, "scene").await;
+    acknowledge(&mut socket, initial["revision"].as_u64().unwrap()).await;
+    wait_status(&service, 1, None).await;
+    let old_generation = service.inner.lock().unwrap().server_generation;
+    {
+        let control = service.control.lock().await;
+        control.as_ref().unwrap().task.abort();
+    }
+    wait_status(&service, 0, Some("server_unavailable")).await;
+    assert_eq!(service.status().confirmed_clients, Some(0));
+    assert_eq!(demands.lock().unwrap().last(), Some(&None));
+    tokio::time::timeout(Duration::from_secs(4), async {
+        loop {
+            match socket.next().await {
+                Some(Ok(Message::Close(_))) => break,
+                Some(Ok(Message::Ping(payload))) => {
+                    socket.send(Message::Pong(payload)).await.unwrap()
+                }
+                Some(Ok(_)) => {}
+                result => panic!("missing close after server failure: {result:?}"),
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let occupied = std::net::TcpListener::bind((
+        std::net::Ipv4Addr::LOCALHOST,
+        service.identity.get().unwrap().port,
+    ))
+    .unwrap();
+    let failed = service.configure(true, None).await.unwrap();
+    assert_eq!(failed.error.as_deref(), Some("port_in_use"));
+    assert_eq!(failed.clients, 0);
+    assert_eq!(failed.confirmed_clients, Some(0));
+    assert_eq!(failed.url, url);
+    assert_eq!(demands.lock().unwrap().last(), Some(&None));
+    drop(occupied);
+    let prepared = service.configure(true, None).await.unwrap();
+    assert_eq!(prepared.error, None);
+    assert_eq!(prepared.clients, 0);
+    assert_eq!(prepared.confirmed_clients, Some(0));
+    assert_eq!(prepared.url, url);
+    let mut replacement = connect(&service).await;
+    let restored = next_type(&mut replacement, "scene").await;
+    acknowledge(&mut replacement, restored["revision"].as_u64().unwrap()).await;
+    wait_status(&service, 1, None).await;
+    let current_demands = demands.lock().unwrap().clone();
+    service.server_stopped(old_generation);
+    assert_eq!(service.status().clients, 1);
+    assert_eq!(service.status().error, None);
+    assert_eq!(service.status().confirmed_clients, Some(1));
+    assert_eq!(*demands.lock().unwrap(), current_demands);
+    service.configure(false, None).await.unwrap();
+}
+
+#[tokio::test]
+async fn input_failure_and_failed_lease_release_remain_retryable_without_server_reset() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let root = tempfile::tempdir().unwrap();
+    let owned = root.path().to_owned();
+    let fail = Arc::new(AtomicBool::new(false));
+    let failed = Arc::clone(&fail);
+    let demands = Arc::new(Mutex::new(Vec::new()));
+    let observed = Arc::clone(&demands);
+    let service = Service::new(
+        Arc::new(move |expected| identity::load_known(&owned, expected)),
+        Arc::new(|_| {}),
+        Arc::new(move |demand| {
+            observed.lock().unwrap().push(demand);
+            if failed.load(Ordering::SeqCst) {
+                Err("private callback failure".into())
+            } else {
+                Ok(())
+            }
+        }),
+    );
+    service.configure(true, Some(scene())).await.unwrap();
+    let generation = service.inner.lock().unwrap().server_generation;
+    let mut socket = connect(&service).await;
+    let initial = next_type(&mut socket, "scene").await;
+    fail.store(true, Ordering::SeqCst);
+    acknowledge(&mut socket, initial["revision"].as_u64().unwrap()).await;
+    wait_status(&service, 1, Some("input_unavailable")).await;
+    fail.store(false, Ordering::SeqCst);
+    assert_eq!(service.configure(true, None).await.unwrap().error, None);
+    assert_eq!(service.inner.lock().unwrap().server_generation, generation);
+    assert_eq!(service.status().clients, 1);
+    fail.store(true, Ordering::SeqCst);
+    socket.close(None).await.unwrap();
+    wait_status(&service, 0, Some("input_unavailable")).await;
+    let disabled = service.configure(false, None).await.unwrap();
+    assert!(!disabled.enabled);
+    assert_eq!(disabled.error.as_deref(), Some("input_unavailable"));
+    assert_eq!(demands.lock().unwrap().last(), Some(&None));
+    let occupied = std::net::TcpListener::bind((
+        std::net::Ipv4Addr::LOCALHOST,
+        service.identity.get().unwrap().port,
+    ))
+    .unwrap();
+    let failed_bind = service.configure(true, None).await.unwrap();
+    assert_eq!(failed_bind.error.as_deref(), Some("port_in_use"));
+    assert_eq!(
+        service.inner.lock().unwrap().input_error.as_deref(),
+        Some("input_unavailable")
+    );
+    assert!(
+        !serde_json::to_string(&failed_bind)
+            .unwrap()
+            .contains("private callback failure")
+    );
+    drop(occupied);
+    fail.store(false, Ordering::SeqCst);
+    assert_eq!(service.configure(true, None).await.unwrap().error, None);
+    assert_eq!(service.configure(false, None).await.unwrap().error, None);
+}
+
+#[tokio::test]
+async fn timed_out_input_is_retained_and_drained_before_latest_lease_release() {
+    let root = tempfile::tempdir().unwrap();
+    let owned = root.path().to_owned();
+    let demands = Arc::new(Mutex::new(Vec::new()));
+    let observed = Arc::clone(&demands);
+    let (release, receive) = std::sync::mpsc::channel::<()>();
+    let receive = Mutex::new(receive);
+    let service = Service::new(
+        Arc::new(move |expected| identity::load_known(&owned, expected)),
+        Arc::new(|_| {}),
+        Arc::new(move |demand| {
+            observed.lock().unwrap().push(demand);
+            if demand.is_some() {
+                let _ = receive.lock().unwrap().recv();
+            }
+            Ok(())
+        }),
+    );
+    service.configure(true, Some(scene())).await.unwrap();
+    let mut socket = connect(&service).await;
+    let initial = next_type(&mut socket, "scene").await;
+    acknowledge(&mut socket, initial["revision"].as_u64().unwrap()).await;
+    wait_status(&service, 1, Some("input_unavailable")).await;
+    assert_eq!(*demands.lock().unwrap(), vec![None, Some(true)]);
+    let started = tokio::time::Instant::now();
+    let disabled = service.configure(false, None).await.unwrap();
+    assert!(started.elapsed() < INPUT_TIMEOUT + Duration::from_secs(1));
+    assert!(!disabled.enabled && disabled.clients == 0);
+    assert_eq!(disabled.error.as_deref(), Some("input_unavailable"));
+    assert_eq!(*demands.lock().unwrap(), vec![None, Some(true)]);
+    // Completing the old start does not acknowledge the newer release. Retry
+    // must drain that exact task, then issue and acknowledge None once.
+    release.send(()).unwrap();
+    let recovered = service.configure(false, None).await.unwrap();
+    assert_eq!(recovered.error, None);
+    assert_eq!(*demands.lock().unwrap(), vec![None, Some(true), None]);
+    assert!(service.pending_input.lock().await.is_none());
+}
+
+#[tokio::test]
+async fn cancelled_configure_retains_its_input_task_instead_of_overlapping_retry() {
+    let root = tempfile::tempdir().unwrap();
+    let owned = root.path().to_owned();
+    let demands = Arc::new(Mutex::new(Vec::new()));
+    let observed = Arc::clone(&demands);
+    let (release, receive) = std::sync::mpsc::channel::<()>();
+    let receive = Mutex::new(receive);
+    let service = Service::new(
+        Arc::new(move |expected| identity::load_known(&owned, expected)),
+        Arc::new(|_| {}),
+        Arc::new(move |demand| {
+            observed.lock().unwrap().push(demand);
+            let _ = receive.lock().unwrap().recv();
+            Ok(())
+        }),
+    );
+    let configuring = Arc::clone(&service);
+    let operation = tokio::spawn(async move { configuring.configure(true, Some(scene())).await });
+    tokio::time::timeout(Duration::from_secs(4), async {
+        while demands.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    operation.abort();
+    assert!(operation.await.unwrap_err().is_cancelled());
+    assert!(service.pending_input.lock().await.is_some());
+    assert_eq!(service.status().error.as_deref(), Some("input_unavailable"));
+    let disabled = service.configure(false, None).await.unwrap();
+    assert_eq!(disabled.error.as_deref(), Some("input_unavailable"));
+    assert_eq!(*demands.lock().unwrap(), vec![None]);
+    release.send(()).unwrap();
+    // The retained operation requested exactly the current release. Its late
+    // acknowledgement is sufficient; no duplicate blocking request is issued.
+    assert_eq!(service.configure(false, None).await.unwrap().error, None);
+    assert_eq!(*demands.lock().unwrap(), vec![None]);
+}
+
+#[test]
+fn native_io_causes_are_fixed_codes() {
+    use std::io::ErrorKind;
+    for (kind, expected) in [
+        (ErrorKind::AddrInUse, "address_in_use"),
+        (ErrorKind::PermissionDenied, "permission_denied"),
+        (ErrorKind::AddrNotAvailable, "address_unavailable"),
+        (ErrorKind::TimedOut, "timeout"),
+        (ErrorKind::Other, "io_failure"),
+    ] {
+        assert_eq!(io_reason(kind), expected);
+    }
 }
 
 #[tokio::test]

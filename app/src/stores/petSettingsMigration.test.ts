@@ -52,7 +52,7 @@ describe('character settings compatibility', () => {
     const original = structuredClone(raw)
     const store = restoredStore(raw)
     const settings = store.customization3d
-    assert.equal(settings.schemaVersion, 13)
+    assert.equal(settings.schemaVersion, 14)
     assert.equal(settings.selectedModelId, 'dmeloper')
     assert.equal(settings.dmeloperSkinDataUrl, DATA_URL)
     assert.equal(settings.minecraftSkinUsername, 'Steve')
@@ -110,7 +110,7 @@ describe('character settings compatibility', () => {
       activeSkinLibraryEntryId: ENTRY_ID,
       preset: { steveEyebrows: eyebrows, windowScalePercent: 72 },
     } })
-    assert.equal(store.customization3d.schemaVersion, 13)
+    assert.equal(store.customization3d.schemaVersion, 14)
     assert.equal(store.customization3d.dmeloperSkinDataUrl, DATA_URL)
     assert.deepEqual(store.activePet3dPreset.dmeloperEyebrows, eyebrows)
     assert.equal('dmeloperEyebrowProfiles' in store.customization3d, false)

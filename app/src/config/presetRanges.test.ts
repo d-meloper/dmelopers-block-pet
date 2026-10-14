@@ -15,9 +15,16 @@ import presetRanges from './presetRanges.json'
 const fixture = readFileSync(new URL('../features/presets/fixtures/portable-v1.json', import.meta.url))
 
 describe('shared actual preset ranges', () => {
-  it('implements the nine requested bounds independently of the display coordinate system', () => {
+  it('implements authored preset bounds independently of the display coordinate system', () => {
     assert.deepEqual(presetRanges, {
       preset: {
+        petHeadbuttMaxRadiusOffset: { min: -1, max: 1 },
+        petTypingMaxRadiusOffset: { min: -1, max: 1 },
+        petHeadbuttRecoilStrengthPercent: { min: 0, max: 200 },
+        petHeadbuttRecoilWobblePercent: { min: 0, max: 100 },
+        petTypingHandLiftPercent: { min: 0, max: 300 },
+        petTypingBodyMotionPercent: { min: 0, max: 300 },
+        petTypingReturnSpeedPercent: { min: 50, max: 400 },
         petRotationDegrees: { min: -30, max: 30 },
         petDeskOffset: { min: -0.4, max: 0.4 },
         keyboardBaseXOffset: { min: -0.8, max: 0.8 },

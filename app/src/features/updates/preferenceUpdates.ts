@@ -2,6 +2,7 @@ import { computed, ref, shallowRef } from 'vue'
 
 import type { DistributionChannel } from '@/services/distribution'
 import type { AppUpdateInfo, UpdatePhase } from '@/services/inAppUpdates'
+import type { UpdateReminderSnooze } from '@/stores/general'
 
 export const UPDATE_REMINDER_WEEK = 7 * 24 * 60 * 60 * 1000
 
@@ -10,8 +11,8 @@ interface Dependencies {
   checkApp: (force: boolean) => Promise<AppUpdateInfo>
   install: (onPhase: (phase: UpdatePhase) => void, onProgress: (percent: number) => void) => Promise<void>
   cancel: () => Promise<void>
-  hiddenUntil: () => number
-  hideUntil: (deadline: number) => void
+  reminderSnooze: () => UpdateReminderSnooze
+  snoozeReminder: (value: UpdateReminderSnooze) => void
   report: (operation: 'check' | 'install', error: unknown) => void
   now?: () => number
 }
@@ -35,8 +36,9 @@ export function createPreferenceUpdates(deps: Dependencies) {
   let pending: Promise<void> | undefined
 
   function offer(version: string | null | undefined) {
-    const deadline = deps.hiddenUntil()
-    if (version && !(Number.isFinite(deadline) && deadline > now())) reminderVersion.value = version
+    const snooze = deps.reminderSnooze()
+    const hidden = snooze?.version === version && Number.isFinite(snooze?.hiddenUntil) && snooze.hiddenUntil > now()
+    reminderVersion.value = version && !hidden ? version : undefined
   }
 
   async function check(force = true): Promise<void> {
@@ -84,8 +86,9 @@ export function createPreferenceUpdates(deps: Dependencies) {
   }
 
   function snooze() {
-    if (busy.value) return
-    deps.hideUntil(now() + UPDATE_REMINDER_WEEK)
+    const version = reminderVersion.value
+    if (disposed || !visible || busy.value || !version) return
+    deps.snoozeReminder({ version, hiddenUntil: now() + UPDATE_REMINDER_WEEK })
     dismiss()
   }
 

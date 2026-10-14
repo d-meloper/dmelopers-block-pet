@@ -59,6 +59,7 @@ function appHarness(label = 'preference') {
     './features/stateSafety/runtime': { registerStateSnapshots: () => {}, markStoresReady: () => {} },
     './features/presets/types': presetTypes,
     './features/presets/editRequests': editRequests,
+    './services/foregroundHiding': { startForegroundHiding: async () => () => {} },
     '@tauri-apps/api/core': { invoke: async () => {} },
     '@tauri-apps/api/event': { emitTo: async (_label: string, event: string, payload: unknown) => {
       if (event === petRuntime.PET_RUNTIME_SHOW) rendererShowRequests++

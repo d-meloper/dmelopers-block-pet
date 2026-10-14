@@ -9,9 +9,11 @@ import type { PresetThumbnailBatch } from '@/features/presets/thumbnail'
 import type { PresetExportMode, PresetTransferPhase } from '@/features/presets/transfer'
 import type { PresetCollection, PresetEntry, PresetListEntry, PresetSnapshot } from '@/features/presets/types'
 import type { PresetImportPrevious } from '@/services/presetTransfer'
+import type { SkinLibraryErrorCode } from '@/services/skinLibrary'
 
 import { isCycleViewportSettingRequest, isMenuViewportSettingRequest, nextViewportOption } from '@/composables/menuViewportSetting'
 import { WINDOW_LABEL } from '@/constants'
+import { toggledBasicVisibility } from '@/features/foregroundHiding/manual'
 import { builtinPresets } from '@/features/presets/builtin'
 import { compatiblePresetFields, inspectPresetCompatibility, presetSettings, presetSource, presetSourceKey, projectPresetSettings } from '@/features/presets/compatibility'
 import { invalidatePresetSelection, markPresetUserEdit } from '@/features/presets/editIntent'
@@ -34,9 +36,11 @@ import { preparePresetSkin, restorePresetSkin } from '@/features/presets/skin'
 import { createPresetThumbnailBatch } from '@/features/presets/thumbnail'
 import { exportPortablePreset, PresetTransferError, resolvePortablePreset } from '@/features/presets/transfer'
 import { isResolvedSkinModelRequest, PRESET_APPLY_RESPONSE } from '@/features/presets/types'
+import { commitArmControlOrderRotation } from '@/features/scene/armControlOrder'
 import { editorsLocked, registerPresetFlush } from '@/features/stateSafety/bridge'
 import { registerAppProcessOwner } from '@/plugins/process'
 import { reportDiagnostic } from '@/services/diagnostics'
+import { foregroundHidingSuppressed, showForegroundHidingVisit } from '@/services/foregroundHiding'
 import { MinecraftSkinError } from '@/services/minecraftSkin'
 import { finishPresetImport, preparePresetImport, readPortablePreset, readPresetImport, writePortablePreset } from '@/services/presetTransfer'
 import { useBlockStore } from '@/stores/block'
@@ -80,6 +84,7 @@ export function usePresetManager(
   const createNeedsName = computed(() => createError.value === 'pages.preference.presets.errors.invalidName'
     || createError.value === 'pages.preference.presets.errors.duplicateName')
   const canRetryCreate = computed(() => ready.value && !busy.value && !!createError.value && !!pendingCreate.value)
+  const skinLibraryWarning = shallowRef<{ name: string, code: SkinLibraryErrorCode }>()
   const transferError = ref<string>()
   const transferPhase = ref<PresetTransferPhase>()
   let importRequests: PresetImportRequest[] = []
@@ -326,37 +331,46 @@ export function usePresetManager(
     }
   }
 
-  const activate = (id: string, { applySkin = true, compatibleOnly = false, expectedSourceKey }: { applySkin?: boolean, compatibleOnly?: boolean, expectedSourceKey?: string } = {}) => mutate(async () => {
-    const entry = entries.value.find(entry => entry.id === id)
-    if (!entry) throw new Error('pages.preference.presets.errors.apply')
-    const confirmedKey = presetSourceKey(entry, JSON.stringify)
-    if ((expectedSourceKey !== undefined && expectedSourceKey !== confirmedKey)
-      || (!compatibleOnly && inspectPresetCompatibility(presetSource(entry)).length > 0)) {
-      throw new PresetCompatibilityError('pages.preference.presets.compatibility.changed')
-    }
-    if (!applySkin && !compatiblePresetFields(presetSource(entry)).some(field => !['preset.dmeloperPalmColor', 'preset.dmeloperEyebrows.color'].includes(field.path.join('.')))) {
-      throw new PresetCompatibilityError('pages.preference.presets.compatibility.none')
-    }
-    const current = capturePresetSnapshot(store)
-    let snapshot = { appearance: clonePreset(entry.snapshot.appearance), ...projectPresetSettings(presetSource(entry), presetSettings(current)) }
-    if (applySkin) {
-      snapshot = await restorePresetSkin(snapshot, entry.name)
-    }
-    const latest = entriesById.value.get(id)
-    if (!latest || presetSourceKey(latest, JSON.stringify) !== confirmedKey) {
-      throw new PresetCompatibilityError('pages.preference.presets.compatibility.changed')
-    }
-    const live = capturePresetSnapshot(store)
-    snapshot = { ...snapshot, ...projectPresetSettings(presetSource(latest), presetSettings(live)) }
-    if (!applySkin) {
-      // Capture after the transaction's save barrier, never when its dialog opens.
-      // Keep the live skin identity without preparing or restoring the target PNG.
-      snapshot.appearance = live.appearance
-      snapshot.preset.dmeloperEyebrows.color = live.preset.dmeloperEyebrows.color
-      snapshot.preset.dmeloperPalmColor = live.preset.dmeloperPalmColor
-    }
-    await apply(snapshot, undefined, true)
-  })
+  const activate = async (id: string, { applySkin = true, compatibleOnly = false, expectedSourceKey }: { applySkin?: boolean, compatibleOnly?: boolean, expectedSourceKey?: string } = {}) => {
+    let warning: typeof skinLibraryWarning.value
+    const accepted = await mutate(async () => {
+      const entry = entries.value.find(entry => entry.id === id)
+      if (!entry) throw new Error('pages.preference.presets.errors.apply')
+      const confirmedKey = presetSourceKey(entry, JSON.stringify)
+      if ((expectedSourceKey !== undefined && expectedSourceKey !== confirmedKey)
+        || (!compatibleOnly && inspectPresetCompatibility(presetSource(entry)).length > 0)) {
+        throw new PresetCompatibilityError('pages.preference.presets.compatibility.changed')
+      }
+      if (!applySkin && !compatiblePresetFields(presetSource(entry)).some(field => !['preset.dmeloperPalmColor', 'preset.dmeloperEyebrows.color'].includes(field.path.join('.')))) {
+        throw new PresetCompatibilityError('pages.preference.presets.compatibility.none')
+      }
+      const current = capturePresetSnapshot(store)
+      let snapshot = { appearance: clonePreset(entry.snapshot.appearance), ...projectPresetSettings(presetSource(entry), presetSettings(current)) }
+      if (applySkin) {
+        snapshot = await restorePresetSkin(snapshot, entry.name, (cause) => {
+          warning = { name: entry.name, code: cause.code }
+          reportDiagnostic('warn', 'presets.skin_library_restore', cause)
+        })
+      }
+      const latest = entriesById.value.get(id)
+      if (!latest || presetSourceKey(latest, JSON.stringify) !== confirmedKey) {
+        throw new PresetCompatibilityError('pages.preference.presets.compatibility.changed')
+      }
+      const live = capturePresetSnapshot(store)
+      snapshot = { ...snapshot, ...projectPresetSettings(presetSource(latest), presetSettings(live)) }
+      if (!applySkin) {
+        // Capture after the transaction's save barrier, never when its dialog opens.
+        // Keep the live skin identity without preparing or restoring the target PNG.
+        snapshot.appearance = live.appearance
+        snapshot.preset.dmeloperEyebrows.color = live.preset.dmeloperEyebrows.color
+        snapshot.preset.dmeloperPalmColor = live.preset.dmeloperPalmColor
+      }
+      await apply(snapshot, undefined, true)
+    })
+    // Publish a partial library result only after scene and durable save agree.
+    if (accepted && !disposed) skinLibraryWarning.value = warning
+    return accepted
+  }
 
   async function submitCreate(request: NonNullable<typeof pendingCreate.value>): Promise<boolean> {
     if (!ready.value || busy.value || disposed || editorsLocked.value) return false
@@ -657,19 +671,27 @@ export function usePresetManager(
       markPresetUserEdit()
       // Resolve against the owner's latest value, including earlier queued presses.
       store.activePet3dPreset[payload.cycle] = nextViewportOption(payload.cycle, store.activePet3dPreset[payload.cycle])
+      if (payload.cycle === 'sceneRotationOffsetDegrees') commitArmControlOrderRotation(store.activePet3dPreset[payload.cycle])
       return
     }
     if (isMenuViewportSettingRequest(payload)) {
       markPresetUserEdit()
       store.activePet3dPreset[payload.key] = payload.value
+      if (payload.key === 'sceneRotationOffsetDegrees') commitArmControlOrderRotation(payload.value)
       return
     }
-    const request = payload as { desktopVisible?: unknown, visible?: unknown, opacity?: unknown, mirror?: unknown, showDisplayArea?: unknown, keepInScreen?: unknown, alwaysOnTop?: unknown }
-    if (typeof request.desktopVisible === 'boolean') {
+    const request = payload as { toggleVisibility?: unknown, desktopVisible?: unknown, visible?: unknown, opacity?: unknown, mirror?: unknown, showDisplayArea?: unknown, keepInScreen?: unknown, alwaysOnTop?: unknown }
+    let manuallyShown = false
+    if (request.toggleVisibility === true) {
+      store.window.visible = toggledBasicVisibility(store.window.visible, general.broadcast, foregroundHidingSuppressed.value)
+      manuallyShown = store.window.visible
+    } else if (typeof request.desktopVisible === 'boolean') {
       if (general.broadcast.enabled) general.broadcast.showOnDesktop = request.desktopVisible
       store.window.visible = request.desktopVisible
+      manuallyShown = request.desktopVisible
     } else if (typeof request.visible === 'boolean') {
       store.window.visible = request.visible
+      manuallyShown = request.visible
     } else if (typeof request.keepInScreen === 'boolean') {
       store.window.keepInScreen = request.keepInScreen
     } else if (typeof request.alwaysOnTop === 'boolean') {
@@ -684,6 +706,7 @@ export function usePresetManager(
       markPresetUserEdit()
       store.window.opacity = request.opacity
     }
+    if (manuallyShown) void showForegroundHidingVisit().catch(() => reportDiagnostic('warn', 'foreground_hiding.manual_show'))
   }
 
   onMounted(initialize)
@@ -715,6 +738,7 @@ export function usePresetManager(
       return
     }
     recovery = undefined
+    skinLibraryWarning.value = undefined
     pendingCreate.value = undefined
     createError.value = undefined
     importRequests = []
@@ -763,6 +787,7 @@ export function usePresetManager(
     createName,
     createNeedsName,
     canRetryCreate,
+    skinLibraryWarning,
     transferError,
     transferPhase,
     importResults,

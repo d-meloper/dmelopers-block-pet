@@ -4,7 +4,7 @@ import type { BroadcastConfiguration, BroadcastStatus } from './types'
 export function createBroadcastSynchronizer(deps: {
   configure: (configuration: BroadcastConfiguration) => Promise<BroadcastStatus>
   accept: (status: BroadcastStatus) => void
-  failed: () => void
+  failed: (error: unknown) => void
   pending: (pending: boolean) => void
 }) {
   let desired: BroadcastConfiguration | undefined
@@ -30,8 +30,8 @@ export function createBroadcastSynchronizer(deps: {
           if (disposed || request !== sequence) continue
           acceptedKey = status.error ? undefined : key
           deps.accept(status)
-        } catch {
-          if (!disposed && request === sequence) deps.failed()
+        } catch (error) {
+          if (!disposed && request === sequence) deps.failed(error)
         }
       }
     } finally {

@@ -8,7 +8,7 @@ import * as Vue from 'vue'
 import { compileScript, parse } from 'vue/compiler-sfc'
 
 import type { PreferenceUpdates } from '@/features/updates/preferenceUpdates'
-import type { DistributionChannel } from '@/services/distribution'
+import type { DistributionChannel, DistributionInfo } from '@/services/distribution'
 import type { AppUpdateInfo, UpdatePhase } from '@/services/inAppUpdates'
 
 import externalLinks from '@/config/externalLinks.json'
@@ -18,6 +18,8 @@ import en from '@/locales/en-US.json'
 import ko from '@/locales/ko-KR.json'
 import { selectByLanguage } from '@/locales/languageBranch'
 import { DEFAULT_PROGRAM_SETTINGS_RESET_OPTIONS } from '@/utils/programSettingsReset'
+
+import * as supportRecovery from './supportRecovery'
 
 const listItem = { name: 'ListItem' }
 
@@ -42,8 +44,8 @@ function harness(channel: DistributionChannel = 'github', language?: 'ko-KR' | '
     cancel: async () => {
       calls.push('cancel')
     },
-    hiddenUntil: () => 0,
-    hideUntil: () => {},
+    reminderSnooze: () => ({ version: '', hiddenUntil: 0 }),
+    snoozeReminder: () => {},
     report: () => {},
   })
   const view = renderComponent('AutomaticUpdates.vue', updates, {
@@ -88,7 +90,7 @@ function renderComponent(filename: string, updates?: PreferenceUpdates, override
   type Render = (context: object, cache: unknown[]) => Vue.VNode
   const exports = {} as { default: { setup: (props: object, context: object) => Render } }
   const mocks: Record<string, unknown> = {
-    'vue': { ...Vue, onMounted: () => {}, renderSlot: (slots: Vue.Slots, name: string) => Vue.createVNode(Vue.Fragment, null, slots?.[name]?.() ?? []) },
+    'vue': { ...Vue, onMounted: () => {}, onBeforeUnmount: () => {}, renderSlot: (slots: Vue.Slots, name: string) => Vue.createVNode(Vue.Fragment, null, slots?.[name]?.() ?? []) },
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
     '@ant-design/icons-vue': { GithubFilled: 'github-icon' },
     './NotionIcon.vue': { default: 'notion-icon' },
@@ -106,6 +108,8 @@ function renderComponent(filename: string, updates?: PreferenceUpdates, override
     '@/utils/programSettingsReset': { DEFAULT_PROGRAM_SETTINGS_RESET_OPTIONS },
     '@/stores/app': { useAppStore: () => ({ version: '1.0.1' }) },
     './AutomaticUpdates.vue': { default: 'automatic-updates' },
+    './supportRecovery': supportRecovery,
+    '@/components/recovery-feedback/index.vue': { default: 'recovery-feedback' },
     './AppIdentity.vue': { default: listItem },
     ...overrides,
   }
@@ -122,6 +126,85 @@ function renderComponent(filename: string, updates?: PreferenceUpdates, override
     return [node, ...children.flatMap(child => Vue.isVNode(child) ? flatten(child) : [])]
   }
   return () => flatten(render({ $t: (key: string) => key }, []))
+}
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+async function settle() {
+  await new Promise(resolve => setImmediate(resolve))
+}
+
+async function storeRecoveryFixture() {
+  const calls: string[] = []
+  const errors: string[] = []
+  const pauses = new Map<string, Promise<void>>()
+  const distribution = {} as typeof import('@/services/distribution')
+  const info: DistributionInfo = {
+    channel: 'store',
+    updateUrl: 'ms-windows-store://downloadsandupdates',
+    dataRoot: 'durable',
+    localDataRoot: 'local',
+    dataSchema: 1,
+  }
+  const source = ts.transpileModule(readFileSync(new URL('../../../../services/distribution.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText
+  runInNewContext(source, {
+    exports: distribution,
+    require: (id: string) => id === '@tauri-apps/api/core'
+      ? { invoke: async (command: string) => {
+          calls.push(command)
+          await pauses.get(command)
+          if (command === 'distribution_info') return info
+        } }
+      : { openUrl: async (url: string) => {
+          calls.push(`open:${url}`)
+          await pauses.get('opener')
+        } },
+  })
+  const updates = createPreferenceUpdates({
+    channel: async () => 'store',
+    checkApp: async () => {
+      throw new Error('Store must not check GitHub updates')
+    },
+    install: async () => {
+      throw new Error('Store must not install GitHub updates')
+    },
+    cancel: async () => {},
+    reminderSnooze: () => ({ version: '', hiddenUntil: 0 }),
+    snoozeReminder: () => {},
+    report: () => {},
+  })
+  await updates.setVisible(true)
+  const recovery = supportRecovery.createSupportRecovery(20)
+  let unmount = () => {}
+  const nodes = renderComponent('AutomaticUpdates.vue', updates, {
+    'vue': { ...Vue, renderSlot: (slots: Vue.Slots, name: string) => Vue.createVNode(Vue.Fragment, null, slots?.[name]?.() ?? []), onBeforeUnmount: (callback: () => void) => {
+      unmount = callback
+    } },
+    'ant-design-vue': { Button: 'button', Flex: 'flex', Progress: 'progress', message: { error: (key: string) => errors.push(key) } },
+    '@/services/distribution': distribution,
+    './supportRecovery': { createSupportRecovery: () => recovery },
+  })
+  const action = () => nodes().find(node => node.props?.class === 'update-action')!
+  return {
+    calls,
+    errors,
+    recovery,
+    action,
+    click: () => (action().props!.onClick as () => Promise<void>)(),
+    pause: (operation: string, work: Promise<void>) => pauses.set(operation, work),
+    dispose: () => {
+      unmount()
+      updates.dispose()
+    },
+  }
 }
 
 it('uses the same single icon action to check or install on GitHub and test channels', async () => {
@@ -217,6 +300,94 @@ it('opens only Microsoft Store with a duplicate guard and reports an open failur
   assert.deepEqual(h.errors, ['storeUpdates.openFailed'])
   assert.equal(h.action().props!.disabled, false)
   assert.ok(h.nodes().some(node => node.type === 'microsoft-store-icon'))
+})
+
+for (const operation of ['await_native_startup', 'distribution_info']) {
+  it(`does not open Store after recovery times out during ${operation}, then permits a current retry`, async () => {
+    const h = await storeRecoveryFixture()
+    const preparation = deferred()
+    h.pause(operation, preparation.promise)
+    try {
+      await h.click()
+      assert.ok(h.calls.includes(operation))
+      assert.equal(h.recovery.report.value?.status, 'unknown')
+      assert.equal(h.recovery.busy.value, true)
+      assert.equal(h.action().props!.disabled, true)
+      const before = [...h.calls]
+      await h.click()
+      assert.deepEqual(h.calls, before, 'the timed-out preparation retains ownership until it settles')
+      preparation.resolve()
+      await settle()
+      assert.deepEqual(h.calls, ['await_native_startup', 'distribution_info'])
+      assert.equal(h.recovery.busy.value, false)
+      assert.equal(h.recovery.report.value?.status, 'unknown')
+      assert.equal(h.action().props!.disabled, false)
+      await h.click()
+      assert.equal(h.calls.at(-1), 'open:ms-windows-store://downloadsandupdates')
+      assert.equal(h.calls.filter(call => call.startsWith('open:')).length, 1)
+    } finally {
+      preparation.resolve()
+      h.dispose()
+    }
+  })
+
+  it(`does not open Store after About disposal during ${operation}`, async () => {
+    const h = await storeRecoveryFixture()
+    const preparation = deferred()
+    h.pause(operation, preparation.promise)
+    const opening = h.click()
+    await settle()
+    assert.ok(h.calls.includes(operation))
+    h.dispose()
+    await opening
+    preparation.resolve()
+    await settle()
+    assert.deepEqual(h.calls, ['await_native_startup', 'distribution_info'])
+    assert.equal(h.recovery.report.value, undefined)
+    assert.deepEqual(h.errors, [])
+    await h.click()
+    assert.equal(h.calls.length, 2)
+  })
+}
+
+it('retains an already issued Store opener through recovery timeout without replay or claiming cancellation', async () => {
+  const h = await storeRecoveryFixture()
+  const opener = deferred()
+  h.pause('opener', opener.promise)
+  try {
+    await h.click()
+    assert.equal(h.calls.filter(call => call.startsWith('open:')).length, 1)
+    assert.equal(h.recovery.report.value?.status, 'unknown')
+    assert.equal(h.recovery.busy.value, true)
+    assert.equal(h.action().props!.disabled, true)
+    await h.click()
+    assert.equal(h.calls.length, 3)
+    opener.resolve()
+    await settle()
+    assert.equal(h.recovery.busy.value, false)
+    assert.equal(h.recovery.report.value?.status, 'unknown', 'native completion does not prove that Store appeared')
+    assert.equal(h.calls.length, 3)
+  } finally {
+    opener.resolve()
+    h.dispose()
+  }
+})
+
+it('disposal retires feedback but does not cancel or repeat an already issued Store opener', async () => {
+  const h = await storeRecoveryFixture()
+  const opener = deferred()
+  h.pause('opener', opener.promise)
+  const opening = h.click()
+  await settle()
+  assert.equal(h.calls.filter(call => call.startsWith('open:')).length, 1)
+  h.dispose()
+  await opening
+  opener.resolve()
+  await settle()
+  assert.equal(h.recovery.report.value, undefined)
+  assert.deepEqual(h.errors, [])
+  await h.click()
+  assert.equal(h.calls.length, 3)
 })
 
 it('keeps the development refresh action disabled without development status or tooltip copy', async () => {

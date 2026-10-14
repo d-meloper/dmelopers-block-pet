@@ -26,6 +26,24 @@ See [Security](SECURITY.md) for download warnings, checksums and signatures.
 
 For storage locations and reset or uninstall options, see the [Data Management Guide](https://aismash.notion.site/3f32dc0bb4ae80808222e5e0cf123464). The [Privacy Policy](https://aismash.notion.site/3f32dc0bb4ae803ea9aed8d3b366c391) explains information processing and contact form data. Both guides are maintained on Notion.
 
+## Pet Auto Hiding
+
+Open **Settings > General > Pet Auto Hiding**, enable it, and add apps. The desktop pet hides while a registered executable's window is the foreground window. A running background app alone does not trigger hiding. Registering a browser applies to its executable's windows, without distinguishing websites or tabs. Showing the pet manually bypasses hiding for the current app visit; OBS output continues.
+
+You can search loaded program names or use **Choose App on PC** to select an EXE. Entries using the same executable share one rule. If the installed, Store, or portable version uses a different path, or an app update changes its path, remove the old entry and choose the executable you actually run. Block Pet does not automatically register the replacement path. If part of the list cannot be read, you can use the available entries or select an EXE directly.
+
+| Action | Registered list and observation |
+| --- | --- |
+| Disable Pet Auto Hiding or turn off desktop pet display | Stops foreground checks; retains registered apps. |
+| Remove one registered app | Removes that executable's rule; keeps other rules and the corresponding installed program. |
+| Reset Auto Hiding, reset General settings, or Reset All Program Settings | Turns off the feature and empties its registered list. General and full resets also affect other settings. |
+| Import a preset or reset other pet/scene settings | Keeps the registered list. Preset files do not contain these rules. |
+| Normal update, repair install, or ordinary GitHub uninstall/reinstall | Retains shared settings, including registered apps. |
+| Uninstall the Store edition | Retains the list in shared Saved Games data. Windows manages package-specific data separately. |
+| Select and confirm Remove all personal settings and files in the GitHub uninstaller | Deletes shared data, including registered apps used by any remaining Store edition, and the GitHub edition's local/roaming app data. |
+
+Removal and reset changes update the saved list after settings are saved successfully. Quit normally so the app can finish saving; a failed save does not prove that disk data was removed. There is no automatic expiry for registered paths. Removing a rule does not delete programs, shortcuts, Windows app registrations, or separate backups. Fully quit both official editions before deleting shared data. The uninstaller may stop if an app is still running or data cannot be handled safely. See [Privacy and Data](PRIVACY.md#pet-auto-hiding) for the information read by this feature.
+
 ## Full-screen Games
 
 The pet may not be visible in full-screen games even with Always on Top enabled. Please set the game's display mode to windowed or borderless windowed mode.

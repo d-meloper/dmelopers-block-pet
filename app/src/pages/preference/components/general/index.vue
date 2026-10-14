@@ -14,6 +14,7 @@ import { useBlockStore } from '@/stores/block'
 import { useGeneralStore } from '@/stores/general'
 
 import BroadcastSettings from './components/broadcast-settings/index.vue'
+import ForegroundHiding from './components/foreground-hiding/index.vue'
 import ThemeMode from './components/theme-mode/index.vue'
 
 const blockStore = useBlockStore()
@@ -103,6 +104,7 @@ function confirmGeneralReset() {
 <template>
   <PreferenceSections>
     <BroadcastSettings />
+    <ForegroundHiding />
 
     <ProList
       :title="$t('pages.preference.general.labels.appSettings')"

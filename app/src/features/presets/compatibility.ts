@@ -2,6 +2,7 @@ import { DEFAULT_MODEL_SETTINGS, DEFAULT_PET_PRESET, DEFAULT_WINDOW_SETTINGS } f
 import { migrateDeskSettings } from '@/config/desk'
 import { migrateDmeloperEyebrowDepth } from '@/config/dmeloperEyebrows'
 import { migratePresetLighting } from '@/config/lighting'
+import { migratePetMotionSettings, PET_TYPING_AND_RECOIL_SETTING_KEYS } from '@/config/petMotion'
 import contractData from '@/config/presetCompatibility.json'
 import ranges from '@/config/presetRanges.json'
 
@@ -88,7 +89,16 @@ export function migratedPresetSettings(source: PresetSourceSettings, contract = 
   if (record(next.preset)) {
     if (contract.migrations.includes('legacy-desk-v1')) next.preset = migrateDeskSettings(next.preset)
     if (contract.migrations.includes('lighting-v1')) next.preset = migratePresetLighting(next.preset)
+    if (contract.migrations.includes('pet-motion-controls-v1')) next.preset = migratePetMotionSettings(next.preset, PET_TYPING_AND_RECOIL_SETTING_KEYS)
+    if (contract.migrations.includes('pet-headbutt-radius-v1')) next.preset = migratePetMotionSettings(next.preset, ['petHeadbuttMaxRadiusOffset'])
+    if (contract.migrations.includes('pet-typing-radius-v1')) next.preset = migratePetMotionSettings(next.preset, ['petTypingMaxRadiusOffset'])
     const preset = next.preset as Record<string, unknown>
+    if (contract.migrations.includes('pet-animation-v1') && !('petAnimationMode' in preset)) preset.petAnimationMode = DEFAULT_PET_PRESET.petAnimationMode
+    if (contract.migrations.includes('pet-shoulder-connection-v1') && !('petShoulderTorsoConnected' in preset)) preset.petShoulderTorsoConnected = DEFAULT_PET_PRESET.petShoulderTorsoConnected
+    if (contract.migrations.includes('pet-arm-visibility-v1')) {
+      if (!('petRightArmDisabled' in preset)) preset.petRightArmDisabled = DEFAULT_PET_PRESET.petRightArmDisabled
+      if (!('petLeftArmDisabled' in preset)) preset.petLeftArmDisabled = DEFAULT_PET_PRESET.petLeftArmDisabled
+    }
     if (contract.migrations.includes('eyebrow-depth-v1') && record(preset.dmeloperEyebrows)) preset.dmeloperEyebrows = migrateDmeloperEyebrowDepth(preset.dmeloperEyebrows)
   }
   return next

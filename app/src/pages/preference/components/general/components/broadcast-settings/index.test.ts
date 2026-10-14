@@ -30,7 +30,7 @@ function harness() {
   const status = Vue.ref<BroadcastStatus>({ enabled: true, clients: 1 })
   let retried = 0
   let desktopShown = false
-  const controller = { status, pending: Vue.ref(false), retry: () => {
+  const controller = { status, pending: Vue.ref(false), retryPending: Vue.ref(false), recovery: Vue.ref(undefined), retry: () => {
     retried++
   } }
   const exports = {} as { default: { setup: (props: object, context: object) => (ctx: object, cache: unknown[]) => VNode } }

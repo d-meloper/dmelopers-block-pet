@@ -15,6 +15,9 @@ it('keeps bounded lighting sliders within the lighting category', () => {
   setActivePinia(createPinia())
   const store = useBlockStore()
   store.init()
+  const editorsLocked = Vue.ref(false)
+  const presetOperationInProgress = Vue.ref(false)
+  const presetResetInProgress = Vue.ref(false)
   const { descriptor } = parse(readFileSync(new URL('./lighting.vue', import.meta.url), 'utf8'))
   compileScript(descriptor, { id: 'lighting-controls', inlineTemplate: true })
   const context = {
@@ -26,8 +29,8 @@ it('keeps bounded lighting sliders within the lighting category', () => {
     },
     require: (name: string) => {
       if (name === 'vue') return Vue
-      if (name === '@/features/stateSafety/bridge') return { editorsLocked: Vue.ref(false) }
-      if (name === '@/features/presets/operations') return { presetOperationInProgress: Vue.ref(false), presetResetInProgress: Vue.ref(false) }
+      if (name === '@/features/stateSafety/bridge') return { editorsLocked }
+      if (name === '@/features/presets/operations') return { presetOperationInProgress, presetResetInProgress }
       if (name === '@/stores/block') return { useBlockStore: () => store }
       if (name === '@/config/lighting') return lightingConfig
       if (name === '@/features/presets/editIntent') return { markPresetUserEdit: () => {} }
@@ -69,6 +72,14 @@ it('keeps bounded lighting sliders within the lighting category', () => {
     assert.equal(store.activePet3dPreset.lighting.key[key], max)
   }
   assert.equal(store.shadowQualitySelection, 'off')
+  for (const gate of [editorsLocked, presetOperationInProgress, presetResetInProgress]) {
+    gate.value = true
+    const before = JSON.stringify(store.activePet3dPreset.lighting)
+    updateColor('#ABCDEF')
+    updateNumber('strengthPercent', 75)
+    assert.equal(JSON.stringify(store.activePet3dPreset.lighting), before, 'late events retain lighting while saving/resetting')
+    gate.value = false
+  }
   const pet = readFileSync(new URL('../block/index.vue', import.meta.url), 'utf8')
   assert.ok(pet.includes('<ProList :title="$t(\'pages.preference.block.title\')">'))
 })

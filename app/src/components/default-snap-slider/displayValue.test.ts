@@ -50,4 +50,13 @@ describe('slider display conversion', () => {
       assert.equal(formatSliderDisplayValue(value), expected)
     }
   })
+
+  it('opts motion controls into tenth steps while retaining raw and existing normalized steps', () => {
+    const range = { min: 0, max: 200, defaultValue: 50, step: 1 }
+    assert.equal(sliderDisplayRange({ ...range, displayStep: 0.1 }).step, 0.1)
+    assert.equal(sliderDisplayRange({ ...range, displayStep: 0.1 }, 'raw').step, 1)
+    for (const displayStep of [undefined, 0, -0.1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.equal(sliderDisplayRange({ ...range, displayStep }).step, 0.01)
+    }
+  })
 })

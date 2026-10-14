@@ -5,20 +5,23 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { describe, it } from 'node:test'
-import { Euler, Group, MathUtils, Matrix4, PerspectiveCamera, Quaternion, Scene, Vector3 } from 'three'
+import { BoxGeometry, Euler, Group, MathUtils, Matrix4, Mesh, MeshBasicMaterial, PerspectiveCamera, Quaternion, Scene, SkinnedMesh, Vector3 } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 
 import { createDefaultDmeloperEyebrowPreset } from '@/config/dmeloperEyebrows'
+import { getHeadbuttReachRadius } from '@/config/headbuttRadius'
 import { MODEL_3D_CONFIG } from '@/config/model3d'
 import { DEFAULT_PET_ARM_POSE_SETTINGS } from '@/config/petArmPose'
+import { DEFAULT_TYPING_MOTION_SETTINGS } from '@/config/typingMotion'
 
 import { Three3DRenderer } from '../three3d'
 import { createDmeloperEyebrowController } from './dmeloperEyebrows'
+import { getDeskGrip, getForeheadPoint } from './headbutt'
 import { createKeyboardGroup } from './keyboard'
 import { createMouseGroup } from './mouse'
 import { createPetAnimator } from './pet'
 import { padContentRect, projectVisibleSceneBounds, unionContentRects } from './projectedBounds'
-import { createVoxelSkinModelController } from './voxelSkin'
+import { applyVoxelSkin, createVoxelSkinGeometryController, createVoxelSkinModelController, normalizeVoxelSkin } from './voxelSkin'
 
 const config = MODEL_3D_CONFIG.pet.animation
 const strikeDurationMs = config.keyboard.strikeContactMs + config.keyboard.strikeRiseMs + config.keyboard.strikeFallMs
@@ -48,7 +51,7 @@ function keyboardFixture() {
   }
 }
 
-async function fixture(model: 'wide' | 'slim' = 'wide', mouseAtKeyboard = false, random: () => number = () => 1, navigationTurn = true) {
+async function fixture(model: 'wide' | 'slim' = 'wide', mouseAtKeyboard = false, random: () => number = () => 1, navigationTurn = true, options: { now?: () => number, desk?: Object3D } = {}) {
   const bytes = await readFile(new URL('../../../src-tauri/assets/models/dmeloper/dmeloper.glb', import.meta.url))
   const gltf = await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '')
   const root = gltf.scene
@@ -75,13 +78,15 @@ async function fixture(model: 'wide' | 'slim' = 'wide', mouseAtKeyboard = false,
   const animator = createPetAnimator(root, {
     keyboardBodyDefaultTarget: keyboard.getKeyTarget(config.inputMode.leftIdleKey)!,
     keyboardBodyTurnThresholdTarget: keyboard.getKeyTarget('KeyL')!,
+    keyboardHeadbuttReachTarget: keyboard.getKeyTarget('KeyD')!,
     keyboardNavigationTargets: navigationTurn ? config.keyboard.navigationKeys.map(key => keyboard.getKeyTarget(key)!) : [],
     keyboardGroup,
     keyboardLeftRestTarget: keyboard.getKeyTarget(config.inputMode.leftIdleKey)!,
     keyboardRestTarget: keyboard.getKeyTarget('Space')!,
     keyboardRightRestTarget,
     mouseGroup,
-  }, { random })!
+    desk: options.desk,
+  }, { random, now: options.now })!
   assert.ok(animator)
   const pose = (name: string) => root.getObjectByName(name)!.quaternion.toArray()
   const advance = (start: number, end: number) => {
@@ -98,6 +103,1156 @@ async function fixture(model: 'wide' | 'slim' = 'wide', mouseAtKeyboard = false,
 function close(actual: number[], expected: number[], epsilon = 0.00001) {
   actual.forEach((value, index) => assert.ok(Math.abs(value - expected[index]) < epsilon, `${value} != ${expected[index]}`))
 }
+
+describe('typing motion controls on the actual Dmeloper rig', () => {
+  for (const model of ['wide', 'slim'] as const) {
+    it(`${model}: varies compact typing continuously through near/far keys and suppresses waist bending only at minus one`, async (t) => {
+      let clock = 1000
+      const offsets = [-1, -0.75, -0.5, -0.25, 0]
+      const rigs = await Promise.all([...offsets, 0].map(() => fixture(model, false, () => 1, true, { now: () => clock })))
+      const idle = rigs[rigs.length - 1]
+      const active = rigs.slice(0, -1)
+      for (const [index, rig] of rigs.entries()) {
+        t.after(rig.dispose)
+        rig.animator.setMouseEnabled(false)
+        rig.animator.setTypingMotionSettings({ petTypingMaxRadiusOffset: offsets[index] ?? 0, petTypingHandLiftPercent: 0 })
+        rig.advance(0, clock)
+      }
+      const armLengths = active.map(rig => rig.worldPosition('L_Upperarm').distanceTo(rig.worldPosition('L_Forearm')))
+      for (const key of ['KeyF', 'Escape']) {
+        for (const rig of active) rig.animator.setKeyPressed(key, true, rig.keyboard.getKeyTarget(key))
+        for (const rig of rigs) {
+          rig.advance(clock, clock + 1200)
+          rig.animator.update(16, clock + 1200)
+        }
+        clock += 1200
+        const hands = active.map(rig => rig.worldPosition('L_Hand'))
+        const idleSpine = idle.root.getObjectByName('Spine02')!.quaternion.clone()
+        const pitches = active.map(rig => MathUtils.radToDeg(new Euler().setFromQuaternion(idleSpine.clone().invert().multiply(rig.root.getObjectByName('Spine02')!.quaternion), 'XYZ').x))
+        close(active[0].pose('Spine02'), idle.pose('Spine02'), 1e-6)
+        for (let index = 1; index < hands.length; index++) {
+          assert.ok(hands[index].distanceTo(hands[index - 1]) > 0.002, `${key}: compact range has no dead interval: ${offsets}`)
+          if (key === 'Escape') assert.ok(pitches[index] > pitches[index - 1] + 0.3, `waist changes continuously: ${pitches}`)
+        }
+        for (const [index, rig] of active.entries()) {
+          assert.ok(Math.abs(rig.worldPosition('L_Upperarm').distanceTo(rig.worldPosition('L_Forearm')) - armLengths[index]) < 1e-8, 'arm bones retain their dimensions')
+          rig.animator.setKeyPressed(key, false, rig.keyboard.getKeyTarget(key))
+        }
+        for (const rig of rigs) rig.advance(clock, clock + 3000)
+        clock += 3000
+        for (const rig of active) {
+          close(rig.pose('Spine02'), idle.pose('Spine02'), 1e-6)
+          close(rig.worldPosition('L_Hand').toArray(), idle.worldPosition('L_Hand').toArray(), 1e-6)
+        }
+      }
+    })
+  }
+
+  for (const model of ['wide', 'slim'] as const) {
+    it(`${model}: bends and reaches farther at radius one, and restores the idle pose after release`, async (t) => {
+      let clock = 1000
+      const rigs = await Promise.all([0, 1].map(() => fixture(model, false, () => 1, true, { now: () => clock })))
+      const bases = rigs.map(rig => rig.root.getObjectByName('Spine02')!.quaternion.clone())
+      const hips = rigs.map(rig => rig.worldPosition('Root'))
+      for (const [index, rig] of rigs.entries()) {
+        t.after(rig.dispose)
+        rig.animator.setMouseEnabled(false)
+        rig.animator.setTypingMotionSettings({ petTypingMaxRadiusOffset: index, petTypingHandLiftPercent: 0 })
+        rig.advance(0, clock)
+        rig.animator.setKeyPressed('Escape', true, rig.keyboard.getKeyTarget('Escape'))
+        rig.advance(clock, clock + 1000)
+      }
+      clock += 1000
+      const measurements = rigs.map((rig, index) => {
+        const spine = rig.root.getObjectByName('Spine02')!
+        const key = rig.keyboard.group.localToWorld(new Vector3().fromArray(rig.keyboard.getKeyTarget('Escape')!.position))
+        const pitch = MathUtils.radToDeg(new Euler().setFromQuaternion(bases[index].clone().invert().multiply(spine.quaternion), 'YXZ').x)
+        assert.ok(rig.worldPosition('Root').distanceTo(hips[index]) < 1e-8, 'hips remain fixed')
+        return { pitch, reachError: rig.worldPosition('L_Hand').distanceTo(key) }
+      })
+      assert.ok(measurements[1].pitch > measurements[0].pitch + 25, `waist: ${JSON.stringify(measurements)}`)
+      assert.ok(measurements[1].reachError < measurements[0].reachError - 0.1, `hand reach: ${JSON.stringify(measurements)}`)
+      for (const rig of rigs) {
+        rig.animator.setKeyPressed('Escape', false, rig.keyboard.getKeyTarget('Escape'))
+        rig.advance(clock, clock + 4000)
+      }
+      for (const name of ['Spine02', 'L_Hand', 'R_Hand']) {
+        close(rigs[0].pose(name), rigs[1].pose(name), 1e-6)
+        close(rigs[0].worldPosition(name).toArray(), rigs[1].worldPosition(name).toArray(), 1e-6)
+      }
+    })
+  }
+
+  for (const model of ['wide', 'slim'] as const) {
+    it(`${model}: keeps both typing hands inside the selected fixed radius through holds and device transforms`, async (t) => {
+      let clock = 1000
+      const rig = await fixture(model, false, () => 1, true, { now: () => clock })
+      t.after(rig.dispose)
+      rig.animator.setMouseEnabled(false)
+      rig.animator.setTypingMotionSettings({ petTypingHandLiftPercent: 0 })
+      const distances: number[] = []
+      for (const scale of [1, 1.3]) {
+        rig.keyboard.group.scale.setScalar(MODEL_3D_CONFIG.keyboard.scale * scale)
+        rig.keyboard.group.position.z = MODEL_3D_CONFIG.keyboard.position[2] + (scale - 1) * 0.3
+        for (const offset of [-1, 0, 1]) {
+          rig.animator.resetInput()
+          rig.advance(clock, clock + 1500)
+          clock += 1500
+          rig.animator.setTypingMotionSettings({ petTypingMaxRadiusOffset: offset })
+          const keys = ['Escape', 'KeyY']
+          for (const key of keys) {
+            const target = rig.keyboard.getKeyTarget(key)
+            assert.ok(target)
+            rig.animator.setKeyPressed(key, true, target)
+          }
+          rig.advance(clock, clock + 1000)
+          clock += 1000
+          const center = rig.root.getWorldPosition(new Vector3())
+          let farthest = 0
+          for (const side of ['L', 'R']) {
+            const hand = rig.worldPosition(`${side}_Hand`)
+            hand.y = center.y
+            const distance = hand.distanceTo(center)
+            assert.ok(distance <= getHeadbuttReachRadius(offset) + 0.02, `${scale}/${offset}/${side}: radius exceeded`)
+            farthest = Math.max(farthest, distance)
+          }
+          if (scale === 1) distances.push(farthest)
+          for (const key of keys) rig.animator.setKeyPressed(key, false, rig.keyboard.getKeyTarget(key))
+        }
+      }
+      assert.ok(distances[2] > distances[0] + 0.05, 'a larger radius visibly extends the hand reach')
+    })
+  }
+
+  it('keeps mouse motion and clicks unchanged by radius when body motion is disabled', async (t) => {
+    let clock = 1000
+    const rigs = await Promise.all([fixture('wide', false, () => 1, true, { now: () => clock }), fixture('wide', false, () => 1, true, { now: () => clock })])
+    for (const [index, rig] of rigs.entries()) {
+      t.after(rig.dispose)
+      rig.animator.setTypingMotionSettings({ petTypingMaxRadiusOffset: index === 0 ? -1 : 1, petTypingBodyMotionPercent: 0 })
+      rig.advance(0, clock)
+      rig.animator.setKeyPressed('KeyF', true, rig.keyboard.getKeyTarget('KeyF'))
+    }
+    for (; clock <= 2200; clock += 10) {
+      for (const rig of rigs) {
+        rig.animator.setMousePosition(0.5 + Math.sin(clock / 500) * 0.2, 0.5)
+        if (clock % 200 === 0) rig.animator.setMouseButtonPressed('Left', true)
+        if (clock % 200 === 100) rig.animator.setMouseButtonPressed('Left', false)
+        rig.animator.update(10, clock)
+      }
+      close(rigs[0].worldPosition('R_Hand').toArray(), rigs[1].worldPosition('R_Hand').toArray(), 1e-6)
+    }
+  })
+
+  it('keeps the mouse arm near its contact while the other arm reaches a far key', async (t) => {
+    const sample = async (offset: number) => {
+      let clock = 1000
+      const rig = await fixture('wide', false, () => 1, true, { now: () => clock })
+      t.after(rig.dispose)
+      rig.animator.setTypingMotionSettings({ petTypingMaxRadiusOffset: offset, petTypingHandLiftPercent: 0 })
+      rig.advance(0, clock)
+      rig.animator.setMousePosition(0.5, 0.5)
+      rig.advance(clock, clock + config.inputMode.transitionMs + 500)
+      clock += config.inputMode.transitionMs + 500
+      rig.animator.setKeyPressed('Escape', true, rig.keyboard.getKeyTarget('Escape'))
+      let maximumDistance = 0
+      let maximumStep = 0
+      const previousHand = rig.worldPosition('R_Hand')
+      const end = clock + 1200
+      for (; clock <= end; clock += 10) {
+        rig.animator.setMousePosition(0.5 + Math.sin(clock / 500) * 0.2, 0.5)
+        if (clock % 200 === 0) rig.animator.setMouseButtonPressed('Left', true)
+        if (clock % 200 === 100) rig.animator.setMouseButtonPressed('Left', false)
+        rig.animator.update(10, clock)
+        const hand = rig.worldPosition('R_Hand')
+        maximumDistance = Math.max(maximumDistance, hand.distanceTo(rig.anchor.getWorldPosition(new Vector3())))
+        maximumStep = Math.max(maximumStep, hand.distanceTo(previousHand))
+        previousHand.copy(hand)
+      }
+      return { maximumDistance, maximumStep }
+    }
+    const baseline = await sample(0)
+    const expanded = await sample(1)
+    assert.ok(expanded.maximumDistance < 0.3 && expanded.maximumDistance < baseline.maximumDistance + 0.05, `far reach preserves mouse contact: ${JSON.stringify({ baseline, expanded })}`)
+    assert.ok(expanded.maximumStep <= baseline.maximumStep + 0.01, `extra torso motion preserves click continuity: ${JSON.stringify({ baseline, expanded })}`)
+  })
+
+  it('keeps the outer-range waist bend through trance and obeys zero/maximum body motion', async (t) => {
+    let clock = 1000
+    const levels = [0, 100, 300]
+    const rigs = await Promise.all(levels.map(() => fixture('wide', false, () => 0, true, { now: () => clock })))
+    for (const [index, rig] of rigs.entries()) {
+      t.after(rig.dispose)
+      rig.animator.setMouseEnabled(false)
+      rig.animator.setTypingMotionSettings({ petTypingMaxRadiusOffset: 1, petTypingBodyMotionPercent: levels[index] })
+    }
+    for (; clock <= 5000; clock += 10) {
+      for (const rig of rigs) {
+        if (clock % 80 === 0) {
+          rig.animator.setKeyPressed('Escape', false, rig.keyboard.getKeyTarget('Escape'))
+          rig.animator.setKeyPressed('Escape', true, rig.keyboard.getKeyTarget('Escape'))
+        }
+        rig.animator.update(10, clock)
+      }
+    }
+    const pitches = rigs.map(rig => MathUtils.radToDeg(new Euler().setFromQuaternion(rig.root.getObjectByName('Spine02')!.quaternion, 'YXZ').x))
+    assert.ok(Math.abs(pitches[0]) < 2, `zero body motion: ${pitches}`)
+    assert.ok(pitches[1] > 30, `outer reach remains in trance: ${pitches}`)
+    assert.ok(pitches[2] > 60 && pitches[2] < 72, `maximum motion stays bounded: ${pitches}`)
+    for (const rig of rigs) {
+      for (const side of ['L', 'R']) assert.ok(rig.worldPosition(`${side}_Hand`).toArray().every(Number.isFinite), 'finite hand pose')
+    }
+  })
+
+  it('retains default poses with explicit authored defaults through chords, holds, navigation, mouse input and reset', async (t) => {
+    let clock = 1000
+    const rigs = await Promise.all([fixture('wide', false, () => 0, true, { now: () => clock }), fixture('wide', false, () => 0, true, { now: () => clock })])
+    rigs[1].animator.setTypingMotionSettings(DEFAULT_TYPING_MOTION_SETTINGS)
+    for (const rig of rigs) t.after(rig.dispose)
+    for (; clock <= 6000; clock += 10) {
+      for (const rig of rigs) {
+        if (clock === 1000) rig.animator.setKeyPressed('KeyF', true, rig.keyboard.getKeyTarget('KeyF'))
+        if (clock === 1020) rig.animator.setKeyPressed('KeyJ', true, rig.keyboard.getKeyTarget('KeyJ'))
+        if (clock === 1700) rig.animator.setKeyPressed('KeyF', false, rig.keyboard.getKeyTarget('KeyF'))
+        if (clock === 1800) rig.animator.setKeyPressed('KeyJ', false, rig.keyboard.getKeyTarget('KeyJ'))
+        if (clock === 2400) rig.animator.setKeyPressed('PageUp', true, rig.keyboard.getKeyTarget('PageUp'))
+        if (clock === 2800) rig.animator.setKeyPressed('PageUp', false, rig.keyboard.getKeyTarget('PageUp'))
+        if (clock >= 3000 && clock <= 4400 && clock % 80 === 0) {
+          rig.animator.setMouseButtonPressed('Left', false)
+          rig.animator.setMouseButtonPressed('Left', true)
+          rig.animator.setMousePosition(0.2, 0.8)
+        }
+        if (clock === 4800) rig.animator.resetInput()
+        rig.animator.update(10, clock)
+      }
+      for (const name of ['Spine02', 'Head', 'L_Hand', 'R_Hand', 'L_Forearm', 'R_Forearm', 'L_Shin', 'R_Shin']) {
+        close(rigs[0].pose(name), rigs[1].pose(name), 1e-9)
+        close(rigs[0].worldPosition(name).toArray(), rigs[1].worldPosition(name).toArray(), 1e-9)
+      }
+    }
+  })
+
+  for (const model of ['wide', 'slim'] as const) {
+    it(`${model}: scales hand lift, preserves strike contact and physical holds, and keeps maximum motion finite`, async (t) => {
+      let clock = 1000
+      const levels = [0, 100, 300]
+      const rigs = await Promise.all(levels.map(() => fixture(model, false, () => 1, true, { now: () => clock })))
+      for (const [index, rig] of rigs.entries()) {
+        t.after(rig.dispose)
+        rig.animator.setMouseEnabled(false)
+        rig.animator.setTypingMotionSettings({ petTypingHandLiftPercent: levels[index], petTypingBodyMotionPercent: 0, petTypingReturnSpeedPercent: 400 })
+        rig.advance(0, 1000)
+        rig.animator.setKeyPressed('KeyF', true, rig.keyboard.getKeyTarget('KeyF'))
+      }
+      const heights = levels.map(() => Number.NEGATIVE_INFINITY)
+      for (; clock <= 2400; clock++) {
+        for (const [index, rig] of rigs.entries()) {
+          // Repeats must not restart the physical strike even with a fast return.
+          if (clock % 10 === 0) rig.animator.setKeyPressed('KeyF', true, rig.keyboard.getKeyTarget('KeyF'))
+          rig.animator.update(1, clock)
+          const hand = rig.worldPosition('L_Hand')
+          assert.ok(hand.toArray().every(Number.isFinite))
+          if (clock < 1000 + config.keyboard.strikeContactMs) close(hand.toArray(), rigs[0].worldPosition('L_Hand').toArray(), 1e-8)
+          if (clock >= 1030 && clock <= 1120) heights[index] = Math.max(heights[index], hand.y)
+        }
+      }
+      assert.ok(heights[1] - heights[0] > 0.04, 'default lift rises visibly from zero lift')
+      assert.ok(heights[2] - heights[1] > 0.04, 'maximum lift rises farther within the real arm reach')
+      for (const rig of rigs.slice(1)) close(rig.worldPosition('L_Hand').toArray(), rigs[0].worldPosition('L_Hand').toArray(), 1e-4)
+    })
+  }
+
+  for (const stage of ['quiet', 'return'] as const) {
+    it(`preserves ${stage} progress when changing return speed live, then advances at the new speed`, async (t) => {
+      let clock = 1000
+      const rigs = await Promise.all([fixture('wide', false, () => 1, true, { now: () => clock }), fixture('wide', false, () => 1, true, { now: () => clock })])
+      for (const rig of rigs) {
+        t.after(rig.dispose)
+        rig.animator.setMouseEnabled(false)
+        rig.animator.setTypingMotionSettings({ petTypingHandLiftPercent: 0, petTypingBodyMotionPercent: 0 })
+        rig.advance(0, 1000)
+        rig.animator.setKeyPressed('KeyG', true, rig.keyboard.getKeyTarget('KeyG'))
+      }
+      const changedAt = stage === 'quiet' ? 1300 : 1580
+      for (; clock <= changedAt; clock += 10) {
+        if (clock === 1010) {
+          for (const rig of rigs) rig.animator.setKeyPressed('KeyG', false, rig.keyboard.getKeyTarget('KeyG'))
+        }
+        for (const rig of rigs) rig.animator.update(10, clock)
+      }
+      clock = changedAt
+      rigs[0].animator.setTypingMotionSettings({ petTypingReturnSpeedPercent: 400 })
+      for (const rig of rigs) rig.animator.update(10, clock)
+      close(rigs[0].worldPosition('L_Hand').toArray(), rigs[1].worldPosition('L_Hand').toArray(), 1e-9)
+      if (stage === 'quiet') {
+        for (clock = changedAt + 1; clock < changedAt + 30; clock++) {
+          for (const rig of rigs) rig.animator.update(1, clock)
+          close(rigs[0].worldPosition('L_Hand').toArray(), rigs[1].worldPosition('L_Hand').toArray(), 1e-9)
+        }
+      }
+      for (clock = changedAt + 30; clock <= changedAt + 80; clock++) {
+        for (const rig of rigs) rig.animator.update(1, clock)
+      }
+      assert.ok(rigs[0].worldPosition('L_Hand').distanceTo(rigs[1].worldPosition('L_Hand')) > 0.005, 'the edited return advances sooner than the unchanged control')
+      for (; clock <= changedAt + 1500; clock += 10) {
+        for (const rig of rigs) rig.animator.update(10, clock)
+      }
+      close(rigs[0].worldPosition('L_Hand').toArray(), rigs[1].worldPosition('L_Hand').toArray(), 1e-5)
+    })
+  }
+
+  it('preserves far-reach hold and decay progress across live speed changes', async (t) => {
+    let clock = 1000
+    const rigs = await Promise.all([fixture('wide', false, () => 1, true, { now: () => clock }), fixture('wide', false, () => 1, true, { now: () => clock })])
+    const far = target(0, config.keyboard.farLeanEndZ)
+    const near = target(0, config.keyboard.farLeanStartZ)
+    for (const rig of rigs) {
+      t.after(rig.dispose)
+      rig.animator.setMouseEnabled(false)
+      rig.animator.setKeyPressed('far', true, far)
+    }
+    for (; clock <= 2000; clock += 10) {
+      for (const rig of rigs) rig.animator.update(10, clock)
+    }
+    clock = 2000
+    for (const rig of rigs) {
+      rig.animator.setKeyPressed('far', false, far)
+      rig.animator.setKeyPressed('near', true, near)
+    }
+    for (const at of [2200, 2600]) {
+      for (; clock <= at; clock += 10) {
+        for (const rig of rigs) rig.animator.update(10, clock)
+      }
+      clock = at
+      rigs[0].animator.setTypingMotionSettings({ petTypingReturnSpeedPercent: 400 })
+      for (const rig of rigs) rig.animator.update(10, clock)
+      close(rigs[0].pose('Spine02'), rigs[1].pose('Spine02'), 1e-9)
+      // Returning to the old speed at the same timestamp preserves either
+      // the remaining hold or the already-started decay without pose changes.
+      rigs[0].animator.setTypingMotionSettings({ petTypingReturnSpeedPercent: 100 })
+      for (const rig of rigs) rig.animator.update(10, clock)
+      close(rigs[0].pose('Spine02'), rigs[1].pose('Spine02'), 1e-9)
+    }
+    rigs[0].animator.setTypingMotionSettings({ petTypingReturnSpeedPercent: 400 })
+    for (; clock <= 2850; clock += 10) {
+      for (const rig of rigs) rig.animator.update(10, clock)
+    }
+    assert.ok(rigs[0].root.getObjectByName('Spine02')!.quaternion.angleTo(rigs[1].root.getObjectByName('Spine02')!.quaternion) > 0.01, 'the faster lean return now advances ahead')
+  })
+
+  it('preserves the return clock when custom speed resumes after headbutt cancellation', async (t) => {
+    let clock = 1000
+    const desk = new Mesh(new BoxGeometry(...MODEL_3D_CONFIG.desk.size), new MeshBasicMaterial())
+    desk.position.set(...MODEL_3D_CONFIG.desk.position)
+    const rigs = await Promise.all([fixture('wide', false, () => 0, true, { now: () => clock, desk }), fixture('wide', false, () => 0, true, { now: () => clock, desk })])
+    t.after(() => {
+      desk.geometry.dispose()
+      desk.material.dispose()
+    })
+    for (const [index, rig] of rigs.entries()) {
+      t.after(rig.dispose)
+      rig.animator.setMouseEnabled(false)
+      rig.animator.setTypingMotionSettings({ petTypingHandLiftPercent: 0, petTypingBodyMotionPercent: 0, petTypingReturnSpeedPercent: index === 0 ? 400 : 100 })
+      rig.animator.setAnimationMode('headbutt')
+      rig.animator.setKeyPressed('Escape', true, rig.keyboard.getKeyTarget('Escape'))
+    }
+    for (; clock <= 2700; clock += 10) {
+      for (const rig of rigs) {
+        if (clock === 1250) {
+          rig.animator.setKeyPressed('Escape', false, rig.keyboard.getKeyTarget('Escape'))
+          rig.animator.setAnimationMode('default')
+        }
+        if (clock === 2000) rig.animator.setKeyPressed('KeyG', true, rig.keyboard.getKeyTarget('KeyG'))
+        if (clock === 2010) rig.animator.setKeyPressed('KeyG', false, rig.keyboard.getKeyTarget('KeyG'))
+      }
+      // The control applies the same setting exactly when cancellation has
+      // restored the previous frame's base pose. Automatic resumption must
+      // preserve the virtual clock just like an explicit live slider change.
+      if (clock === 2510) {
+        assert.equal(rigs[0].animator.isHeadbuttActive(), false)
+        rigs[1].animator.setTypingMotionSettings({ petTypingReturnSpeedPercent: 400 })
+      }
+      for (const rig of rigs) rig.animator.update(10, clock)
+      for (const name of ['Spine02', 'Head', 'L_Hand', 'R_Hand']) {
+        assert.ok(rigs[0].root.getObjectByName(name)!.quaternion.angleTo(rigs[1].root.getObjectByName(name)!.quaternion) < 1e-7, `${name} rotation at ${clock}`)
+        assert.ok(rigs[0].worldPosition(name).distanceTo(rigs[1].worldPosition(name)) < 1e-8, `${name} position at ${clock}`)
+      }
+    }
+  })
+
+  it('retains added waist lean through trance while zero body motion removes typing lean', async (t) => {
+    let clock = 1000
+    const levels = [0, 100, 300]
+    const rigs = await Promise.all(levels.map(() => fixture('wide', false, () => 0, true, { now: () => clock })))
+    const key = target(0, config.keyboard.farLeanEndZ)
+    for (const [index, rig] of rigs.entries()) {
+      t.after(rig.dispose)
+      rig.animator.setMouseEnabled(false)
+      rig.animator.setTypingMotionSettings({ petTypingBodyMotionPercent: levels[index] })
+    }
+    for (; clock <= 6000; clock += 10) {
+      for (const rig of rigs) {
+        if (clock % 80 === 0) {
+          rig.animator.setKeyPressed('far', false, key)
+          rig.animator.setKeyPressed('far', true, key)
+        }
+        rig.animator.update(10, clock)
+      }
+    }
+    const pitch = (index: number) => MathUtils.radToDeg(new Euler().setFromQuaternion(rigs[index].root.getObjectByName('Spine02')!.quaternion, 'XYZ').x)
+    assert.ok(Math.abs(pitch(1) - pitch(0)) < 0.01, 'the default forward lean is removed at full trance')
+    assert.ok(Math.abs(pitch(2) - pitch(0) - 20) < 0.01, 'the additional 200 percent waist bend remains through trance')
+    assert.ok(rigs[1].root.getObjectByName('Head')!.quaternion.angleTo(new Quaternion()) > 0.1, 'the actual rig is in trance')
+    for (const rig of rigs) rig.animator.resetInput()
+    for (; clock <= 8500; clock += 10) {
+      for (const rig of rigs) rig.animator.update(10, clock)
+    }
+    for (const rig of rigs.slice(1)) close(rig.pose('Spine02'), rigs[0].pose('Spine02'))
+  })
+})
+
+describe('disabled arms on the actual Dmeloper rig', () => {
+  for (const model of ['wide', 'slim'] as const) {
+    for (const mode of ['default', 'headbutt'] as const) {
+      for (const side of ['L', 'R'] as const) {
+        it(`${model}/${mode}/${side}: freezes only the disabled local chain through typing, holds and mouse input`, async (t) => {
+          let clock = 1000
+          const desk = new Mesh(new BoxGeometry(...MODEL_3D_CONFIG.desk.size), new MeshBasicMaterial())
+          desk.position.set(...MODEL_3D_CONFIG.desk.position)
+          const rig = await fixture(model, false, () => 1, true, { now: () => clock, desk })
+          t.after(rig.dispose)
+          rig.animator.setAnimationMode(mode)
+          rig.animator.setMouseEnabled(mode === 'headbutt')
+          rig.advance(0, clock)
+          rig.animator.setArmsDisabled(side === 'R', side === 'L')
+          const names = ['Upperarm', 'Forearm', 'Hand'].map(part => `${side}_${part}`)
+          const local = () => names.map((name) => {
+            const node = rig.root.getObjectByName(name)!
+            return [...node.position.toArray(), ...node.quaternion.toArray(), ...node.scale.toArray(), ...node.matrix.toArray()]
+          })
+          const frozen = local()
+          const head = rig.pose('Head')
+          const key = rig.keyboard.getKeyTarget('KeyF')!
+          rig.animator.setKeyPressed('KeyF', true, key)
+          for (clock = 1016; clock < 2300; clock += 16) {
+            rig.animator.setMousePosition(clock % 32 ? 0.2 : 0.8, 0.8)
+            rig.animator.setMouseButtonPressed('Left', false)
+            rig.animator.setMouseButtonPressed('Left', true)
+            rig.animator.update(16, clock)
+            assert.deepEqual(local(), frozen, 'disabled bones receive no pose writes')
+          }
+          assert.notDeepEqual(rig.pose('Head'), head, 'shared pet reaction remains active')
+          rig.animator.setKeyPressed('KeyF', false, key)
+          rig.advance(clock, clock + 1800)
+          assert.deepEqual(local(), frozen)
+          rig.animator.setArmsDisabled(false, false)
+          rig.advance(clock + 1800, clock + 2100)
+          assert.notDeepEqual(local(), frozen, 'the arm resumes its ordinary animation')
+        })
+      }
+    }
+  }
+
+  it('filters both Wide/Slim base, sleeve and palm faces through texture cloning and skin replacement', async (t) => {
+    const rig = await fixture()
+    t.after(rig.dispose)
+    const geometry = createVoxelSkinGeometryController(rig.root)
+    const meshes: SkinnedMesh[] = []
+    rig.root.traverse((object) => {
+      if (object instanceof SkinnedMesh && object.userData.voxelSkinModel) meshes.push(object)
+    })
+    assert.equal(meshes.length, 4)
+    const full = meshes.map(mesh => Array.from(mesh.geometry.getIndex()!.array))
+    const body = rig.root.getObjectByName('VoxelHumanoidBase') as SkinnedMesh
+    const bodyIndex = Array.from(body.geometry.getIndex()!.array)
+    const data = new Uint8Array(64 * 64 * 4).fill(255)
+    const skin = normalizeVoxelSkin({ width: 64, height: 64, data }, 'wide')
+    geometry.setSkin(skin)
+    let applied = applyVoxelSkin(rig.root, skin)
+    try {
+      for (const [right, left] of [[true, false], [false, true], [true, true], [false, false]] as const) {
+        geometry.setArmsDisabled(right, left)
+        for (const [index, mesh] of meshes.entries()) {
+          const visible = Array.from(mesh.geometry.getIndex()!.array)
+          const positions = mesh.geometry.getAttribute('position')
+          if (right && left) {
+            assert.equal(visible.length, 0)
+          } else if (right || left) {
+            assert.ok(visible.length > 0 && visible.length < full[index].length)
+            assert.ok(visible.every(vertex => right ? positions.getX(vertex) > 0 : positions.getX(vertex) < 0))
+          } else {
+            assert.deepEqual(visible, full[index])
+          }
+          assert.equal(mesh.geometry.groups.reduce((sum, group) => sum + group.count, 0), visible.length)
+        }
+        assert.deepEqual(Array.from(body.geometry.getIndex()!.array), bodyIndex)
+      }
+      geometry.setArmsDisabled(true, true)
+      applied.dispose()
+      geometry.setSkin(undefined)
+      applied = applyVoxelSkin(rig.root, skin)
+      for (const mesh of meshes) assert.equal(mesh.geometry.getIndex()!.count, 0)
+      geometry.setArmsDisabled(false, false)
+      for (const [index, mesh] of meshes.entries()) assert.deepEqual(Array.from(mesh.geometry.getIndex()!.array), full[index])
+    } finally {
+      applied.dispose()
+      geometry.dispose()
+    }
+  })
+})
+
+describe('headbutt on the actual Dmeloper rig', () => {
+  const deskFixture = () => {
+    const desk = new Mesh(new BoxGeometry(...MODEL_3D_CONFIG.desk.size), new MeshBasicMaterial())
+    desk.position.set(...MODEL_3D_CONFIG.desk.position)
+    return desk
+  }
+
+  it('returns only the right shoulder over 300 ms while preserving the left shoulder envelope and arm rotation continuity', async (t) => {
+    let clock = 1000
+    const rig = await fixture('wide', false, () => 0, true, { now: () => clock, desk: deskFixture() })
+    t.after(rig.dispose)
+    rig.animator.setAnimationMode('headbutt')
+    rig.animator.setMouseEnabled(false)
+    rig.advance(0, clock)
+    const right = rig.root.getObjectByName('R_Upperarm')!
+    const left = rig.root.getObjectByName('L_Upperarm')!
+    const neutralRight = right.position.clone()
+    const neutralLeft = left.position.clone()
+    rig.animator.setKeyPressed('KeyF', true, rig.keyboard.getKeyTarget('KeyF'))
+    rig.advance(clock, clock + 300)
+    clock = 1400
+    rig.animator.update(16, clock)
+    const fromRight = right.position.clone()
+    const fromLeft = left.position.clone()
+    const rotation = right.quaternion.clone()
+    rig.animator.setKeyPressed('KeyF', false, rig.keyboard.getKeyTarget('KeyF'))
+    rig.animator.update(0, clock)
+    assert.ok(right.position.distanceTo(fromRight) < 1e-8, 'return begins at the current shoulder position')
+    assert.ok(right.quaternion.angleTo(rotation) < 1e-7, 'the arm does not rotate abruptly when recovery starts')
+    clock += 150
+    rig.animator.update(150, clock)
+    assert.ok(right.position.distanceTo(fromRight.clone().lerp(neutralRight, 0.5)) < 1e-8)
+    assert.ok(left.position.distanceTo(fromLeft) < 1e-8, 'left shoulder remains on the tabletop envelope')
+    clock += 150
+    rig.animator.update(150, clock)
+    assert.ok(right.position.distanceTo(neutralRight) < 1e-8, 'right shoulder completes its short return')
+    assert.ok(left.position.distanceTo(neutralLeft) > fromLeft.distanceTo(neutralLeft) * 0.9, 'left shoulder keeps its original slow return')
+  })
+  for (const model of ['wide', 'slim'] as const) {
+    it(`${model}: holds captured tabletop contacts, safely approaches accepted keys and preserves hips/head/arm dimensions`, async (t) => {
+      let clock = 1000
+      const desk = deskFixture()
+      const rig = await fixture(model, false, () => 1, true, { now: () => clock, desk })
+      t.after(() => {
+        rig.dispose()
+        desk.geometry.dispose()
+        desk.material.dispose()
+      })
+      rig.animator.setMouseEnabled(false)
+      rig.animator.setAnimationMode('headbutt')
+      rig.advance(0, clock)
+      const hips = rig.worldPosition('Root')
+      const forehead = getForeheadPoint(rig.root, rig.root.getObjectByName('Head')!)
+      const scales = ['Head', 'L_Upperarm', 'R_Upperarm'].map(name => rig.root.getObjectByName(name)!.getWorldScale(new Vector3()))
+      for (const key of ['KeyF', 'KeyJ', 'Escape', 'PageUp']) {
+        const at = clock
+        const accepted = rig.keyboard.getKeyTarget(key)!
+        const keyWorld = rig.keyboard.group.localToWorld(new Vector3().fromArray(accepted.position))
+        const restDistance = rig.root.getObjectByName('Head')!.localToWorld(forehead.clone()).distanceTo(keyWorld)
+        let grips: Vector3[] = []
+        rig.animator.setKeyPressed(key, true, accepted)
+        rig.animator.setKeyPressed(key, false, accepted)
+        for (const age of [50, 100, 160, 220, 240, 300, 399]) {
+          clock = at + age
+          rig.animator.update(16, clock)
+          if (age === 50) grips = ['L', 'R'].map(side => rig.worldPosition(`${side}_Hand`))
+          if (age >= 100 && age < config.headbutt.gripMs + config.headbutt.downMs + config.headbutt.contactMs) {
+            for (const [index, side] of ['L', 'R'].entries()) assert.ok(rig.worldPosition(`${side}_Hand`).distanceTo(grips[index]) < 0.002, `${key}/${side}: grip error ${rig.worldPosition(`${side}_Hand`).distanceTo(grips[index])}`)
+          }
+          assert.ok(rig.worldPosition('Root').distanceTo(hips) < 1e-8)
+          for (const [index, name] of ['Head', 'L_Upperarm', 'R_Upperarm'].entries()) close(rig.root.getObjectByName(name)!.getWorldScale(new Vector3()).toArray(), scales[index].toArray(), 1e-6)
+          const stretch = rig.root.getObjectByName('Spine02')!.scale.y
+          assert.ok(stretch >= 1 && stretch <= 1.5)
+          if (age === 220) {
+            const error = rig.root.getObjectByName('Head')!.localToWorld(forehead.clone()).distanceTo(keyWorld)
+            t.diagnostic(`${key}: forehead error ${error.toFixed(4)}, stretch ${stretch.toFixed(3)}`)
+            assert.ok(error < restDistance, `${key}: safe strike must approach the input`)
+          }
+        }
+        clock = at + 1000
+        rig.advance(at + 400, clock)
+        assert.equal(rig.root.getObjectByName('Spine02')!.scale.y, 1)
+      }
+    })
+
+    it(`${model}: keeps contact and dimensions through head/arm extremes and transformed devices`, async (t) => {
+      let clock = 1000
+      const desk = deskFixture()
+      const rig = await fixture(model, false, () => 1, true, { now: () => clock, desk })
+      t.after(() => {
+        rig.dispose()
+        desk.geometry.dispose()
+        desk.material.dispose()
+      })
+      rig.animator.setMouseEnabled(false)
+      rig.animator.setAnimationMode('headbutt')
+      rig.animator.setHeadbuttMaxRadiusOffset(1)
+      const forehead = getForeheadPoint(rig.root, rig.root.getObjectByName('Head')!)
+      const scene = new Group()
+      scene.position.set(0.5, 0.4, -0.8)
+      scene.rotation.y = 0.7
+      scene.add(rig.root, rig.keyboard.group, desk, rig.anchor.parent!)
+      rig.keyboard.group.scale.multiplyScalar(1.2)
+      rig.keyboard.group.position.x += 0.1
+      rig.keyboard.group.rotation.y += 0.2
+      desk.scale.set(1.1, 1.5, 0.8)
+      for (const percent of [25, 100, 200]) {
+        for (const spread of [-45, 45]) {
+          rig.animator.resetInput()
+          rig.advance(clock, clock + 1000)
+          clock += 1000
+          rig.animator.setHeadScalePercent(percent)
+          const settings = { ...DEFAULT_PET_ARM_POSE_SETTINGS, petLeftArmBendPercent: spread < 0 ? 0 : 400, petRightArmBendPercent: spread > 0 ? 0 : 400, petLeftArmSpreadDegrees: spread, petRightArmSpreadDegrees: -spread }
+          rig.animator.setArmPoseSettings(settings)
+          const savedSettings = { ...settings }
+          rig.animator.update(16, clock)
+          const start = clock
+          const accepted = rig.keyboard.getKeyTarget('Escape')!
+          const keyWorld = rig.keyboard.group.localToWorld(new Vector3().fromArray(accepted.position))
+          const restDistance = rig.root.getObjectByName('Head')!.localToWorld(forehead.clone()).distanceTo(keyWorld)
+          let grips: Vector3[] = []
+          const scales = ['Head', 'L_Upperarm', 'R_Upperarm'].map(name => rig.root.getObjectByName(name)!.getWorldScale(new Vector3()))
+          rig.animator.setKeyPressed('Escape', true, accepted)
+          rig.animator.setKeyPressed('Escape', false, accepted)
+          for (const age of [100, 130, 170, 220, 240, 290, 350, 399]) {
+            clock = start + age
+            rig.animator.update(16, clock)
+            if (age === 100) grips = ['L', 'R'].map(side => rig.worldPosition(`${side}_Hand`))
+            if (age < config.headbutt.gripMs + config.headbutt.downMs + config.headbutt.contactMs) {
+              for (const [index, side] of ['L', 'R'].entries()) assert.ok(rig.worldPosition(`${side}_Hand`).distanceTo(grips[index]) < 0.002, `${percent}/${spread}/${age}/${side}: grip drift`)
+            }
+            for (const [index, name] of ['Head', 'L_Upperarm', 'R_Upperarm'].entries()) close(rig.root.getObjectByName(name)!.getWorldScale(new Vector3()).toArray(), scales[index].toArray(), 1e-6)
+            const stretch = rig.root.getObjectByName('Spine02')!.scale.y
+            assert.ok(stretch >= 1 && stretch <= config.headbutt.maxExtendedStretch)
+            if (age === 220) assert.ok(rig.root.getObjectByName('Head')!.localToWorld(forehead.clone()).distanceTo(keyWorld) < restDistance, 'even an unreachable key uses a nearer safe strike')
+          }
+          assert.deepEqual(settings, savedSettings)
+          clock = start + 1500
+          rig.advance(start + 400, clock)
+          close(rig.root.getObjectByName('Head')!.scale.toArray(), [percent / 100, percent / 100, percent / 100])
+          assert.equal(rig.root.getObjectByName('Spine02')!.scale.y, 1)
+          assert.equal(rig.root.getObjectByName('Head')!.matrixAutoUpdate, true)
+          assert.equal(rig.root.getObjectByName('L_Upperarm')!.matrixAutoUpdate, true)
+        }
+      }
+    })
+  }
+
+  for (const model of ['wide', 'slim'] as const) {
+    it(`${model}: limits headbutt reach to fixed world radii after moving and scaling the keyboard`, async (t) => {
+      let clock = 1000
+      const desk = deskFixture()
+      const rig = await fixture(model, false, () => 1, true, { now: () => clock, desk })
+      t.after(() => {
+        rig.dispose()
+        desk.geometry.dispose()
+        desk.material.dispose()
+      })
+      rig.animator.setMouseEnabled(false)
+      rig.animator.setAnimationMode('headbutt')
+      const head = rig.root.getObjectByName('Head')!
+      const forehead = getForeheadPoint(rig.root, head)
+      for (const scale of [1, 1.5]) {
+        rig.keyboard.group.scale.setScalar(MODEL_3D_CONFIG.keyboard.scale * scale)
+        rig.keyboard.group.position.z = MODEL_3D_CONFIG.keyboard.position[2] + (scale - 1) * 0.4
+        for (const offset of [-1, 0, 1]) {
+          rig.animator.resetInput()
+          rig.advance(clock, clock + 1500)
+          clock += 1500
+          rig.animator.setHeadbuttMaxRadiusOffset(offset)
+          const start = clock
+          const target = rig.keyboard.getKeyTarget('Escape')!
+          rig.animator.setKeyPressed('Escape', true, target)
+          rig.animator.setKeyPressed('Escape', false, target)
+          rig.advance(start, start + config.headbutt.gripMs + config.headbutt.downMs)
+          clock = start + config.headbutt.gripMs + config.headbutt.downMs
+          rig.animator.update(16, clock)
+          const center = rig.root.getWorldPosition(new Vector3())
+          const hit = head.localToWorld(forehead.clone())
+          hit.y = center.y
+          assert.ok(hit.distanceTo(center) <= getHeadbuttReachRadius(offset) + 0.002, `${scale}/${offset}: fixed radius exceeded`)
+          assert.ok(rig.root.getObjectByName('Spine02')!.scale.y <= MathUtils.lerp(config.headbutt.maxStretch, config.headbutt.maxExtendedStretch, Math.max(0, offset)))
+          clock += 1000
+        }
+      }
+    })
+  }
+
+  for (const model of ['wide', 'slim'] as const) {
+    for (const mouseEnabled of [true, false]) {
+      it(`${model}/${mouseEnabled}: prioritizes far-key contact and holds the lateral aim with fixed hands`, async (t) => {
+        let clock = 1000
+        const desks = [deskFixture(), deskFixture()]
+        const rigs = await Promise.all(desks.map(desk => fixture(model, false, () => 1, true, { now: () => clock, desk })))
+        const bases = rigs.map(rig => rig.root.getObjectByName('Spine02')!.quaternion.clone())
+        for (const [index, rig] of rigs.entries()) {
+          t.after(() => {
+            rig.dispose()
+            desks[index].geometry.dispose()
+            desks[index].material.dispose()
+          })
+          rig.animator.setMouseEnabled(mouseEnabled)
+          rig.animator.setAnimationMode('headbutt')
+          rig.animator.setHeadbuttMaxRadiusOffset(1)
+          if (index === 0) rig.animator.setHeadbuttTuning({ maxTorsoPitchDegrees: 80, minExtendedTorsoPitchDegrees: 45, maxExtendedHeadYawDegrees: 0 })
+          rig.advance(0, clock)
+          const target = rig.keyboard.getKeyTarget('Escape')!
+          rig.animator.setKeyPressed('Escape', true, target)
+        }
+        const hands: Vector3[][] = []
+        for (; clock <= 1130; clock += 10) {
+          for (const [index, rig] of rigs.entries()) {
+            rig.animator.update(10, clock)
+            if (clock === 1050) hands[index] = ['L', 'R'].map(side => rig.worldPosition(`${side}_Hand`))
+            if (clock > 1050) {
+              for (const side of mouseEnabled ? ['L'] : ['L', 'R']) assert.ok(rig.worldPosition(`${side}_Hand`).distanceTo(hands[index][side === 'L' ? 0 : 1]) < 0.002, 'captured hand stays fixed')
+            }
+          }
+        }
+        const measurements = rigs.map((rig, index) => {
+          const head = rig.root.getObjectByName('Head')!
+          const forehead = head.localToWorld(getForeheadPoint(rig.root, head))
+          const key = rig.keyboard.group.localToWorld(new Vector3().fromArray(rig.keyboard.getKeyTarget('Escape')!.position))
+          const pitch = MathUtils.radToDeg(new Euler().setFromQuaternion(bases[index].clone().invert().multiply(rig.root.getObjectByName('Spine02')!.quaternion), 'YXZ').x)
+          return { pitch, error: forehead.distanceTo(key), delta: forehead.clone().sub(key).toArray(), stretch: rig.root.getObjectByName('Spine02')!.scale.y }
+        })
+        assert.ok(measurements[1].pitch >= 0 && measurements[1].pitch <= config.headbutt.maxTorsoPitchDegrees, 'waist stays within its safe articulation range')
+        // The approved radial solver minimizes actual contact error. More
+        // available neck/waist angles need not increase the selected pitch.
+        assert.ok(measurements[1].error <= measurements[0].error + 0.00001, `contact is no worse than restricted articulation: ${JSON.stringify(measurements)}`)
+        assert.ok(Math.abs(measurements[1].delta[1]) <= config.headbutt.contactHeightTolerance, 'forehead reaches the keycap plane without passing through it')
+        const headYaw = new Euler().setFromQuaternion(rigs[1].root.getObjectByName('Head')!.quaternion, 'YXZ').y
+        rigs[1].advance(clock, clock + 500)
+        const heldYaw = new Euler().setFromQuaternion(rigs[1].root.getObjectByName('Head')!.quaternion, 'YXZ').y
+        assert.ok(Math.abs(headYaw - heldYaw) < MathUtils.degToRad(2), 'held neck pitch retains the strike lateral aim')
+        for (const side of mouseEnabled ? ['L'] : ['L', 'R']) assert.ok(rigs[1].worldPosition(`${side}_Hand`).distanceTo(hands[1][side === 'L' ? 0 : 1]) < 0.002, 'held hand stays fixed')
+      })
+    }
+  }
+
+  it('matches the headbutt forecast with the applied stretched head transform', async (t) => {
+    let clock = 1000
+    const desk = deskFixture()
+    const rig = await fixture('wide', false, () => 1, true, { now: () => clock, desk })
+    t.after(() => {
+      rig.dispose()
+      desk.geometry.dispose()
+      desk.material.dispose()
+    })
+    rig.animator.setAnimationMode('headbutt')
+    rig.animator.setHeadbuttMaxRadiusOffset(1)
+    const head = rig.root.getObjectByName('Head')!
+    const spine = rig.root.getObjectByName('Spine02')!
+    const headOffset = head.position.clone()
+    const forehead = getForeheadPoint(rig.root, head)
+    const baseScale = spine.scale.clone()
+    rig.advance(0, clock)
+    const target = rig.keyboard.getKeyTarget('Escape')!
+    rig.animator.setKeyPressed('Escape', true, target)
+    rig.animator.setKeyPressed('Escape', false, target)
+    rig.advance(clock, clock + config.headbutt.gripMs + config.headbutt.downMs)
+    clock += config.headbutt.gripMs + config.headbutt.downMs
+    rig.animator.update(1, clock)
+    const predicted = forehead.clone().multiply(head.scale).applyQuaternion(head.quaternion).add(headOffset.set(headOffset.x, headOffset.y * (spine.scale.y / baseScale.y), headOffset.z)).multiply(baseScale).applyQuaternion(spine.quaternion).add(spine.position)
+    spine.parent!.localToWorld(predicted)
+    const actual = head.localToWorld(forehead.clone())
+    assert.ok(predicted.distanceTo(actual) < 1e-8)
+  })
+
+  it('preserves held input and ignores native repeat across mouse-only resets', async (t) => {
+    let clock = 1000
+    const desks = [deskFixture(), deskFixture()]
+    const rigs = await Promise.all(desks.map(desk => fixture('wide', false, () => 1, true, { now: () => clock, desk })))
+    for (const [index, rig] of rigs.entries()) {
+      t.after(() => {
+        rig.dispose()
+        desks[index].geometry.dispose()
+        desks[index].material.dispose()
+      })
+    }
+    for (const rig of rigs) {
+      rig.animator.setMouseEnabled(false)
+      rig.animator.setAnimationMode('headbutt')
+      rig.advance(0, clock)
+      rig.animator.setKeyPressed('KeyF', true, rig.keyboard.getKeyTarget('KeyF'))
+    }
+    for (const age of [100, 150, 170, 220, 240]) {
+      clock = 1000 + age
+      for (const rig of rigs) rig.animator.update(16, clock)
+      if (age === 150) {
+        rigs[0].animator.resetMouseInput()
+        rigs[0].animator.setKeyPressed('KeyF', true, rigs[0].keyboard.getKeyTarget('KeyF'))
+      }
+      for (const name of ['Head', 'Spine02', 'L_Hand', 'R_Hand']) close(rigs[0].root.getObjectByName(name)!.matrixWorld.toArray(), rigs[1].root.getObjectByName(name)!.matrixWorld.toArray())
+    }
+    clock = 1520
+    for (const rig of rigs) rig.animator.update(16, clock)
+    close(rigs[0].pose('Spine02'), rigs[1].pose('Spine02'))
+    for (const rig of rigs) rig.animator.setKeyPressed('KeyF', false, rig.keyboard.getKeyTarget('KeyF'))
+    clock = 3400
+    for (const rig of rigs) rig.advance(1550, clock)
+    for (const rig of rigs) {
+      assert.equal(rig.root.getObjectByName('Spine02')!.scale.y, 1)
+      close(rig.pose('Spine02'), rigs[1].pose('Spine02'))
+    }
+  })
+
+  it('keeps the ON right hand on its independent moving/clicking mouse through keyboard strikes', async (t) => {
+    let clock = 1000
+    const desk = deskFixture()
+    const rig = await fixture('wide', false, () => 0, true, { now: () => clock, desk })
+    t.after(() => {
+      rig.dispose()
+      desk.geometry.dispose()
+      desk.material.dispose()
+    })
+    rig.animator.setAnimationMode('headbutt')
+    rig.advance(0, clock)
+    rig.animator.setKeyPressed('KeyF', true, rig.keyboard.getKeyTarget('KeyF'))
+    rig.animator.setKeyPressed('PageUp', true, rig.keyboard.getKeyTarget('PageUp'))
+    const rest = rig.worldPosition('R_Hand')
+    for (const age of [100, 120, 140, 160, 180, 200, 220, 240]) {
+      clock = 1000 + age
+      rig.anchor.position.x = -1.2 + age / 1000
+      rig.animator.setMousePosition(age / 300, 0.6)
+      if (age === 120) rig.animator.setMouseButtonPressed('Left', true)
+      rig.animator.update(20, clock)
+      assert.ok(rig.worldPosition('R_Hand').distanceTo(rig.anchor.getWorldPosition(new Vector3())) < 0.28, 'ON right hand follows mouse, not the right-side keyboard target')
+      const grip = getDeskGrip(desk, rig.worldPosition('R_Upperarm'), rig.root.getWorldPosition(new Vector3()), new Vector3())!
+      assert.ok(rig.worldPosition('R_Hand').distanceTo(grip) > 0.2)
+    }
+    assert.ok(rest.distanceTo(rig.worldPosition('R_Hand')) > 0.03, 'original movement/click path remains active')
+  })
+
+  for (const scenario of ['protected hold', 'cancelled recovery', 'released chord member'] as const) {
+    it(`retains the physical hold through actual animator dispatch: ${scenario}`, async (t) => {
+      let clock = 1000
+      const desk = deskFixture()
+      const rig = await fixture('wide', false, () => 1, true, { now: () => clock, desk })
+      t.after(() => {
+        rig.dispose()
+        desk.geometry.dispose()
+        desk.material.dispose()
+      })
+      rig.animator.setAnimationMode('headbutt')
+      rig.animator.setMouseEnabled(false)
+      rig.advance(0, clock)
+      const input = (key: string, pressed: boolean) => rig.animator.setKeyPressed(key, pressed, rig.keyboard.getKeyTarget(key))
+      input('KeyF', true)
+      if (scenario === 'cancelled recovery') {
+        clock = 1200
+        rig.animator.update(16, clock)
+        rig.animator.resetInput()
+        clock = 1210
+      } else {
+        input('KeyF', false)
+        clock = 1170
+      }
+      input('KeyS', true)
+      if (scenario === 'released chord member') {
+        clock += 10
+        input('KeyD', true)
+        clock += 5
+        input('KeyD', false)
+      }
+      clock = 2000
+      rig.animator.update(16, clock)
+      const head = rig.root.getObjectByName('Head')!
+      const pitch = MathUtils.radToDeg(new Euler().setFromQuaternion(head.quaternion, 'YXZ').x)
+      // Held breathing and local yaw add a small rotation around the target.
+      assert.ok(Math.abs(pitch - 65) < 1, `still-held key must reach the accepted hold pitch, got ${pitch}`)
+      const hand = rig.worldPosition('L_Hand')
+      for (let repeats = 0; repeats < 20; repeats++) input('KeyS', true)
+      clock = 5000
+      rig.animator.update(16, clock)
+      assert.equal(rig.animator.isHeadbuttActive(), true)
+      assert.ok(rig.worldPosition('L_Hand').distanceTo(hand) < 0.002)
+      input('KeyS', false)
+      clock = 8000
+      rig.animator.update(16, clock)
+      assert.equal(rig.animator.isHeadbuttActive(), false, 'final key-up retires the held animation')
+    })
+  }
+
+  it('keeps both rest contacts within a reachable small tabletop', async (t) => {
+    let clock = 1000
+    const desk = deskFixture()
+    desk.scale.set(0.5, 1, 0.5)
+    const rig = await fixture('wide', false, () => 1, true, { now: () => clock, desk })
+    t.after(() => {
+      rig.dispose()
+      desk.geometry.dispose()
+      desk.material.dispose()
+    })
+    rig.animator.setMouseEnabled(false)
+    rig.animator.setAnimationMode('headbutt')
+    rig.advance(0, clock)
+    rig.animator.setKeyPressed('KeyF', true, rig.keyboard.getKeyTarget('KeyF'))
+    clock = 1050
+    rig.animator.update(50, clock)
+    desk.geometry.computeBoundingBox()
+    const bounds = desk.geometry.boundingBox!
+    for (const side of ['L', 'R']) {
+      const point = desk.worldToLocal(rig.worldPosition(`${side}_Hand`))
+      assert.ok(point.x >= bounds.min.x - 0.002 && point.x <= bounds.max.x + 0.002, `${side}: tabletop width ${point.x}`)
+      assert.ok(point.z >= bounds.min.z - 0.002 && point.z <= bounds.max.z + 0.002, `${side}: tabletop depth ${point.z}`)
+    }
+  })
+
+  it('cancels queued motion on mode/reset, returns saved poses and disposes all stretch matrices', async (t) => {
+    let clock = 1000
+    const desk = deskFixture()
+    const rig = await fixture('wide', false, () => 1, true, { now: () => clock, desk })
+    t.after(() => {
+      rig.dispose()
+      desk.geometry.dispose()
+      desk.material.dispose()
+    })
+    rig.animator.setHeadScalePercent(150)
+    rig.animator.setMouseEnabled(false)
+    rig.animator.setAnimationMode('headbutt')
+    rig.advance(0, clock)
+    rig.animator.setKeyPressed('Escape', true, rig.keyboard.getKeyTarget('Escape'))
+    clock = 1160
+    rig.animator.update(16, clock)
+    rig.animator.setKeyPressed('PageUp', true, rig.keyboard.getKeyTarget('PageUp'))
+    const before = rig.pose('Spine02')
+    rig.animator.resetInput()
+    rig.animator.setAnimationMode('default')
+    rig.animator.update(0, clock)
+    close(rig.pose('Spine02'), before)
+    clock = 2500
+    rig.advance(1176, clock)
+    assert.equal(rig.root.getObjectByName('Spine02')!.scale.y, 1)
+    close(rig.root.getObjectByName('Head')!.scale.toArray(), [1.5, 1.5, 1.5])
+    for (const name of ['Head', 'L_Upperarm', 'R_Upperarm']) assert.equal(rig.root.getObjectByName(name)!.matrixAutoUpdate, true)
+    rig.animator.setAnimationMode('headbutt')
+    rig.animator.setHeadScalePercent(100)
+    rig.animator.setKeyPressed('Escape', true, rig.keyboard.getKeyTarget('Escape'))
+    clock += 220
+    rig.animator.update(16, clock)
+    assert.ok(rig.root.getObjectByName('Spine02')!.scale.y > 1)
+    rig.animator.dispose()
+    assert.equal(rig.root.getObjectByName('Spine02')!.scale.y, 1)
+    for (const name of ['Head', 'L_Upperarm', 'R_Upperarm']) assert.equal(rig.root.getObjectByName(name)!.matrixAutoUpdate, true)
+  })
+
+  it('produces the same contact on the actual rig across 8/16/33/100 ms frame intervals', async (t) => {
+    const outputs: number[][][] = []
+    for (const interval of [8, 16, 33, 100]) {
+      let clock = 1000
+      const desk = deskFixture()
+      const rig = await fixture('slim', false, () => 1, true, { now: () => clock, desk })
+      t.after(() => {
+        rig.dispose()
+        desk.geometry.dispose()
+        desk.material.dispose()
+      })
+      rig.animator.setMouseEnabled(false)
+      rig.animator.setAnimationMode('headbutt')
+      rig.advance(0, clock)
+      rig.animator.setKeyPressed('Escape', true, rig.keyboard.getKeyTarget('Escape'))
+      for (clock = 1000 + interval; clock < 1220; clock += interval) rig.animator.update(interval, clock)
+      clock = 1220
+      rig.animator.update(interval, clock)
+      rig.root.updateMatrixWorld(true)
+      outputs.push(['Head', 'L_Hand', 'R_Hand', 'Spine02'].map(name => rig.root.getObjectByName(name)!.matrixWorld.toArray()))
+    }
+    for (const [outputIndex, output] of outputs.entries()) {
+      for (const [index, matrix] of output.entries()) {
+        const error = Math.max(...matrix.map((value, component) => Math.abs(value - outputs[0][index][component])))
+        t.diagnostic(`interval ${[8, 16, 33, 100][outputIndex]}/${['Head', 'L_Hand', 'R_Hand', 'Spine02'][index]}: matrix error ${error}`)
+        close(matrix, outputs[0][index], 0.0001)
+      }
+    }
+  })
+
+  it('follows desk-local grip addresses through live desk/keyboard transforms without restarting a strike', async (t) => {
+    let clock = 1000
+    const desk = deskFixture()
+    const rig = await fixture('wide', false, () => 1, true, { now: () => clock, desk })
+    t.after(() => {
+      rig.dispose()
+      desk.geometry.dispose()
+      desk.material.dispose()
+    })
+    rig.animator.setMouseEnabled(false)
+    rig.animator.setAnimationMode('headbutt')
+    rig.advance(0, clock)
+    rig.animator.setKeyPressed('Escape', true, rig.keyboard.getKeyTarget('Escape'))
+    clock = 1210
+    rig.animator.update(16, clock)
+    const before = ['L', 'R'].map(side => rig.worldPosition(`${side}_Hand`))
+    const localGrips = before.map(point => desk.worldToLocal(point.clone()))
+    const beforeSpine = rig.root.getObjectByName('Spine02')!.quaternion.clone()
+    desk.position.add(new Vector3(0.08, 0.04, 0.02))
+    desk.scale.x = 1.08
+    rig.keyboard.group.position.x += 0.06
+    rig.keyboard.group.position.z += 0.025
+    clock = 1220
+    rig.animator.update(10, clock)
+    assert.ok(rig.root.getObjectByName('Spine02')!.quaternion.angleTo(beforeSpine) < 0.03, 'geometry retarget starts from the existing body pose')
+    for (const [index, side] of ['L', 'R'].entries()) assert.ok(rig.worldPosition(`${side}_Hand`).distanceTo(desk.localToWorld(localGrips[index].clone())) < 0.002, 'fixed contact follows the desk transform')
+    clock = 1230
+    rig.animator.setKeyPressed('KeyJ', true, rig.keyboard.getKeyTarget('KeyJ'))
+    for (clock = 1230; clock <= 1550; clock += 10) rig.animator.update(10, clock)
+    for (const [index, side] of ['L', 'R'].entries()) {
+      const grip = desk.localToWorld(localGrips[index].clone())
+      assert.ok(rig.worldPosition(`${side}_Hand`).distanceTo(grip) < 0.002, 'held local lip address must follow the transformed desk')
+    }
+    const forehead = getForeheadPoint(rig.root, rig.root.getObjectByName('Head')!)
+    const keyWorld = rig.keyboard.group.localToWorld(new Vector3().fromArray(rig.keyboard.getKeyTarget('KeyJ')!.position))
+    assert.ok(rig.root.getObjectByName('Head')!.localToWorld(forehead).distanceTo(keyWorld) < rig.worldPosition('Root').distanceTo(keyWorld), 'next strike safely approaches transformed key geometry')
+  })
+
+  it('enters and releases bracing continuously at exact phase boundaries', async (t) => {
+    let clock = 1000
+    const desk = deskFixture()
+    const rig = await fixture('slim', false, () => 1, true, { now: () => clock, desk })
+    t.after(() => {
+      rig.dispose()
+      desk.geometry.dispose()
+      desk.material.dispose()
+    })
+    rig.animator.setMouseEnabled(false)
+    rig.animator.setAnimationMode('headbutt')
+    rig.advance(0, clock)
+    const initial = ['L_Hand', 'R_Hand', 'L_Forearm', 'R_Forearm'].map(name => rig.worldPosition(name))
+    rig.animator.setKeyPressed('KeyF', true, rig.keyboard.getKeyTarget('KeyF'))
+    rig.animator.setKeyPressed('KeyF', false, rig.keyboard.getKeyTarget('KeyF'))
+    rig.animator.update(0, clock)
+    for (const [index, name] of ['L_Hand', 'R_Hand', 'L_Forearm', 'R_Forearm'].entries()) assert.ok(rig.worldPosition(name).distanceTo(initial[index]) < 1e-5)
+    for (clock = 1016; clock < 1739; clock += 16) rig.animator.update(16, clock)
+    clock = 1739
+    rig.animator.update(1, clock)
+    const before = ['L_Hand', 'R_Hand', 'L_Forearm', 'R_Forearm'].map(name => rig.worldPosition(name))
+    clock = 1740
+    rig.animator.update(1, clock)
+    for (const [index, name] of ['L_Hand', 'R_Hand', 'L_Forearm', 'R_Forearm'].entries()) assert.ok(rig.worldPosition(name).distanceTo(before[index]) < 0.001, `${name}: discontinuity at release`)
+  })
+
+  it('keeps an unreachable target bounded and holds the nearest safe fixed grip for an impossible desk placement', async (t) => {
+    let clock = 1000
+    const desk = deskFixture()
+    desk.position.y += 2
+    const rig = await fixture('wide', false, () => 1, true, { now: () => clock, desk })
+    t.after(() => {
+      rig.dispose()
+      desk.geometry.dispose()
+      desk.material.dispose()
+    })
+    rig.animator.setMouseEnabled(false)
+    rig.animator.setAnimationMode('headbutt')
+    rig.advance(0, clock)
+    rig.keyboard.group.position.z += 3
+    rig.animator.setKeyPressed('Escape', true, rig.keyboard.getKeyTarget('Escape'))
+    clock = 1100
+    rig.animator.update(100, clock)
+    const fixed = ['L', 'R'].map(side => rig.worldPosition(`${side}_Hand`))
+    for (const age of [160, 220, 240, 300, 399]) {
+      clock = 1000 + age
+      rig.animator.update(16, clock)
+      assert.ok(rig.root.getObjectByName('Spine02')!.scale.y <= 1.5)
+      assert.ok(MathUtils.radToDeg(new Euler().setFromQuaternion(rig.root.getObjectByName('Spine02')!.quaternion, 'YXZ').x) <= 65 + 1e-6)
+      for (const [index, side] of ['L', 'R'].entries()) assert.ok(rig.worldPosition(`${side}_Hand`).distanceTo(fixed[index]) < 0.002, `${side}/${age}: nearest safe grip drift ${rig.worldPosition(`${side}_Hand`).distanceTo(fixed[index])}`)
+    }
+    assert.ok(fixed[0].distanceTo(getDeskGrip(desk, rig.worldPosition('L_Upperarm'), rig.root.getWorldPosition(new Vector3()), new Vector3())!) > 0.2, 'out-of-reach fallback is explicitly not actual desk contact')
+  })
+
+  it('does not turn a held key into a fresh headbutt when selecting the mode', async (t) => {
+    let clock = 1000
+    const desk = deskFixture()
+    const rig = await fixture('wide', false, () => 1, true, { now: () => clock, desk })
+    t.after(() => {
+      rig.dispose()
+      desk.geometry.dispose()
+      desk.material.dispose()
+    })
+    rig.animator.setMouseEnabled(false)
+    rig.advance(0, clock)
+    const accepted = rig.keyboard.getKeyTarget('Escape')!
+    rig.animator.setKeyPressed('Escape', true, accepted)
+    rig.animator.setAnimationMode('headbutt')
+    clock = 1100
+    rig.animator.setKeyPressed('Escape', true, accepted)
+    rig.advance(1000, 1400)
+    const spine = rig.root.getObjectByName('Spine02')!
+    assert.ok(Math.abs(MathUtils.radToDeg(new Euler().setFromQuaternion(spine.quaternion, 'YXZ').x)) < 5, 'native hold across mode change must not start a strike')
+    clock = 1500
+    rig.animator.setKeyPressed('Escape', false, accepted)
+    rig.animator.setKeyPressed('Escape', true, accepted)
+    clock = 1720
+    rig.animator.update(16, clock)
+    assert.ok(MathUtils.radToDeg(new Euler().setFromQuaternion(spine.quaternion, 'YXZ').x) > 10, 'a physical release/press still strikes in the new mode')
+  })
+
+  it('reports active headbutt through mode/reset cancellation until the actual final pose reset', async (t) => {
+    let clock = 1000
+    const desk = deskFixture()
+    const rig = await fixture('wide', false, () => 1, true, { now: () => clock, desk })
+    t.after(() => {
+      rig.dispose()
+      desk.geometry.dispose()
+      desk.material.dispose()
+    })
+    assert.equal(rig.animator.isHeadbuttActive(), false)
+    rig.animator.setAnimationMode('headbutt')
+    rig.animator.setMouseEnabled(false)
+    rig.advance(0, clock)
+    assert.equal(rig.animator.isHeadbuttActive(), false)
+    rig.animator.setKeyPressed('Escape', true, rig.keyboard.getKeyTarget('Escape'))
+    assert.equal(rig.animator.isHeadbuttActive(), true, 'grip is active before its first draw')
+    for (const age of [50, 100, 220, 250]) {
+      clock = 1000 + age
+      rig.animator.update(16, clock)
+      assert.equal(rig.animator.isHeadbuttActive(), true)
+    }
+    rig.animator.resetMouseInput()
+    assert.equal(rig.animator.isHeadbuttActive(), true)
+    rig.animator.resetInput()
+    rig.animator.setAnimationMode('default')
+    assert.equal(rig.animator.isHeadbuttActive(), true, 'mode selection does not retire the live rebound')
+    const cancelDoneAt = 1250 + config.headbutt.reboundMs + config.headbutt.returnMs
+    for (const at of [1325, 1400, cancelDoneAt - 1]) {
+      clock = at
+      rig.animator.update(16, clock)
+      assert.equal(rig.animator.isHeadbuttActive(), true)
+    }
+    clock = cancelDoneAt
+    rig.animator.update(1, clock)
+    assert.equal(rig.animator.isHeadbuttActive(), false)
+
+    clock = 3000
+    rig.animator.setAnimationMode('headbutt')
+    rig.animator.setKeyPressed('Escape', true, rig.keyboard.getKeyTarget('Escape'))
+    clock = 3220
+    rig.animator.update(16, clock)
+    assert.ok(rig.root.getObjectByName('Spine02')!.scale.y > 1)
+    rig.animator.setKeyPressed('Escape', false, rig.keyboard.getKeyTarget('Escape'))
+    clock = 6000
+    const before = rig.pose('Spine02')
+    assert.equal(rig.animator.isHeadbuttActive(), true, 'read-only query retains the last drawn pose without advancing time')
+    close(rig.pose('Spine02'), before)
+    rig.animator.setAnimationMode('default')
+    assert.equal(rig.animator.isHeadbuttActive(), true, 'an expired pulse still owns its applied stretch until update')
+    rig.animator.update(16, clock)
+    assert.equal(rig.animator.isHeadbuttActive(), false)
+    assert.equal(rig.root.getObjectByName('Spine02')!.scale.y, 1)
+    rig.animator.dispose()
+    assert.equal(rig.animator.isHeadbuttActive(), false)
+  })
+})
 
 function stillFrameFixture(rig: Awaited<ReturnType<typeof fixture>>) {
   const renderer = new Three3DRenderer()
@@ -363,17 +1518,20 @@ describe('rig matrix refresh equivalence', () => {
         rigs[0].nodes.forEach((node, index) => {
           assert.deepEqual(node.quaternion.toArray(), rigs[1].nodes[index].quaternion.toArray())
           assert.deepEqual(node.matrixWorld.elements, rigs[1].nodes[index].matrixWorld.elements)
+          // Added leg chains intentionally change the rendered pose. Preserve
+          // the immutable fingerprint of every previously existing node.
+          if (/^[LR]_(?:Leg|Shin|Foot)$/.test(node.name)) return
           originalPoseHash.update(new Uint8Array(new Float64Array([
             ...node.quaternion.toArray(),
             ...node.matrixWorld.elements,
           ]).buffer))
         })
       }
-      // This fingerprint includes independent cursor gaze and the owner-requested
-      // 10-degree forward lean, 50/40/30 ms per-input strikes, chord grouping,
-      // 7/Y/H/N hand boundaries, distance-weighted torso reach and planar hand travel.
-      // The eager oracle verifies every quaternion/world matrix on every frame.
-      assert.equal(originalPoseHash.digest('hex'), 'e1b7ca6a11056c43786eecb4cdbb59c1d81657df939388e7d8228d749131d3a9')
+      // The pre-radius fixture remains e1b7ca6a11056c43786eecb4cdbb59c1d81657df939388e7d8228d749131d3a9.
+      // Its transformed keys now intentionally clip to the approved fixed
+      // circle at offset zero; this is the separate accepted-radius fixture.
+      // The eager oracle still verifies every node/matrix on every frame.
+      assert.equal(originalPoseHash.digest('hex'), 'b85b1a0d652459d04306abfaa9392931829985fbaa7e85d87bbf5d3be69f86d5')
       const multiplyMatrices = Matrix4.prototype.multiplyMatrices
       const cloneVector = Vector3.prototype.clone
       const cloneQuaternion = Quaternion.prototype.clone

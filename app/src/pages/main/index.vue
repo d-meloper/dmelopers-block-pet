@@ -1,7 +1,5 @@
 <script setup lang="ts">
-import { convertFileSrc } from '@tauri-apps/api/core'
 import { emitTo, listen } from '@tauri-apps/api/event'
-import { resolveResource } from '@tauri-apps/api/path'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { useDebounceFn, useEventListener } from '@vueuse/core'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -36,10 +34,11 @@ import {
   setAutomaticViewportMutationGuard,
   subscribeMainViewportSnapshot,
 } from '@/composables/useWindowState'
-import { getPetModelOption, MODEL_3D_CONFIG } from '@/config/model3d'
+import { MODEL_3D_CONFIG } from '@/config/model3d'
 import { ANTIALIAS_SETTING_CANCEL, ANTIALIAS_SETTING_REQUEST, ANTIALIAS_SETTING_RESPONSE, isAntialiasSettingRequest } from '@/config/performance'
 import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
 import { isDesktopPetVisible } from '@/features/broadcast/visibility'
+import { isForegroundHidingSettings } from '@/features/foregroundHiding/settings'
 import { isMouseSettingRequest, isSemanticInputEvent } from '@/features/input/types'
 import { isPetSkinChangeRequest, PET_RUNTIME_RECOVERED, PET_RUNTIME_RECOVERY_QUERY, PET_RUNTIME_RESTART_REQUIRED, PET_RUNTIME_SHOW, PET_SKIN_CHANGE } from '@/features/petRuntime/types'
 import { applyPresetSnapshot, capturePresetSnapshot, isExecutablePresetSnapshot } from '@/features/presets/model'
@@ -60,6 +59,8 @@ import {
   showWindow,
 } from '@/plugins/window'
 import { getResolvedDmeloperSkinUrl, resolveDmeloperSkinUrl } from '@/services/dmeloperSkin'
+import { foregroundHidingSuppressed } from '@/services/foregroundHiding'
+import { resolvePetModelUrl } from '@/services/petModelAsset'
 import { useBlockStore } from '@/stores/block'
 import { useGeneralStore } from '@/stores/general'
 import { createLatestAsyncTaskQueue } from '@/utils/latestAsyncTask'
@@ -85,7 +86,10 @@ import {
 const appWindow = getCurrentWebviewWindow()
 const blockStore = useBlockStore()
 const generalStore = useGeneralStore()
-const desktopPetVisible = computed(() => isDesktopPetVisible(blockStore.window.visible, generalStore.broadcast))
+const requestedForegroundMask = computed(() => isForegroundHidingSettings(generalStore.app.foregroundHiding)
+  && generalStore.app.foregroundHiding.enabled && foregroundHidingSuppressed.value)
+const foregroundMask = ref(requestedForegroundMask.value)
+const desktopPetVisible = computed(() => isDesktopPetVisible(blockStore.window.visible, generalStore.broadcast) && !foregroundMask.value)
 const { getAppMenu } = useAppMenu()
 const device = useDevice({ onMouseReset: () => viewportInteraction.resetNativeButtons() })
 const inputUnlisteners: Array<() => void> = []
@@ -1023,7 +1027,7 @@ function createBundledAssetError(cause: unknown): Error {
 
 async function resolvePetUrl(modelId: PetModelId): Promise<string> {
   try {
-    return convertFileSrc(await resolveResource(getPetModelOption(modelId).resourcePath))
+    return await resolvePetModelUrl(modelId)
   } catch (error) {
     throw createBundledAssetError(error)
   }
@@ -1570,6 +1574,12 @@ watch(() => blockStore.activePet3dPreset.mouseEnabled, () => {
 watch(() => desktopPetVisible.value, () => {
   if (!presetApplyInProgress) void synchronizeWindowVisibility()
 })
+
+// A managed preset owns its renderer transaction. Apply a newer transient mask
+// on completion, without turning an expected focus change into a preset failure.
+watch(requestedForegroundMask, (suppressed) => {
+  if (!presetApplyInProgress) foregroundMask.value = suppressed
+}, { flush: 'sync' })
 watch(() => blockStore.window.passThrough, value => void setPetCursorEvents(value).catch(error => console.warn('Failed to apply pet click-through.', error)), { immediate: true })
 watch(() => blockStore.window.alwaysOnTop, setAlwaysOnTop, { immediate: true })
 watch(() => generalStore.app.taskbarVisible, setTaskbarVisibility, { immediate: true })
@@ -1963,6 +1973,7 @@ useTauriListen<PresetApplyRequest>(PRESET_APPLY_REQUEST, ({ payload }) => {
       }
     } finally {
       presetApplyInProgress = false
+      foregroundMask.value = requestedForegroundMask.value
       activePresetRequestId = undefined
       viewportUpdateScheduler.setHeld(viewportInteraction.isHeld() || petNativeDragPending)
       cancelledPresetRequests.delete(payload.requestId)

@@ -15,8 +15,10 @@ export async function getDistributionInfo(): Promise<DistributionInfo> {
   return invoke<DistributionInfo>('distribution_info')
 }
 
-export async function openStore(): Promise<void> {
+export async function openStore(isCurrent: () => boolean = () => true): Promise<void> {
   const info = await getDistributionInfo()
+  // Retire stale preparation; an already issued opener retains its own result.
+  if (!isCurrent()) return
   const isStoreDestination = info.updateUrl === 'ms-windows-store://downloadsandupdates'
     || /^https:\/\/apps\.microsoft\.com\/detail\/[A-Z0-9]{12}$/i.test(info.updateUrl)
   if (info.channel !== 'store' || !isStoreDestination) {

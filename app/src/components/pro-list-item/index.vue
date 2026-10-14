@@ -2,10 +2,11 @@
 import { Flex } from 'ant-design-vue'
 import { computed } from 'vue'
 
-const { title, description, vertical } = defineProps<{
+const { title, description, vertical, plain } = defineProps<{
   title: string
   description?: string
   vertical?: boolean
+  plain?: boolean
 }>()
 
 const slots = defineSlots()
@@ -18,7 +19,7 @@ const hasDescription = computed(() => {
 <template>
   <Flex
     :align="vertical ? void 0 : 'center'"
-    class="b b-color-2 rounded-lg b-solid bg-color-3 p-4"
+    :class="plain ? undefined : 'b b-color-2 rounded-lg b-solid bg-color-3 p-4'"
     :gap="vertical ? 'middle' : 'large'"
     justify="space-between"
     :vertical="vertical"

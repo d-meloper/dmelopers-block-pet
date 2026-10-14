@@ -10,6 +10,7 @@ import { compileScript, parse } from 'vue/compiler-sfc'
 
 import type { SceneViewportState } from '@/features/scene/types'
 
+import * as armControlOrder from '@/features/scene/armControlOrder'
 import * as viewportSettings from '@/features/scene/viewportSettings'
 import { editorsLocked } from '@/features/stateSafety/bridge'
 import { createDefaultPet3dPreset, useBlockStore } from '@/stores/block'
@@ -21,6 +22,7 @@ interface SceneTestControls {
   dimensionMax: (dimension: 'width' | 'height') => number
   updateDimension: (dimension: 'width' | 'height', value: number | string | null) => void
   updateAutomaticPadding: (value: number | string | null) => void
+  updateCameraOffset: (key: 'cameraHorizontalOffset' | 'cameraVerticalOffset', value: number) => void
   disabled: () => boolean
   reset: () => void
   selectTab: (tab: SceneTab) => void
@@ -33,7 +35,7 @@ const { descriptor } = parse(readFileSync(new URL('./index.vue', import.meta.url
 const compiledScene = compileScript(descriptor, { id: 'scene-controls-test', inlineTemplate: true })
 const source = `${descriptor.scriptSetup!.content}
 globalThis.controls = {
-  dimensionValue, dimensionMax, updateDimension, updateAutomaticPadding,
+  dimensionValue, dimensionMax, updateDimension, updateAutomaticPadding, updateCameraOffset,
   disabled: () => manualDisabled.value, reset: () => confirmSceneReset(activeSceneTab.value),
   selectTab: (tab) => { activeSceneTab.value = tab },
   resetLabel: () => sceneResetLabel.value, resetDisabled: () => sceneResetDisabled.value,
@@ -64,6 +66,7 @@ function controls(autoConfirm = true) {
       if (name === 'vue-i18n') return { useI18n: () => ({ t: (key: string) => key }) }
       if (name === '@/stores/block') return { useBlockStore: () => store, createDefaultPet3dPreset }
       if (name === '@/features/scene/viewportSettings') return viewportSettings
+      if (name === '@/features/scene/armControlOrder') return armControlOrder
       if (name === '@/features/stateSafety/bridge') return { editorsLocked }
       if (name === 'ant-design-vue') {
         return { Modal: { confirm: (options: typeof confirmations[number]) => {
@@ -81,6 +84,41 @@ function controls(autoConfirm = true) {
 }
 
 describe('3D scene dimension controls', () => {
+  it('rejects hidden, pending, unready and save-locked camera/padding/dimension updates', () => {
+    const control = controls()
+    const preset = control.store.activePet3dPreset
+    try {
+      for (const gate of ['automatic', 'pending', 'unready', 'save'] as const) {
+        preset.autoViewportEnabled = gate === 'automatic'
+        control.props.viewportPending = gate === 'pending'
+        const viewportState = control.props.viewportState
+        if (gate === 'unready') control.props.viewportState = undefined
+        editorsLocked.value = gate === 'save'
+        const before = JSON.stringify(preset)
+        control.updateCameraOffset('cameraHorizontalOffset', 1)
+        control.updateCameraOffset('cameraVerticalOffset', -1)
+        control.updateDimension('width', 500)
+        assert.equal(JSON.stringify(preset), before, gate)
+        preset.autoViewportEnabled = true
+        const padding = preset.autoViewportPaddingPixels
+        if (gate !== 'automatic') control.updateAutomaticPadding(20)
+        assert.equal(preset.autoViewportPaddingPixels, padding)
+        control.props.viewportState = viewportState
+        editorsLocked.value = false
+      }
+      preset.autoViewportEnabled = false
+      control.props.viewportPending = false
+      control.updateCameraOffset('cameraHorizontalOffset', 999)
+      control.updateCameraOffset('cameraVerticalOffset', -999)
+      assert.equal(preset.cameraHorizontalOffset, 1.5)
+      assert.equal(preset.cameraVerticalOffset, -1.5)
+      control.updateCameraOffset('cameraHorizontalOffset', Number.NaN)
+      assert.equal(preset.cameraHorizontalOffset, 1.5)
+    } finally {
+      editorsLocked.value = false
+    }
+  })
+
   it('accepts bounded padding only in confirmed automatic mode', () => {
     const control = controls()
     const preset = control.store.activePet3dPreset
@@ -322,10 +360,11 @@ it('shows the confirmed mode controls while retaining hidden values and native e
       } }
     }
     if (name === 'vue-i18n') return { useI18n: () => ({ t: translate }) }
-    if (name === 'ant-design-vue') return { Button: {}, Flex: {}, InputNumber: {}, Modal: {}, Switch: {}, TabPane: {}, Tabs: {} }
+    if (name === 'ant-design-vue') return { Button: {}, Divider: {}, Flex: {}, InputNumber: {}, Modal: {}, Switch: {}, TabPane: {}, Tabs: {} }
     if (name === '@/features/stateSafety/bridge') return { editorsLocked }
     if (name === '@/features/scene/viewportSettings') return viewportSettings
     if (name === '@/stores/block') return { useBlockStore: () => control.store, createDefaultPet3dPreset }
+    if (name === '@/features/scene/armControlOrder') return armControlOrder
     return { default: {} }
   }, module, module.exports)
   const render = module.exports.default.setup(props, { expose: () => {} })
@@ -342,6 +381,12 @@ it('shows the confirmed mode controls while retaining hidden values and native e
   const assertMode = (automatic: boolean) => {
     const rendered = nodes()
     const padding = rendered.find(node => node.props?.title === 'pages.preference.scene.labels.automaticPadding')!
+    const automaticRow = rendered.find(node => node.props?.title === 'pages.preference.scene.labels.automatic')!
+    const automaticGroup = rendered.find(node => Object.prototype.hasOwnProperty.call(node.props ?? {}, 'grouped'))!
+    assert.equal(automaticGroup.props!.grouped, automatic)
+    assert.equal(automaticRow.props!.plain, automatic)
+    assert.ok(flatten(automaticGroup).some(node => node.props?.title === automaticRow.props!.title))
+    assert.ok(flatten(automaticGroup).some(node => node.props?.title === padding.props!.title))
     const manual = [...visibility.keys()].find(node => flatten(node).some(child => child.props?.title === 'pages.preference.scene.labels.viewport'))!
     assert.equal(visibility.get(padding), automatic)
     assert.equal(visibility.get(manual), !automatic)
@@ -350,7 +395,19 @@ it('shows the confirmed mode controls while retaining hidden values and native e
     assert.equal(JSON.stringify(preset), before.replace('"autoViewportEnabled":true', `"autoViewportEnabled":${automatic}`))
     return rendered
   }
-  const automaticSwitch = assertMode(true).find(node => node.props?.['aria-label'] === 'pages.preference.scene.labels.automatic')!
+  const initialNodes = assertMode(true)
+  const cameraRows = initialNodes.filter(node => ['pages.preference.scene.labels.cameraHorizontal', 'pages.preference.scene.labels.cameraVertical'].includes(node.props?.title))
+  const cameraGrid = initialNodes.find(node => node.props?.class === 'grid grid-cols-2 gap-4' && cameraRows.every(row => flatten(node).includes(row)))!
+  assert.ok(cameraGrid, 'both pan controls share a two-column group')
+  for (const row of cameraRows) {
+    assert.ok(Object.prototype.hasOwnProperty.call(row.props!, 'plain'), 'pan rows use the surrounding group surface')
+    const slider = (row.children as { default: () => Vue.VNode[] }).default()[0]
+    assert.equal(slider.props!.disabled, true)
+    slider.props!['onUpdate:value'](1)
+  }
+  assert.equal(preset.cameraHorizontalOffset, 0.4)
+  assert.equal(preset.cameraVerticalOffset, -0.7)
+  const automaticSwitch = initialNodes.find(node => node.props?.['aria-label'] === 'pages.preference.scene.labels.automatic')!
   await automaticSwitch.props!['onUpdate:checked'](false)
   assert.deepEqual(requests, [false])
   assertMode(true) // Pending request does not replace the confirmed mode.

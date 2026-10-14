@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 import { useEventListener } from '@vueuse/core'
-import { Button, Flex, Input, Switch, Tooltip } from 'ant-design-vue'
+import { Button, Flex, Input, Switch } from 'ant-design-vue'
 import { computed, inject, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import OptionTransition from '@/components/option-transition/index.vue'
+import PreferenceTooltip from '@/components/preference-tooltip/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
+import RecoveryFeedback from '@/components/recovery-feedback/index.vue'
 import { BROADCAST_CONTROLLER } from '@/composables/useBroadcast'
 import { reportDiagnostic } from '@/services/diagnostics'
 import { useBlockStore } from '@/stores/block'
@@ -32,7 +34,11 @@ const errorHint = computed(() => {
   if (error === 'endpoint_conflict') return 'pages.preference.broadcast.endpointConflictHint'
   if (error === 'endpoint_invalid') return 'pages.preference.broadcast.endpointInvalidHint'
   if (error === 'endpoint_unavailable') return 'pages.preference.broadcast.endpointUnavailableHint'
-  return 'pages.preference.broadcast.errorHint'
+  if (error === 'scene_invalid' || error === 'scene_required') return 'recovery.broadcast.guidance.scene'
+  if (error === 'skin_invalid' || error === 'skin_too_large') return 'recovery.broadcast.guidance.skin'
+  if (error === 'input_unavailable') return 'recovery.broadcast.guidance.input'
+  if (error === 'server_unavailable') return 'recovery.broadcast.guidance.server'
+  return 'recovery.broadcast.guidance.bridge'
 })
 const copied = ref(false)
 const copyError = ref(false)
@@ -72,8 +78,8 @@ useEventListener(document, 'visibilitychange', hideAddress)
 watch([() => state.value?.url, () => general.broadcast.enabled], hideAddress)
 
 const statusLabel = computed(() => {
+  if (controller?.retryPending.value || controller?.pending.value) return 'updating'
   if (state.value?.error) return 'error'
-  if (controller?.pending.value) return 'updating'
   if (!state.value?.enabled) return 'off'
   return state.value.clients > 0 ? 'connected' : 'waiting'
 })
@@ -99,12 +105,8 @@ async function copyAddress() {
         align="center"
         gap="small"
       >
-        <Tooltip
-          :overlay-inner-style="{ whiteSpace: 'pre-line', overflowWrap: 'anywhere' }"
-          :overlay-style="{ maxWidth: 'min(500px, calc(100vw - 32px))' }"
-          placement="bottomLeft"
+        <PreferenceTooltip
           :title="t('pages.preference.broadcast.setupInfo')"
-          :trigger="['hover', 'focus']"
         >
           <Button
             :aria-label="t('pages.preference.broadcast.setupInfoLabel')"
@@ -112,12 +114,9 @@ async function copyAddress() {
           >
             {{ t('pages.preference.broadcast.setupButtonLabel') }}
           </Button>
-        </Tooltip>
-        <Tooltip
-          :overlay-inner-style="{ overflowWrap: 'anywhere', lineHeight: '1.6' }"
-          :overlay-style="{ maxWidth: 'min(500px, calc(100vw - 32px))' }"
-          placement="bottomLeft"
-          :trigger="['hover', 'focus']"
+        </PreferenceTooltip>
+        <PreferenceTooltip
+          :overlay-inner-style="{ whiteSpace: 'normal', lineHeight: '1.6' }"
         >
           <template #title>
             <h4 class="m-0 mb-2 text-sm font-semibold">
@@ -133,7 +132,7 @@ async function copyAddress() {
           >
             FAQ
           </Button>
-        </Tooltip>
+        </PreferenceTooltip>
       </Flex>
     </template>
     <div class="broadcast-panel">
@@ -238,8 +237,9 @@ async function copyAddress() {
             {{ t(`pages.preference.broadcast.status.${statusLabel}`, { count: state?.clients ?? 0 }) }}
           </span>
           <Button
-            v-if="state?.error || state?.warning"
-            :loading="controller?.pending.value"
+            v-if="state?.error || state?.warning || controller?.recovery.value"
+            :disabled="controller?.pending.value || controller?.retryPending.value"
+            :loading="controller?.retryPending.value"
             size="small"
             @click="controller?.retry()"
           >
@@ -254,6 +254,10 @@ async function copyAddress() {
       >
         {{ t(errorHint) }}
       </p>
+      <RecoveryFeedback
+        class="broadcast-recovery"
+        :report="controller?.recovery.value"
+      />
       <p
         v-if="state?.warning"
         class="broadcast-notice m-0 text-xs text-amber-6"
@@ -266,6 +270,10 @@ async function copyAddress() {
 </template>
 
 <style scoped>
+.broadcast-recovery {
+  margin: 10px 0 12px;
+}
+
 .broadcast-panel {
   min-width: 0;
   padding: 2px 18px;

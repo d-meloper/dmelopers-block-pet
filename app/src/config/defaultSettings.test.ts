@@ -31,6 +31,7 @@ describe('authored first-release defaults', () => {
     assert.ok(PET_MODEL_OPTIONS.some(model => model.id === preset.appearance.selectedModelId))
     assert.ok(['auto', 'light', 'dark'].includes(general.appearance.theme))
     assert.equal(preset.preset.autoViewportPaddingPixels, 2)
+    assert.equal(preset.preset.petAnimationMode, 'default')
     assert.equal(preset.preset.deskWidthOffset, -0.28)
     assert.equal(preset.preset.deskDepthOffset, 0.1)
     assert.equal(preset.preset.dmeloperEyebrows.color, '#523830')
@@ -49,6 +50,7 @@ describe('authored first-release defaults', () => {
     const block = useBlockStore()
     block.init()
     const other = createDefaultPet3dPreset()
+    block.activePet3dPreset.petAnimationMode = 'headbutt'
     Object.assign(block.activePet3dPreset.dmeloperEyebrows, { color: '#111111', heightOffsetPixels: 2, depthPercent: 180 })
     block.activePet3dPreset.manualViewportRect.width = 999
     assert.equal(other.dmeloperEyebrows.depthPercent, 50)
@@ -76,6 +78,7 @@ describe('authored first-release defaults', () => {
     assert.deepEqual({ ...block.model }, DEFAULT_MODEL_SETTINGS)
     assert.deepEqual({ ...block.window }, DEFAULT_WINDOW_SETTINGS)
     assert.deepEqual(block.activePet3dPreset, { ...DEFAULT_PET_PRESET, viewportModeRevision: previousRevision + 1 })
+    assert.equal(block.activePet3dPreset.petAnimationMode, 'default')
     assert.equal(block.presetCollection?.activeId, null)
     assert.equal(block.presetCollection?.entries.length, 0)
   })
@@ -119,6 +122,19 @@ describe('authored first-release defaults', () => {
     assert.deepEqual(b.entries, [])
   })
 
+  it('keeps reminder pairs independent across fresh stores and reset defaults', () => {
+    const first = useGeneralStore(createPinia())
+    const other = useGeneralStore(createPinia())
+    first.app.updateReminderSnooze.version = '1.1.3'
+    first.app.updateReminderSnooze.hiddenUntil = 1_800_604_800_000
+    assert.deepEqual(other.app.updateReminderSnooze, { version: '', hiddenUntil: 0 })
+    assert.deepEqual(DEFAULT_GENERAL_SETTINGS.app.updateReminderSnooze, { version: '', hiddenUntil: 0 })
+    first.reset()
+    first.app.updateReminderSnooze.version = '1.1.4'
+    assert.deepEqual(other.app.updateReminderSnooze, { version: '', hiddenUntil: 0 })
+    assert.deepEqual(DEFAULT_GENERAL_SETTINGS.app.updateReminderSnooze, { version: '', hiddenUntil: 0 })
+  })
+
   it('uses the shared shortcut defaults on first launch and explicit reset', () => {
     setActivePinia(createPinia())
     const shortcut = useShortcutStore()
@@ -127,5 +143,24 @@ describe('authored first-release defaults', () => {
     shortcut.toggleBroadcast = 'Ctrl+F9'
     shortcut.reset()
     assert.deepEqual({ ...shortcut.$state }, DEFAULT_SHORTCUT_SETTINGS)
+  })
+
+  it('keeps foreground rules independent on initialization and reset without changing presets', () => {
+    const first = useGeneralStore(createPinia())
+    const other = useGeneralStore(createPinia())
+    first.app.foregroundHiding.enabled = true
+    first.app.foregroundHiding.applications.push('C:\\Tools\\app.exe')
+    assert.deepEqual(other.app.foregroundHiding, { enabled: false, applications: [] })
+    assert.deepEqual(DEFAULT_GENERAL_SETTINGS.app.foregroundHiding, { enabled: false, applications: [] })
+    const oldApplications = first.app.foregroundHiding.applications
+    first.reset()
+    const resetApplications = first.app.foregroundHiding.applications
+    assert.deepEqual(first.app.foregroundHiding, { enabled: false, applications: [] })
+    assert.notEqual(first.app.foregroundHiding.applications, oldApplications)
+    resetApplications.push('C:\\Tools\\other.exe')
+    assert.deepEqual(other.app.foregroundHiding.applications, [])
+    assert.deepEqual(DEFAULT_GENERAL_SETTINGS.app.foregroundHiding.applications, [])
+    assert.equal('foregroundHiding' in createDefaultPresetSnapshot().preset, false)
+    assert.equal('foregroundHiding' in createPresetCollection(), false)
   })
 })

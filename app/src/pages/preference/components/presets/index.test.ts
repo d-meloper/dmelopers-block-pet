@@ -15,6 +15,8 @@ import type { PresetListEntry } from '@/features/presets/types'
 
 import * as presetCompatibility from '@/features/presets/compatibility'
 import { createDefaultPresetSnapshot } from '@/features/presets/model'
+import * as recoveryWait from '@/features/recovery/wait'
+import * as diagnosticsCore from '@/services/diagnosticsCore'
 import { isMinecraftUsername } from '@/services/minecraftSkin'
 import { isValidSkinLibraryDisplayName } from '@/services/skinLibrary'
 
@@ -86,6 +88,7 @@ function manager() {
     canRetryCreate: vue.ref(false),
     thumbnails: vue.ref({}),
     thumbnailErrors: vue.ref({}),
+    skinLibraryWarning: vue.ref<{ name: string, code: string }>(),
     transferError: vue.ref<string>(),
     importResults: vue.ref([]),
     importProgress: vue.ref(),
@@ -130,10 +133,14 @@ function renderListState(manager: PresetManager, general = vue.reactive({ app: {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, {
     exports,
+    AbortController,
     setTimeout: runtime.timers?.setTimeout ?? setTimeout,
     clearTimeout: runtime.timers?.clearTimeout ?? clearTimeout,
     require: (name: string) => {
       if (name === '@/features/presets/compatibility') return presetCompatibility
+      if (name === '@/features/recovery/wait') return recoveryWait
+      if (name === '@/services/diagnosticsCore') return diagnosticsCore
+      if (name === '@/components/recovery-feedback/index.vue') return { default: 'recovery-feedback' }
       if (name === '@/services/diagnostics') return { reportDiagnostic: () => {} }
       if (name === '@/stores/general') return { useGeneralStore: () => general }
       if (name === 'vue') return { ...vue, onMounted: () => {}, onBeforeUnmount: () => {} }
@@ -159,6 +166,7 @@ function renderList(manager: PresetManager): vue.VNode[] {
 }
 
 interface UiTestRuntime {
+  recoveryTimeoutMs?: number
   timers?: ReturnType<typeof warningClock>
   general?: { app: { applyPresetSkin: boolean } }
   success?: string[]
@@ -182,6 +190,7 @@ function loadSetup<T>(filename: string, props: object, exposed: string, emitted:
   const source = `${descriptor.scriptSetup!.content}\nglobalThis.controls = { ${exposed} }`
   const context = {
     exports: {},
+    AbortController,
     setTimeout: runtime.timers?.setTimeout ?? setTimeout,
     clearTimeout: runtime.timers?.clearTimeout ?? clearTimeout,
     defineProps: () => props,
@@ -202,6 +211,14 @@ function loadSetup<T>(filename: string, props: object, exposed: string, emitted:
     cancelAnimationFrame: (id: number) => runtime.cancelAnimationFrame?.(id),
     require: (name: string) => {
       if (name === '@/features/presets/compatibility') return presetCompatibility
+      if (name === '@/features/recovery/wait') {
+        return {
+          ...recoveryWait,
+          waitForRecovery: <T>(operation: Promise<T>, timeoutMs: number, signal?: AbortSignal) =>
+            recoveryWait.waitForRecovery(operation, runtime.recoveryTimeoutMs ?? timeoutMs, signal),
+        }
+      }
+      if (name === '@/services/diagnosticsCore') return diagnosticsCore
       if (name === '@/services/diagnostics') return { reportDiagnostic: () => {} }
       if (name === '@/stores/general') return { useGeneralStore: () => runtime.general ?? vue.reactive({ app: { applyPresetSkin: true } }) }
       if (name === 'vue') {
@@ -232,6 +249,10 @@ function loadSetup<T>(filename: string, props: object, exposed: string, emitted:
 }
 
 interface ListControls {
+  retryImport: () => Promise<void>
+  retryPresets: () => Promise<void>
+  recovery: vue.Ref<import('@/features/recovery/types').RecoveryReport | undefined>
+  retryBusy: vue.Ref<boolean>
   selectEntry: (entry: PresetListEntry) => void
   applyingId: vue.Ref<string | undefined>
   applying: vue.Ref<boolean>
@@ -272,6 +293,7 @@ interface ListControls {
 
 function listControls(value: PresetManager, runtime: UiTestRuntime = {}) {
   return loadSetup<ListControls>('./index.vue', { manager: value }, `
+    retryImport, retryPresets, recovery, retryBusy,
     selectEntry, applyingId, applying, applyError, closeApplyDialog, applyEntry,
     openNewDialog, openRenameDialog, duplicateEntry, toggleFavorite, onEntryMenu, openDeleteDialog, closeDeleteDialog, deleteEntry,
     onMoveKeydown, startPointerDrag, movePointerDrag, finishPointerDrag, cancelPointerDrag, nameDialogOpen,
@@ -1496,6 +1518,74 @@ function exportControls(value: PresetManager, target: PresetListEntry, events: s
   return loadSetup<ExportControls>('./export-dialog.vue', { manager: value, entry: target, open: true }, 'mode, username, operationError, submit, close', events, { success })
 }
 
+describe('verified preset Retry feedback', () => {
+  it('renders import Retry and uses its existing identity-preserving manager without reimporting saved files', async () => {
+    const h = manager()
+    h.retryable.value = true
+    h.value.importResults.value = [
+      { key: 'kept', file: 'kept.petpreset', status: 'saved', presetId: 'kept' },
+      { key: 'retry', file: 'retry.petpreset', status: 'failed', error: 'known failure' },
+    ]
+    h.value.retryImport = async () => {
+      h.calls.push({ action: 'retryImport', args: [] })
+      h.value.importResults.value[1].status = 'saved'
+      h.retryable.value = false
+      return 'retry'
+    }
+    const view = renderListState(h.value)
+    const button = view.nodes().find(node => node.type === 'button' && node.props?.onClick?.name === 'retryImport')!
+    assert.ok(button, 'the real import Retry control must be visible')
+    await button.props!.onClick()
+    assert.deepEqual(h.calls, [{ action: 'retryImport', args: [] }])
+    assert.equal(h.value.importResults.value[0].presetId, 'kept')
+    const report = view.nodes().find(node => node.type === 'recovery-feedback')!.props!.report
+    assert.equal(report.status, 'recovered')
+    assert.equal(report.summaryKey, 'recovery.summary.presetImportComplete')
+  })
+
+  it('keeps Retry serialized after a display timeout and publishes the actual later manager outcome', async () => {
+    const h = manager()
+    let resolve!: (value: boolean) => void
+    let calls = 0
+    h.value.retry = () => {
+      calls++
+      return new Promise<boolean>((yes) => {
+        resolve = yes
+      })
+    }
+    const control = listControls(h.value, { recoveryTimeoutMs: 20 })
+    await control.retryPresets()
+    assert.equal(control.recovery.value?.status, 'unknown')
+    assert.equal(control.retryBusy.value, true)
+    await control.retryPresets()
+    assert.equal(calls, 1)
+    resolve(false)
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    assert.equal(control.retryBusy.value, false)
+    assert.equal(control.recovery.value?.status, 'unresolved')
+    assert.equal(control.recovery.value?.guidanceKeys?.at(-1), 'recovery.guidance.lastResort')
+  })
+
+  it('requires accepted manager state and ignores a success arriving after disposal', async () => {
+    const h = manager()
+    const beforeUnmount: Array<() => void> = []
+    const control = listControls(h.value, { beforeUnmount })
+    h.value.status.value = 'error'
+    await control.retryPresets()
+    assert.equal(control.recovery.value?.status, 'unresolved', 'a true command result cannot hide a live save error')
+    let resolve!: (value: boolean) => void
+    h.value.retry = () => new Promise<boolean>((yes) => {
+      resolve = yes
+    })
+    const running = control.retryPresets()
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+    beforeUnmount.forEach(stop => stop())
+    resolve(true)
+    await running
+    assert.notEqual(control.recovery.value?.status, 'recovered')
+  })
+})
+
 describe('preset export dialog', () => {
   it('defaults to the saved linked username and exports the chosen card without applying it', async () => {
     const { value, calls } = manager()
@@ -1632,4 +1722,15 @@ it('keeps the skin checkbox usable when every saved setting is incompatible', ()
   assert.ok(view.nodes().some(node => node.type === 'checkbox' && node.props?.disabled === false))
   general.app.applyPresetSkin = true
   assert.equal(modal().props?.['ok-button-props'].disabled, false)
+})
+
+it('shows an acknowledged optional skin-library gap separately from saved preset status', () => {
+  const h = manager()
+  assert.equal(renderList(h.value).some(node => node.props?.role === 'status' && node.children === 'pages.preference.presets.warnings.skinLibraryUnavailable'), false)
+  h.value.skinLibraryWarning.value = { name: 'Retained preset', code: 'IO_ERROR' }
+  const notice = renderList(h.value).find(node => node.props?.role === 'status' && node.children === 'pages.preference.presets.warnings.skinLibraryUnavailable')
+  assert.ok(notice)
+  assert.equal(notice.props?.['aria-live'], 'polite')
+  assert.equal(h.value.status.value, 'saved')
+  assert.equal(h.value.hasIndependentError.value, false)
 })

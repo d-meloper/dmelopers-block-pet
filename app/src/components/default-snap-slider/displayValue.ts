@@ -2,14 +2,14 @@ import type { SliderSnapRange } from './snapValue'
 
 export type SliderDisplayMode = 'centered' | 'unit' | 'raw'
 
-export function sliderDisplayRange(range: SliderSnapRange & { step?: number }, mode: SliderDisplayMode = 'centered') {
+export function sliderDisplayRange(range: SliderSnapRange & { step?: number, displayStep?: number }, mode: SliderDisplayMode = 'centered') {
   const { min, max, defaultValue } = range
   if (mode === 'raw') return { min, max, defaultValue, step: range.step ?? 1 }
   return {
     min: mode === 'unit' ? 0 : -1,
     max: 1,
     defaultValue: toSliderDisplayValue(range.defaultValue, range, mode),
-    step: 0.01,
+    step: typeof range.displayStep === 'number' && Number.isFinite(range.displayStep) && range.displayStep > 0 ? range.displayStep : 0.01,
   }
 }
 

@@ -9,6 +9,7 @@ import ColorPicker from '@/components/color-picker/index.vue'
 import DefaultSnapSlider from '@/components/default-snap-slider/index.vue'
 import OptionTransition from '@/components/option-transition/index.vue'
 import { vStableDetailHeight } from '@/components/preference-detail-tabs/height'
+import PreferenceOptionGroup from '@/components/preference-option-group/index.vue'
 import PreferenceSections from '@/components/preference-sections/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
@@ -25,6 +26,7 @@ type PresetNumberKey = {
 }[keyof Pet3dPreset]
 
 type DeviceColorKey = typeof keyboardColorKeys[number] | typeof mouseColorKeys[number] | 'deskColor'
+type DeskDimensionKey = typeof deskSizeKeys[number] | 'deskHeightOffset'
 
 const props = defineProps<{
   mousePending: boolean
@@ -35,7 +37,7 @@ const props = defineProps<{
 }>()
 const keyboardColorKeys = ['keyboardColor', 'keyboardPressedColor', 'keyboardKeycapColor', 'keyboardLegendColor'] as const
 const mouseColorKeys = ['mouseColor', 'mousePressedColor'] as const
-const deskDimensionKeys = ['deskHeightOffset', 'deskWidthOffset', 'deskDepthOffset'] as const
+const deskSizeKeys = ['deskWidthOffset', 'deskDepthOffset'] as const
 const blockStore = useBlockStore()
 const activeObjectTab = ref<ObjectTab>('mouse')
 const defaultPet3dPreset = createDefaultPet3dPreset()
@@ -47,6 +49,7 @@ const objectResetLabel = computed(() => t(`pages.preference.environment.labels.r
 const keyboardLanguage = computed({
   get: () => activePet3dPreset.value.keyboardLegendLanguage,
   set: (value: 'ko' | 'en') => {
+    if (editorsLocked.value) return
     markPresetUserEdit()
     activePet3dPreset.value.keyboardLegendLanguage = value
   },
@@ -61,7 +64,7 @@ function applyColorSetting(key: DeviceColorKey, color: string) {
 }
 
 function updateDeskTransparent(value: boolean) {
-  if (value === activePet3dPreset.value.deskTransparent) return
+  if (editorsLocked.value || value === activePet3dPreset.value.deskTransparent) return
   markPresetUserEdit()
   activePet3dPreset.value.deskTransparent = value
 }
@@ -77,7 +80,7 @@ function updateViewportSetting(
   Object.assign(activePet3dPreset.value, { [key]: value })
 }
 
-function updateDeskDimension(key: typeof deskDimensionKeys[number], value: number) {
+function updateDeskDimension(key: DeskDimensionKey, value: number) {
   if (editorsLocked.value || (key !== 'deskHeightOffset' && activePet3dPreset.value.deskTransparent)) return
   updateViewportSetting(key, value)
 }
@@ -115,12 +118,10 @@ function confirmObjectReset(object: ObjectTab) {
           force-render
           :tab="$t('pages.preference.environment.detailTabs.mouse')"
         >
-          <Flex
-            gap="middle"
-            vertical
-          >
+          <PreferenceOptionGroup>
             <ProListItem
               :description="$t('pages.preference.environment.hints.mouseEnabled')"
+              plain
               :title="$t('pages.preference.environment.labels.mouseEnabled')"
             >
               <Switch
@@ -154,6 +155,7 @@ function confirmObjectReset(object: ObjectTab) {
                 <ProListItem
                   v-for="key in mouseColorKeys"
                   :key="key"
+                  plain
                   :title="$t(`pages.preference.environment.labels.${key}`)"
                 >
                   <ColorPicker
@@ -173,6 +175,7 @@ function confirmObjectReset(object: ObjectTab) {
                 data-detail-height-option
               >
                 <ProListItem
+                  plain
                   :title="$t('pages.preference.environment.labels.mouseX')"
                   vertical
                 >
@@ -187,6 +190,7 @@ function confirmObjectReset(object: ObjectTab) {
                   />
                 </ProListItem>
                 <ProListItem
+                  plain
                   :title="$t('pages.preference.environment.labels.mouseZ')"
                   vertical
                 >
@@ -201,6 +205,7 @@ function confirmObjectReset(object: ObjectTab) {
                   />
                 </ProListItem>
                 <ProListItem
+                  plain
                   :title="$t('pages.preference.environment.labels.mouseScale')"
                   vertical
                 >
@@ -216,21 +221,19 @@ function confirmObjectReset(object: ObjectTab) {
                 </ProListItem>
               </div>
             </OptionTransition>
-          </Flex>
+          </PreferenceOptionGroup>
         </TabPane>
         <TabPane
           key="keyboard"
           force-render
           :tab="$t('pages.preference.environment.detailTabs.keyboard')"
         >
-          <Flex
-            gap="middle"
-            vertical
-          >
+          <PreferenceOptionGroup>
             <div class="grid grid-cols-2 gap-4">
               <ProListItem
                 v-for="key in keyboardColorKeys"
                 :key="key"
+                plain
                 :title="$t(`pages.preference.environment.labels.${key}`)"
               >
                 <ColorPicker
@@ -243,10 +246,12 @@ function confirmObjectReset(object: ObjectTab) {
 
             <ProListItem
               :description="$t('pages.preference.environment.hints.keyboardLanguage')"
+              plain
               :title="$t('pages.preference.environment.labels.keyboardLanguage')"
             >
               <Select
                 v-model:value="keyboardLanguage"
+                :disabled="editorsLocked"
               >
                 <Select.Option value="ko">
                   {{ $t('pages.preference.environment.options.keyboardKorean') }}
@@ -259,6 +264,7 @@ function confirmObjectReset(object: ObjectTab) {
 
             <div class="grid grid-cols-3 gap-4">
               <ProListItem
+                plain
                 :title="$t('pages.preference.environment.labels.keyboardX')"
                 vertical
               >
@@ -273,6 +279,7 @@ function confirmObjectReset(object: ObjectTab) {
               </ProListItem>
 
               <ProListItem
+                plain
                 :title="$t('pages.preference.environment.labels.keyboardZ')"
                 vertical
               >
@@ -287,6 +294,7 @@ function confirmObjectReset(object: ObjectTab) {
               </ProListItem>
 
               <ProListItem
+                plain
                 :title="$t('pages.preference.environment.labels.keyboardScale')"
                 vertical
               >
@@ -300,7 +308,7 @@ function confirmObjectReset(object: ObjectTab) {
                 />
               </ProListItem>
             </div>
-          </Flex>
+          </PreferenceOptionGroup>
         </TabPane>
         <TabPane
           key="desk"
@@ -317,50 +325,66 @@ function confirmObjectReset(object: ObjectTab) {
             >
               <Switch
                 :checked="activePet3dPreset.deskTransparent"
+                :disabled="editorsLocked"
                 @update:checked="updateDeskTransparent"
               />
             </ProListItem>
             <OptionTransition>
-              <ProListItem
+              <PreferenceOptionGroup
                 v-show="!activePet3dPreset.deskTransparent"
                 data-detail-height-option
-                :description="$t('pages.preference.environment.hints.deskColor')"
-                :title="$t('pages.preference.environment.labels.deskColor')"
-              >
-                <ColorPicker
-                  :disabled="editorsLocked || activePet3dPreset.deskTransparent"
-                  :label="$t('pages.preference.environment.labels.deskColor')"
-                  :value="activePet3dPreset.deskColor"
-                  @update:value="applyColorSetting('deskColor', $event)"
-                />
-              </ProListItem>
-            </OptionTransition>
-            <div class="grid grid-cols-2 gap-4">
-              <OptionTransition
-                v-for="key in deskDimensionKeys"
-                :key="key"
               >
                 <ProListItem
-                  v-show="key === 'deskHeightOffset' || !activePet3dPreset.deskTransparent"
-                  :class="{ 'col-span-2': key === 'deskHeightOffset' }"
-                  data-detail-height-option
-                  :title="$t(`pages.preference.environment.labels.${key}`)"
-                  vertical
+                  :description="$t('pages.preference.environment.hints.deskColor')"
+                  plain
+                  :title="$t('pages.preference.environment.labels.deskColor')"
                 >
-                  <DefaultSnapSlider
-                    class="m-[0]!"
-                    :default-value="defaultPet3dPreset[key]"
-                    :disabled="editorsLocked || (key !== 'deskHeightOffset' && activePet3dPreset.deskTransparent)"
-                    :display-mode="key === 'deskHeightOffset' ? 'raw' : 'centered'"
-                    :max="DESK_DIMENSION_LIMITS.max"
-                    :min="DESK_DIMENSION_LIMITS.min"
-                    :step="DESK_DIMENSION_LIMITS.step"
-                    :value="activePet3dPreset[key]"
-                    @update:value="updateDeskDimension(key, $event)"
+                  <ColorPicker
+                    :disabled="editorsLocked || activePet3dPreset.deskTransparent"
+                    :label="$t('pages.preference.environment.labels.deskColor')"
+                    :value="activePet3dPreset.deskColor"
+                    @update:value="applyColorSetting('deskColor', $event)"
                   />
                 </ProListItem>
-              </OptionTransition>
-            </div>
+                <div class="grid grid-cols-2 gap-4">
+                  <ProListItem
+                    v-for="key in deskSizeKeys"
+                    :key="key"
+                    plain
+                    :title="$t(`pages.preference.environment.labels.${key}`)"
+                    vertical
+                  >
+                    <DefaultSnapSlider
+                      class="m-[0]!"
+                      :default-value="defaultPet3dPreset[key]"
+                      :disabled="editorsLocked || activePet3dPreset.deskTransparent"
+                      display-mode="centered"
+                      :max="DESK_DIMENSION_LIMITS.max"
+                      :min="DESK_DIMENSION_LIMITS.min"
+                      :step="DESK_DIMENSION_LIMITS.step"
+                      :value="activePet3dPreset[key]"
+                      @update:value="updateDeskDimension(key, $event)"
+                    />
+                  </ProListItem>
+                </div>
+              </PreferenceOptionGroup>
+            </OptionTransition>
+            <ProListItem
+              :title="$t('pages.preference.environment.labels.deskHeightOffset')"
+              vertical
+            >
+              <DefaultSnapSlider
+                class="m-[0]!"
+                :default-value="defaultPet3dPreset.deskHeightOffset"
+                :disabled="editorsLocked"
+                display-mode="raw"
+                :max="DESK_DIMENSION_LIMITS.max"
+                :min="DESK_DIMENSION_LIMITS.min"
+                :step="DESK_DIMENSION_LIMITS.step"
+                :value="activePet3dPreset.deskHeightOffset"
+                @update:value="updateDeskDimension('deskHeightOffset', $event)"
+              />
+            </ProListItem>
           </Flex>
         </TabPane>
       </Tabs>

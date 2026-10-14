@@ -1178,49 +1178,64 @@ export function useWindowState() {
       return
     }
 
-    const { x, y, width, height } = state ?? {}
-    if (isFiniteNumber(x) && isFiniteNumber(y)) {
-      const monitors = await availableMonitors()
-      if (disposed) return
-      const monitor = monitors.find(({ position, size }) => (
-        x >= position.x
-        && x < position.x + size.width
-        && y >= position.y
-        && y < position.y + size.height
-      ))
-      if (monitor || editorsLocked.value) await appWindow.setPosition(new PhysicalPosition(x, y))
-      if (disposed) return
-    }
-    if (label === WINDOW_LABEL.PREFERENCE) {
-      const monitors = await availableMonitors()
-      const position = await appWindow.outerPosition()
-      if (disposed) return
-      const monitor = monitors.find(item => position.x >= item.position.x && position.x < item.position.x + item.size.width
-        && position.y >= item.position.y && position.y < item.position.y + item.size.height) ?? monitors[0]
-      const factor = monitor?.scaleFactor ?? await appWindow.scaleFactor()
-      if (disposed) return
-      const availableWidth = monitor?.workArea.size.width ?? DEFAULT_PREFERENCE_SIZE.width * factor
-      const availableHeight = Math.max(100, (monitor?.workArea.size.height ?? (DEFAULT_PREFERENCE_SIZE.height + 40) * factor) - 40 * factor)
-      const desiredWidth = isPositiveDimension(width) ? Math.max(width, MIN_PREFERENCE_SIZE.width * factor) : DEFAULT_PREFERENCE_SIZE.width * factor
-      const desiredHeight = isPositiveDimension(height) ? Math.max(height, MIN_PREFERENCE_SIZE.height * factor) : DEFAULT_PREFERENCE_SIZE.height * factor
-      await appWindow.setSize(new PhysicalSize(Math.min(desiredWidth, availableWidth), Math.min(desiredHeight, availableHeight)))
-      if (disposed) return
-      if (monitor) {
-        const size = await appWindow.outerSize()
+    try {
+      const { x, y, width, height } = state ?? {}
+      if (isFiniteNumber(x) && isFiniteNumber(y)) {
+        const monitors = await availableMonitors()
         if (disposed) return
-        await appWindow.setPosition(new PhysicalPosition(
-          Math.max(monitor.workArea.position.x, Math.min(position.x, monitor.workArea.position.x + availableWidth - size.width)),
-          Math.max(monitor.workArea.position.y, Math.min(position.y, monitor.workArea.position.y + monitor.workArea.size.height - size.height)),
+        const monitor = monitors.find(({ position, size }) => (
+          x >= position.x
+          && x < position.x + size.width
+          && y >= position.y
+          && y < position.y + size.height
         ))
+        if (monitor || editorsLocked.value) await appWindow.setPosition(new PhysicalPosition(x, y))
+        if (disposed) return
       }
-    } else if (isFiniteNumber(width) && isFiniteNumber(height)) {
-      await appWindow.setSize(new PhysicalSize(width, height))
-    }
-    if (!disposed) {
-      // Own the initial native readback; an event may arrive after hydration.
-      persistRegularWindowPosition(await appWindow.outerPosition())
-      persistRegularWindowSize(await appWindow.innerSize())
-      isRestored.value = true
+      if (label === WINDOW_LABEL.PREFERENCE) {
+        const monitors = await availableMonitors()
+        if (disposed) return
+        const position = await appWindow.outerPosition()
+        if (disposed) return
+        const monitor = monitors.find(item => position.x >= item.position.x && position.x < item.position.x + item.size.width
+          && position.y >= item.position.y && position.y < item.position.y + item.size.height) ?? monitors[0]
+        const factor = monitor?.scaleFactor ?? await appWindow.scaleFactor()
+        if (disposed) return
+        const availableWidth = monitor?.workArea.size.width ?? DEFAULT_PREFERENCE_SIZE.width * factor
+        const availableHeight = Math.max(100, (monitor?.workArea.size.height ?? (DEFAULT_PREFERENCE_SIZE.height + 40) * factor) - 40 * factor)
+        const desiredWidth = isPositiveDimension(width) ? Math.max(width, MIN_PREFERENCE_SIZE.width * factor) : DEFAULT_PREFERENCE_SIZE.width * factor
+        const desiredHeight = isPositiveDimension(height) ? Math.max(height, MIN_PREFERENCE_SIZE.height * factor) : DEFAULT_PREFERENCE_SIZE.height * factor
+        await appWindow.setSize(new PhysicalSize(Math.min(desiredWidth, availableWidth), Math.min(desiredHeight, availableHeight)))
+        if (disposed) return
+        if (monitor) {
+          const size = await appWindow.outerSize()
+          if (disposed) return
+          await appWindow.setPosition(new PhysicalPosition(
+            Math.max(monitor.workArea.position.x, Math.min(position.x, monitor.workArea.position.x + availableWidth - size.width)),
+            Math.max(monitor.workArea.position.y, Math.min(position.y, monitor.workArea.position.y + monitor.workArea.size.height - size.height)),
+          ))
+        }
+      } else if (isFiniteNumber(width) && isFiniteNumber(height)) {
+        await appWindow.setSize(new PhysicalSize(width, height))
+      }
+      if (!disposed) {
+        // Publish only complete readback from this owner; a failed/late query
+        // must not replace saved geometry with a partial native fallback.
+        const position = await appWindow.outerPosition()
+        if (disposed) return
+        const size = await appWindow.innerSize()
+        if (disposed) return
+        persistRegularWindowPosition(position)
+        persistRegularWindowSize(size)
+        isRestored.value = true
+      }
+    } catch (error) {
+      if (label !== WINDOW_LABEL.PREFERENCE) throw error
+      if (!disposed) console.error('Failed to restore the initial preference window.', error)
+    } finally {
+      // Preferences can render in its configured native geometry when optional
+      // restoration fails. Store/startup safety remains the caller's prerequisite.
+      if (!disposed && label === WINDOW_LABEL.PREFERENCE) isRestored.value = true
     }
   }
 

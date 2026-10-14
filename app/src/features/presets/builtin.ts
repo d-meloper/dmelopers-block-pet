@@ -55,6 +55,18 @@ const DEFAULT_SCENE: PresetSnapshot = {
     mousePressedColor: '#f2b36d',
     mouseScalePercent: 100,
     petDeskOffset: 0,
+    petAnimationMode: 'default',
+    petHeadbuttRecoilEnabled: true,
+    petHeadbuttMaxRadiusOffset: 0,
+    petHeadbuttRecoilStrengthPercent: 50,
+    petHeadbuttRecoilWobblePercent: 50,
+    petTypingHandLiftPercent: 100,
+    petTypingMaxRadiusOffset: 0,
+    petTypingBodyMotionPercent: 100,
+    petTypingReturnSpeedPercent: 100,
+    petShoulderTorsoConnected: false,
+    petRightArmDisabled: false,
+    petLeftArmDisabled: false,
     petHeadScalePercent: 100,
     petLeftArmBendPercent: 100,
     petLeftArmSpreadDegrees: 0,
@@ -66,9 +78,30 @@ const DEFAULT_SCENE: PresetSnapshot = {
   },
 }
 
+const HEADBUTT_SCENE: Partial<PresetSnapshot['preset']> = {
+  dmeloperEyebrows: {
+    centerOffsetPixels: 0,
+    color: '#5E3E33',
+    depthPercent: 50,
+    enabled: false,
+    heightOffsetPixels: 0.3,
+    spacingPixels: 1.5,
+    thicknessPixels: 0.5,
+    widthPixels: 2,
+  },
+  petAnimationMode: 'headbutt',
+}
+
 const SCENES: ReadonlyArray<{ key: string, preset?: Partial<PresetSnapshot['preset']> }> = [
   { key: 'default' },
   { key: 'sunset', preset: { lighting: { key: { azimuthDegrees: 90.20999999999998, color: '#FFA600', elevationDegrees: 49.06, strengthPercent: 169 } } } },
+  { key: 'headbutt', preset: HEADBUTT_SCENE },
+  { key: 'torsoHeadbutt', preset: {
+    ...HEADBUTT_SCENE,
+    petHeadScalePercent: 115,
+    petLeftArmDisabled: true,
+    petRightArmDisabled: true,
+  } },
   { key: 'front', preset: {
     keyboardBaseXOffset: -0.264,
     mouseBaseXOffset: -0.426,

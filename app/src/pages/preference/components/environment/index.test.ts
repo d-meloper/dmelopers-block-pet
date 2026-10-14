@@ -90,6 +90,7 @@ function harness(options: { mousePending?: boolean, mouseReady?: boolean } = {})
     resetButtons: () => flatten(render({ $t: translate }, [])).filter(node => node.props?.onClick && flatten(node).some(child => typeof child.children === 'string' && child.children.includes('environment.labels.reset'))),
     inputs,
     input,
+    flatten,
     nodes: () => flatten(render({ $t: translate }, [])),
     visibleNodes: () => {
       visibility.clear()
@@ -178,7 +179,12 @@ describe('object color preference controls', () => {
     const h = harness()
     const label = (key: string) => `pages.preference.environment.labels.${key}`
     const sections = h.nodes().filter(node => node.props?.title === label('objectSettings') || String(node.props?.title).startsWith(label('desk')))
-    assert.deepEqual(sections.map(node => node.props?.title), ['objectSettings', 'deskTransparent', 'deskColor', 'deskHeightOffset', 'deskWidthOffset', 'deskDepthOffset'].map(label))
+    assert.deepEqual(sections.map(node => node.props?.title), ['objectSettings', 'deskTransparent', 'deskColor', 'deskWidthOffset', 'deskDepthOffset', 'deskHeightOffset'].map(label))
+    const grouped = h.nodes().find((node) => {
+      const descendants = h.flatten(node)
+      return JSON.stringify(descendants.filter((item: Vue.VNode) => item.props?.title).map((item: Vue.VNode) => item.props!.title)) === JSON.stringify(['deskColor', 'deskWidthOffset', 'deskDepthOffset'].map(label))
+    })
+    assert.ok(grouped, 'color and width/depth share one group above the standalone height')
     const dimensions = ['deskWidthOffset', 'deskDepthOffset', 'deskHeightOffset'] as const
     const slider = (key: typeof dimensions[number]) => h.nodes().find(node => node.props?.title === label(key))!.children as { default: () => Vue.VNode[] }
     const input = (key: typeof dimensions[number]) => slider(key).default()[0]
@@ -204,7 +210,7 @@ describe('object color preference controls', () => {
     h.change('deskColor', '#123456')
     assert.equal(h.store.activePet3dPreset.deskColor, '#D9D9D9')
     toggle().props!['onUpdate:checked'](false)
-    assert.deepEqual(visibleDeskRows(), ['deskTransparent', 'deskColor', 'deskHeightOffset', 'deskWidthOffset', 'deskDepthOffset'].map(label))
+    assert.deepEqual(visibleDeskRows(), ['deskTransparent', 'deskColor', 'deskWidthOffset', 'deskDepthOffset', 'deskHeightOffset'].map(label))
     for (const key of dimensions) {
       assert.equal(input(key).props?.disabled, false)
       input(key).props!['onUpdate:value'](0.6)
@@ -236,6 +242,24 @@ describe('object color preference controls', () => {
     assert.equal(snapshot.preset.deskHeightOffset, -1)
     assert.equal(snapshot.preset.deskTransparent, true)
     assert.equal(snapshot.preset.deskColor, '#123456')
+  })
+
+  it('guards delayed desk-transparency and keyboard-language events during the save lock', () => {
+    const h = harness()
+    const child = (label: string) => (h.nodes().find(node => node.props?.title === `pages.preference.environment.labels.${label}`)!.children as { default: () => Vue.VNode[] }).default()[0]
+    const desk = child('deskTransparent')
+    const keyboard = child('keyboardLanguage')
+    const before = JSON.stringify(h.store.$state)
+    try {
+      stateSafety.editorsLocked.value = true
+      desk.props!['onUpdate:checked'](false)
+      keyboard.props!['onUpdate:value']('en')
+      assert.equal(JSON.stringify(h.store.$state), before)
+      assert.equal(child('deskTransparent').props!.disabled, true)
+      assert.equal(child('keyboardLanguage').props!.disabled, true)
+    } finally {
+      stateSafety.editorsLocked.value = false
+    }
   })
 
   it('marks the user edit before each color change and captures it in the active preset', () => {

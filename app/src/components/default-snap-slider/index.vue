@@ -18,6 +18,7 @@ const props = withDefaults(defineProps<{
   min?: number
   max?: number
   step?: number
+  displayStep?: number
   displayMode?: SliderDisplayMode
   disabled?: boolean
   tipFormatter?: ((value?: number) => VNodeChild) | null

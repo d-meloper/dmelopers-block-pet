@@ -80,6 +80,7 @@ export interface VoxelSkinPalmTexel {
 
 export interface VoxelSkinGeometryController {
   setSkin: (skin?: NormalizedVoxelSkin) => void
+  setArmsDisabled: (right: boolean, left: boolean) => void
   setPalmColor: (color: string) => void
   dispose: () => void
 }
@@ -855,6 +856,8 @@ interface VoxelSkinGeometryBinding {
   original: BufferGeometry
   geometry: BufferGeometry
   originalIndex: number[]
+  selectedQuads: number[]
+  armSides?: Uint8Array
   originalMaterial: Material | Material[]
   originalMaterialCount: number
   topology?: VoxelSkinTopology
@@ -942,22 +945,25 @@ function setBindingQuads(
   binding: VoxelSkinGeometryBinding,
   quadIndices: readonly number[],
 ): void {
-  binding.geometry.setIndex(quadIndices.flatMap(quadIndex => (
-    binding.originalIndex.slice(quadIndex * 6, quadIndex * 6 + 6)
-  )))
-  binding.geometry.clearGroups()
-  quadIndices.forEach((quadIndex, outputQuadIndex) => {
-    const materialIndex = binding.palmQuadIndices.has(quadIndex)
-      ? binding.originalMaterialCount
-      : originalQuadMaterialIndex(binding, quadIndex)
-    const start = outputQuadIndex * 6
-    const previous = binding.geometry.groups.at(-1)
-    if (previous && previous.materialIndex === materialIndex && previous.start + previous.count === start) {
-      previous.count += 6
-    } else {
-      binding.geometry.addGroup(start, 6, materialIndex)
-    }
-  })
+  // An applied texture owns a clone; keep it and the restoration buffer in sync.
+  for (const geometry of new Set([binding.geometry, binding.mesh.geometry])) {
+    geometry.setIndex(quadIndices.flatMap(quadIndex => (
+      binding.originalIndex.slice(quadIndex * 6, quadIndex * 6 + 6)
+    )))
+    geometry.clearGroups()
+    quadIndices.forEach((quadIndex, outputQuadIndex) => {
+      const materialIndex = binding.palmQuadIndices.has(quadIndex)
+        ? binding.originalMaterialCount
+        : originalQuadMaterialIndex(binding, quadIndex)
+      const start = outputQuadIndex * 6
+      const previous = geometry.groups.at(-1)
+      if (previous && previous.materialIndex === materialIndex && previous.start + previous.count === start) {
+        previous.count += 6
+      } else {
+        geometry.addGroup(start, 6, materialIndex)
+      }
+    })
+  }
 }
 
 /** Control the alpha-dependent outer-shell topology and generated solid palms. */
@@ -997,6 +1003,13 @@ export function createVoxelSkinGeometryController(
       })
 
       const geometry = original.clone()
+      const model = declaredVoxelSkinModel(object)
+      const positions = original.getAttribute('position')
+      // Wide/Slim tagged meshes contain only arms; bind-space X identifies each side,
+      // including the torso-weighted shoulder rim and generated palm end caps.
+      const armSides = model
+        ? Uint8Array.from({ length: quadCount }, (_value, quadIndex) => positions.getX(originalIndex[quadIndex * 6]) >= 0 ? 1 : 2)
+        : undefined
       const topologyPalmQuads = topology
         ? topology.palm.flatMap((palm, quadIndex) => (
             palm === PALM_RIGHT || palm === PALM_LEFT
@@ -1013,12 +1026,14 @@ export function createVoxelSkinGeometryController(
         original,
         geometry,
         originalIndex,
+        selectedQuads: [],
+        armSides,
         originalMaterial: object.material,
         originalMaterialCount: originalMaterials.length,
         topology,
         palmQuads,
         palmQuadIndices: new Set(palmQuads.map(([quadIndex]) => quadIndex)),
-        model: declaredVoxelSkinModel(object),
+        model,
       })
     })
   } catch (error) {
@@ -1044,25 +1059,39 @@ export function createVoxelSkinGeometryController(
   })
 
   let disposed = false
+  let rightArmDisabled = false
+  let leftArmDisabled = false
+  const updateBinding = (binding: VoxelSkinGeometryBinding) => {
+    const quads = binding.armSides && (rightArmDisabled || leftArmDisabled)
+      ? binding.selectedQuads.filter(quadIndex => binding.armSides![quadIndex] === 1 ? !leftArmDisabled : !rightArmDisabled)
+      : binding.selectedQuads
+    setBindingQuads(binding, quads)
+  }
   const setSkin = (skin?: NormalizedVoxelSkin): void => {
     if (disposed) return
     if (skin && skin.data.length !== PIXEL_COUNT_64) {
       throw new Error('Voxel geometry requires exactly 64x64 RGBA pixels.')
     }
     bindings.forEach((binding) => {
-      const quadIndices = binding.topology
+      binding.selectedQuads = binding.topology
         ? selectVoxelSkinTopology(binding.topology, skin)
         : Array.from(
             { length: binding.originalIndex.length / 6 },
             (_value, quadIndex) => quadIndex,
           )
-      setBindingQuads(binding, quadIndices)
+      updateBinding(binding)
     })
   }
   setSkin(undefined)
 
   return {
     setSkin,
+    setArmsDisabled: (right: boolean, left: boolean) => {
+      if (disposed || (rightArmDisabled === right && leftArmDisabled === left)) return
+      rightArmDisabled = right
+      leftArmDisabled = left
+      bindings.filter(binding => binding.armSides).forEach(updateBinding)
+    },
     setPalmColor: (color: string) => {
       if (!/^#[0-9a-f]{6}$/i.test(color)) return
       palmMaterial.color.set(color)

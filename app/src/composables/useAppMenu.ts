@@ -11,6 +11,7 @@ import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import { editorsLocked } from '@/features/stateSafety'
 import { APP_PROCESS_FAILED, quitApp, restartApp } from '@/plugins/process'
 import { showWindow } from '@/plugins/window'
+import { foregroundHidingSuppressed } from '@/services/foregroundHiding'
 import { useBlockStore } from '@/stores/block'
 import { useGeneralStore } from '@/stores/general'
 
@@ -57,7 +58,7 @@ export function useAppMenu() {
   }
 
   const visibilityMenuItem = () => {
-    const visible = isDesktopPetVisible(blockStore.window.visible, generalStore.broadcast)
+    const visible = isDesktopPetVisible(blockStore.window.visible, generalStore.broadcast) && !foregroundHidingSuppressed.value
     return {
       id: `${menuId}:visibility:${visible ? 'hide' : 'show'}`,
       text: t(`composables.useAppMenu.labels.${visible ? 'hideBlock' : 'showBlock'}`),

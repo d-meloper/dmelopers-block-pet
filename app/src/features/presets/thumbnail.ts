@@ -1,8 +1,6 @@
-import { convertFileSrc } from '@tauri-apps/api/core'
-import { resolveResource } from '@tauri-apps/api/path'
-
-import { getPetModelOption, MODEL_3D_CONFIG } from '@/config/model3d'
+import { MODEL_3D_CONFIG } from '@/config/model3d'
 import { resolveDmeloperSkinUrl } from '@/services/dmeloperSkin'
+import { resolvePetModelUrl } from '@/services/petModelAsset'
 import { createDefaultPet3dPreset } from '@/stores/block'
 import { Three3DRenderer } from '@/utils/three3d'
 
@@ -32,7 +30,7 @@ export function createPresetThumbnailBatch(): PresetThumbnailBatch {
     assertActive()
     try {
       const modelId = snapshot.appearance.selectedModelId
-      const modelUrl = convertFileSrc(await resolveResource(getPetModelOption(modelId).resourcePath))
+      const modelUrl = await resolvePetModelUrl(modelId)
       assertActive()
       const skinUrl = await resolveDmeloperSkinUrl(snapshot.appearance.dmeloperSkinDataUrl)
       assertActive()

@@ -1,0 +1,2233 @@
+{
+  "fixtureVersion": 1,
+  "provenance": {
+    "kind": "official-release",
+    "version": "1.1.2",
+    "producerCommit": "e725c15b6fa6a0f52f20a8f29d09f024402348e1",
+    "publicCommit": "d4f2f109706b22e81fc8fc0444143ce5f8575c67",
+    "sources": {
+      "src-tauri/assets/models/dmeloper/default.png": {
+        "gitBlob": "8cd1e1657b0fea26c0f37f50522d85304b078f3d",
+        "sha256": "c79c163fcde7edd727499d449421dae7a1f5e5d1004152512c84b68656099b88"
+      },
+      "src/features/presets/model.ts": {
+        "gitBlob": "0c06c06157d4114d48b8bfe4f2f32075c2789951",
+        "sha256": "ded6fc926e733734c2f8dc24790c3cfaf55d3fbcbf64bccd96a12adc8822a242"
+      },
+      "src/config/defaultSettings.ts": {
+        "gitBlob": "5a415563124147fad8be6c459fa6f441bd9f3155",
+        "sha256": "94236c3c68429c95e8c99f76ca6220f04f79756afc6464e4c6e714af823033ce"
+      },
+      "src/config/defaultSettings.json": {
+        "gitBlob": "1fc7c6d9ea55b5688c946aab53aac68d365878b1",
+        "sha256": "c9c411fe3669a01d11393dbc670635ecf0a39a9a044dd8396136ab87749bb7cb"
+      },
+      "src/config/persistedNames.ts": {
+        "gitBlob": "aee03a4c4021ecbaa23886b4c9b427d160609e9c",
+        "sha256": "1f171016bf9e7dbf60faa79ff7c18a41bff49e21654a88cd5473666403a6b702"
+      },
+      "src/config/desk.ts": {
+        "gitBlob": "9246d72b16e8aa3441f219413916c59cea33f93d",
+        "sha256": "1876d20924b814c3e8213c748334adbe1a14c5e4f674773e4b29437978366c5b"
+      },
+      "src/config/deviceColors.ts": {
+        "gitBlob": "f98764a5321e56882db60762c3b5d45316de5cca",
+        "sha256": "7d7d06afb0addfce8e7254e6c4e8733f00cee9b2ddea2b72952c849c052e928a"
+      },
+      "src/config/dmeloperEyebrows.ts": {
+        "gitBlob": "e28ff9a52f8784b8624b5c9f744afac4496c8a87",
+        "sha256": "b0b162c6af0d70a3c3d6678696a3333a302ffd77e52a0ce696e8254f0341f58a"
+      },
+      "src/config/presetRanges.json": {
+        "gitBlob": "efc2cbacee2f2c66886d38380cff8498ef96412e",
+        "sha256": "b6736e9ac6028018232d3a69a497edb26d4206ed1d41d6a64592e81be35707cf"
+      },
+      "src/config/lighting.ts": {
+        "gitBlob": "f2ccb6a4f6e35e2ff766762985eee83669ac0b1c",
+        "sha256": "fdc05fe66882e13ae30283629a3a0c52c1a57b2ba1b6dcb5e21733f9764b37ef"
+      },
+      "src/config/model3d.ts": {
+        "gitBlob": "f9693cba4aab1b3f78412de1270cc013382f2479",
+        "sha256": "290ea175e8b621078b3ce6148849e706c4b7f4721a6fb5772074220a538018ff"
+      },
+      "src/config/skinIdentity.ts": {
+        "gitBlob": "5773a9750579f2f8d5d68d209852d57fabe47f1e",
+        "sha256": "8fc9817a6b82d1f98069fd4bb1a6481a537d03bb5025e713dadf632db44a8535"
+      },
+      "src/stores/block.ts": {
+        "gitBlob": "e15019bc9511c92cd3655e62d52d6d1f1318963d",
+        "sha256": "cef3e8351580d1bd326dffbdde96e3109e8359ee29a122ea86ec1cace5e4f01a"
+      },
+      "src/config/performance.ts": {
+        "gitBlob": "e339ef37f85d150714b40e01334b1f50aa8439a2",
+        "sha256": "f03a4868077317500111e7d1dceb05b4a1ec0e74e3a16106574dbdec39c7d90c"
+      },
+      "src/config/petArmPose.ts": {
+        "gitBlob": "0dac5d599448ec8a20a4f631767e5a3b6f2b2947",
+        "sha256": "812802b73d786bf7bc7b543f2fa736cf7ffd9362f21fd3d2e2a1c8128b85224b"
+      },
+      "src/constants/index.ts": {
+        "gitBlob": "ff978c1a434129be893af5b9a9c3497f15acf64f",
+        "sha256": "6192896e910be03ef73aefdcd9bf34b0bffed98b11435d8b05a1311d1c51d7c9"
+      },
+      "src/constants/branding.ts": {
+        "gitBlob": "91d944e3431d2059f198ffb9e5cc377750fbd842",
+        "sha256": "ad284371e64e78d0a167d4b697084d2a535cc5313f91a8dfbcebe24ad080d002"
+      },
+      "src/features/presets/editIntent.ts": {
+        "gitBlob": "c265a9a5ae2abc2417d36dadd6bbaee65f3c6cff",
+        "sha256": "df14b18e70de223a6aa467ad8f2ec221933c0298682e7eddb5ad35720cffe380"
+      },
+      "src/features/scene/viewportSettings.ts": {
+        "gitBlob": "25aebc64b4b5c94f74c506991168164801773fa6",
+        "sha256": "e2f743f697cf27a18c0caaa844c5948d69b69e292ab68210ecf9eaf8cd8cdbaf"
+      },
+      "src/utils/programSettingsReset.ts": {
+        "gitBlob": "2bf5871e22b8d1dbe8b16c09762e07b471d49bb4",
+        "sha256": "9d6e94f2342cb9494e88b6d5484394b89ec82b94a1cd80dff267ce2a452d6aa7"
+      },
+      "src/services/diagnostics.ts": {
+        "gitBlob": "f0de612d2bd0fe0a6a5cc36c730064d0a48b9f5a",
+        "sha256": "25231066abdd596d9e6eb272f90da5efaa07053503fd2b41041a4ebe3f408977"
+      },
+      "src/services/diagnosticsCore.ts": {
+        "gitBlob": "7b1d0386c0240f340373d9956777861f86e99066",
+        "sha256": "bff144a9fac3316d230b38a5c5971c5258383a6786d13c39afc6bf209d06ebbb"
+      },
+      "src/stores/petSettingsMigration.ts": {
+        "gitBlob": "65dcb5b9a7df278bdd17480c8c0bb26ea3f8abcf",
+        "sha256": "12ba850c9b4b46ba19e50fafb1872ff41da71df2c85af8dc5087f3f30fb765dc"
+      },
+      "src/features/presets/compatibility.ts": {
+        "gitBlob": "91b0ee9166fd730b2d67c57a9e02b6f4d6a48788",
+        "sha256": "842cc7e79c5007c4fcb5574673a86822c88db8dcac52735416658b6494645e59"
+      },
+      "src/config/presetCompatibility.json": {
+        "gitBlob": "c26989be63747c04eaeceb246f9a624d1944410b",
+        "sha256": "65307795ebc3db716a710712910c7015d27a93bc3d006f894a988a801100294d"
+      },
+      "src/features/presets/types.ts": {
+        "gitBlob": "1d8a3b36005fa30bb99c58f7c02dcaa6e8922013",
+        "sha256": "ad28575a88a3187bc92832d7f71899bbf61f48a7fc381e68570df010927a14c7"
+      },
+      "src/features/presets/transfer.ts": {
+        "gitBlob": "479ce6c6ab24bab6d6037c2884b456d76d68686e",
+        "sha256": "00720725cb21060c54ee2b8c1b258c4fcd077b16ea5cbc414ab447d715e28b65"
+      },
+      "src/features/presets/skin.ts": {
+        "gitBlob": "caf12fff6a3b6eb1e0671c41b037bdbaeef37606",
+        "sha256": "c71722aa7002bd64595ac1854b5deecb526af14c0e92824858b7a7baf945a10c"
+      },
+      "src-tauri/src/preset_transfer.rs": {
+        "gitBlob": "76898c738765ba293192fd9079b682a1b8a4c66c",
+        "sha256": "24b2e0e0976db369ffae2cfd03cc8bba47993dccf17092231a81a27231c5a367"
+      },
+      "src-tauri/src/preset_compatibility.rs": {
+        "gitBlob": "c16d8977c1720aeb3a1cc7adab5a960fe1c53455",
+        "sha256": "4ba7692b4af94cdf04a99d25a4668ef935ef1f1375c62e40541bce6c9412851d"
+      }
+    }
+  },
+  "catalogVersion": 4,
+  "presetKeys": [
+    "petRightArmBendPercent",
+    "petRightArmSpreadDegrees",
+    "petLeftArmBendPercent",
+    "petLeftArmSpreadDegrees",
+    "petHeadScalePercent",
+    "petRotationDegrees",
+    "petDeskOffset",
+    "dmeloperEyebrows",
+    "dmeloperPalmColor",
+    "lighting",
+    "showDisplayArea",
+    "autoViewportEnabled",
+    "autoViewportPaddingPixels",
+    "manualViewportRect",
+    "sceneRotationOffsetDegrees",
+    "cameraHorizontalOffset",
+    "cameraVerticalOffset",
+    "cameraZoomPercent",
+    "deskTransparent",
+    "deskHeightOffset",
+    "deskWidthOffset",
+    "deskDepthOffset",
+    "deskColor",
+    "keyboardColor",
+    "keyboardKeycapColor",
+    "keyboardLegendColor",
+    "keyboardPressedColor",
+    "mouseColor",
+    "mousePressedColor",
+    "mouseEnabled",
+    "mouseBaseXOffset",
+    "mouseBaseZOffset",
+    "mouseScalePercent",
+    "keyboardBaseXOffset",
+    "keyboardBaseZOffset",
+    "keyboardScalePercent",
+    "keyboardLegendLanguage"
+  ],
+  "defaults": {
+    "preset": {
+      "petRightArmBendPercent": 100,
+      "petRightArmSpreadDegrees": 0,
+      "petLeftArmBendPercent": 100,
+      "petLeftArmSpreadDegrees": 0,
+      "petHeadScalePercent": 100,
+      "petRotationDegrees": 0,
+      "petDeskOffset": 0,
+      "dmeloperEyebrows": {
+        "enabled": true,
+        "color": "#523830",
+        "centerOffsetPixels": 0,
+        "heightOffsetPixels": 0.3,
+        "spacingPixels": 1.5,
+        "widthPixels": 2,
+        "thicknessPixels": 0.5,
+        "depthPercent": 50
+      },
+      "dmeloperPalmColor": "#FFDFCE",
+      "lighting": {
+        "key": {
+          "color": "#ffffff",
+          "azimuthDegrees": -39,
+          "elevationDegrees": 44,
+          "strengthPercent": 100
+        }
+      },
+      "showDisplayArea": false,
+      "autoViewportEnabled": true,
+      "autoViewportPaddingPixels": 2,
+      "manualViewportRect": {
+        "x": 0,
+        "y": 0,
+        "width": 500,
+        "height": 422
+      },
+      "sceneRotationOffsetDegrees": 0,
+      "cameraHorizontalOffset": 0,
+      "cameraVerticalOffset": 0,
+      "cameraZoomPercent": 100,
+      "deskTransparent": true,
+      "deskHeightOffset": 0,
+      "deskWidthOffset": -0.28,
+      "deskDepthOffset": 0.1,
+      "deskColor": "#D9D9D9",
+      "keyboardColor": "#d5d8dc",
+      "keyboardKeycapColor": "#f7f3e8",
+      "keyboardLegendColor": "#31343a",
+      "keyboardPressedColor": "#f2b36d",
+      "mouseColor": "#ffffff",
+      "mousePressedColor": "#f2b36d",
+      "mouseEnabled": true,
+      "mouseBaseXOffset": 0,
+      "mouseBaseZOffset": 0,
+      "mouseScalePercent": 100,
+      "keyboardBaseXOffset": 0,
+      "keyboardBaseZOffset": 0,
+      "keyboardScalePercent": 100,
+      "keyboardLegendLanguage": "ko"
+    },
+    "appearance": {
+      "selectedModelId": "dmeloper",
+      "dmeloperSkinModel": "wide",
+      "useDefaultDmeloperSkin": true
+    },
+    "mirror": false,
+    "opacity": 100,
+    "eyebrowAnimationEnabled": true
+  },
+  "cases": [
+    {
+      "id": "default-image",
+      "portable": {
+        "format": "dmeloper.petpreset",
+        "version": 1,
+        "name": "Historical default",
+        "settings": {
+          "preset": {
+            "petRightArmBendPercent": 100,
+            "petRightArmSpreadDegrees": 0,
+            "petLeftArmBendPercent": 100,
+            "petLeftArmSpreadDegrees": 0,
+            "petHeadScalePercent": 100,
+            "petRotationDegrees": 0,
+            "petDeskOffset": 0,
+            "dmeloperEyebrows": {
+              "enabled": true,
+              "color": "#523830",
+              "centerOffsetPixels": 0,
+              "heightOffsetPixels": 0.3,
+              "spacingPixels": 1.5,
+              "widthPixels": 2,
+              "thicknessPixels": 0.5,
+              "depthPercent": 50
+            },
+            "dmeloperPalmColor": "#FFDFCE",
+            "lighting": {
+              "key": {
+                "color": "#ffffff",
+                "azimuthDegrees": -39,
+                "elevationDegrees": 44,
+                "strengthPercent": 100
+              }
+            },
+            "showDisplayArea": false,
+            "autoViewportEnabled": true,
+            "autoViewportPaddingPixels": 2,
+            "manualViewportRect": {
+              "x": 0,
+              "y": 0,
+              "width": 500,
+              "height": 422
+            },
+            "sceneRotationOffsetDegrees": 0,
+            "cameraHorizontalOffset": 0,
+            "cameraVerticalOffset": 0,
+            "cameraZoomPercent": 100,
+            "deskTransparent": true,
+            "deskHeightOffset": 0,
+            "deskWidthOffset": -0.28,
+            "deskDepthOffset": 0.1,
+            "deskColor": "#D9D9D9",
+            "keyboardColor": "#d5d8dc",
+            "keyboardKeycapColor": "#f7f3e8",
+            "keyboardLegendColor": "#31343a",
+            "keyboardPressedColor": "#f2b36d",
+            "mouseColor": "#ffffff",
+            "mousePressedColor": "#f2b36d",
+            "mouseEnabled": true,
+            "mouseBaseXOffset": 0,
+            "mouseBaseZOffset": 0,
+            "mouseScalePercent": 100,
+            "keyboardBaseXOffset": 0,
+            "keyboardBaseZOffset": 0,
+            "keyboardScalePercent": 100,
+            "keyboardLegendLanguage": "ko"
+          },
+          "mirror": false,
+          "opacity": 100,
+          "eyebrowAnimationEnabled": true
+        },
+        "skin": {
+          "mode": "image",
+          "pngBase64": "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAACg0lEQVR4nO2aT2sTQRTA37xMlqIXb34AxYMURaQ1ENSTaLGHIl6s1YIVPChKUdSPoOBXKAVpwIP00H8IlkI9qScpHkTwIl5aomJswOzmj6S6674lnTTOptnZNz8IO+/N7GPe7puZzcwT0Iarp443VPV3708q7z86PCYgwSAwB4E5CMxBYA4CcxCYg8AcMZo/plzn21GuuMp6r1pT1i+9+9DT7wQE5shOGhdmpoLy5bEJSAP4P863klP7AAozU1u/AyfOBDq/nIaHgDtptD77Aj69eRnIzXJTlwZE48t79Srg/ZvlHz15vHV9eO9BoCt+/aa8ffz6rUSvArKTxmHH04KIKkZO50lE3Lhzk9QPXRhVvrFG6aMyop49X1R26NK1yY7sr716q7X/gNtVONkscAC3q3A9DziAwBxxPp8jY6per5MGFZdGglerEnlufpq2//vfYH+mj+jXa7/+XDeKRF/6uansYP/hQy3tB3bb2Dt5Vj1noV9wsnRBiMpZqZaj+A5Hy0lD+gXXo282KntVtdyKJDvug8AcBOZIf7yHQz4qN8d7OOSjcjfZJ+hkChn6zjLOHiLvlZ31C7s1/k0BgTkIzMG413/TkIW5WS0DlR+fwWTk6vKyloHcAP1UtVgsFvasLDxt7ESXalZCDrNzPuw4W+dNQUDCWXu9QCLIdemeYLH4ncib5TKRL165nXgfLRaLxWLpESJug3HnF+ie//dsU9QxJL8Au2XYlPwCBOYIXQPdyi+I6/x/1yLAMfR8AeMyZOr5IgJzJBiO7n6BjKMTOvkFuuf/B3PDvZ8EXUPHfxP2cwACc5Dr+u8jdQ3o5hdAaQOMfgCrmvkF5waP6HZBi9+8Fx5tnPZcnwAAAABJRU5ErkJggg==",
+          "model": "wide"
+        }
+      },
+      "snapshot": {
+        "preset": {
+          "petRightArmBendPercent": 100,
+          "petRightArmSpreadDegrees": 0,
+          "petLeftArmBendPercent": 100,
+          "petLeftArmSpreadDegrees": 0,
+          "petHeadScalePercent": 100,
+          "petRotationDegrees": 0,
+          "petDeskOffset": 0,
+          "dmeloperEyebrows": {
+            "enabled": true,
+            "color": "#523830",
+            "centerOffsetPixels": 0,
+            "heightOffsetPixels": 0.3,
+            "spacingPixels": 1.5,
+            "widthPixels": 2,
+            "thicknessPixels": 0.5,
+            "depthPercent": 50
+          },
+          "dmeloperPalmColor": "#FFDFCE",
+          "lighting": {
+            "key": {
+              "color": "#ffffff",
+              "azimuthDegrees": -39,
+              "elevationDegrees": 44,
+              "strengthPercent": 100
+            }
+          },
+          "showDisplayArea": false,
+          "autoViewportEnabled": true,
+          "autoViewportPaddingPixels": 2,
+          "manualViewportRect": {
+            "x": 0,
+            "y": 0,
+            "width": 500,
+            "height": 422
+          },
+          "sceneRotationOffsetDegrees": 0,
+          "cameraHorizontalOffset": 0,
+          "cameraVerticalOffset": 0,
+          "cameraZoomPercent": 100,
+          "deskTransparent": true,
+          "deskHeightOffset": 0,
+          "deskWidthOffset": -0.28,
+          "deskDepthOffset": 0.1,
+          "deskColor": "#D9D9D9",
+          "keyboardColor": "#d5d8dc",
+          "keyboardKeycapColor": "#f7f3e8",
+          "keyboardLegendColor": "#31343a",
+          "keyboardPressedColor": "#f2b36d",
+          "mouseColor": "#ffffff",
+          "mousePressedColor": "#f2b36d",
+          "mouseEnabled": true,
+          "mouseBaseXOffset": 0,
+          "mouseBaseZOffset": 0,
+          "mouseScalePercent": 100,
+          "keyboardBaseXOffset": 0,
+          "keyboardBaseZOffset": 0,
+          "keyboardScalePercent": 100,
+          "keyboardLegendLanguage": "ko"
+        },
+        "appearance": {
+          "selectedModelId": "dmeloper",
+          "dmeloperSkinModel": "wide",
+          "useDefaultDmeloperSkin": true
+        },
+        "mirror": false,
+        "opacity": 100,
+        "eyebrowAnimationEnabled": true
+      }
+    },
+    {
+      "id": "custom-image",
+      "portable": {
+        "format": "dmeloper.petpreset",
+        "version": 1,
+        "name": "Historical custom",
+        "settings": {
+          "preset": {
+            "petRightArmBendPercent": 100,
+            "petRightArmSpreadDegrees": 0,
+            "petLeftArmBendPercent": 100,
+            "petLeftArmSpreadDegrees": 0,
+            "petHeadScalePercent": 100,
+            "petRotationDegrees": 0,
+            "petDeskOffset": 0,
+            "dmeloperEyebrows": {
+              "enabled": true,
+              "color": "#123456",
+              "centerOffsetPixels": 0,
+              "heightOffsetPixels": 0.3,
+              "spacingPixels": 1.5,
+              "widthPixels": 2,
+              "thicknessPixels": 0.5,
+              "depthPercent": 50
+            },
+            "dmeloperPalmColor": "#ABCDEF",
+            "lighting": {
+              "key": {
+                "color": "#ffffff",
+                "azimuthDegrees": -39,
+                "elevationDegrees": 44,
+                "strengthPercent": 100
+              }
+            },
+            "showDisplayArea": false,
+            "autoViewportEnabled": true,
+            "autoViewportPaddingPixels": 2,
+            "manualViewportRect": {
+              "x": 0,
+              "y": 0,
+              "width": 500,
+              "height": 422
+            },
+            "sceneRotationOffsetDegrees": 0,
+            "cameraHorizontalOffset": 0,
+            "cameraVerticalOffset": 0,
+            "cameraZoomPercent": 137,
+            "deskTransparent": true,
+            "deskHeightOffset": 0,
+            "deskWidthOffset": -0.28,
+            "deskDepthOffset": 0.1,
+            "deskColor": "#D9D9D9",
+            "keyboardColor": "#d5d8dc",
+            "keyboardKeycapColor": "#f7f3e8",
+            "keyboardLegendColor": "#31343a",
+            "keyboardPressedColor": "#f2b36d",
+            "mouseColor": "#ffffff",
+            "mousePressedColor": "#f2b36d",
+            "mouseEnabled": true,
+            "mouseBaseXOffset": 0,
+            "mouseBaseZOffset": 0,
+            "mouseScalePercent": 100,
+            "keyboardBaseXOffset": 0,
+            "keyboardBaseZOffset": 0,
+            "keyboardScalePercent": 100,
+            "keyboardLegendLanguage": "ko"
+          },
+          "mirror": false,
+          "opacity": 100,
+          "eyebrowAnimationEnabled": true
+        },
+        "skin": {
+          "mode": "image",
+          "pngBase64": "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAACg0lEQVR4nO2aT2sTQRTA37xMlqIXb34AxYMURaQ1ENSTaLGHIl6s1YIVPChKUdSPoOBXKAVpwIP00H8IlkI9qScpHkTwIl5aomJswOzmj6S6674lnTTOptnZNz8IO+/N7GPe7puZzcwT0Iarp443VPV3708q7z86PCYgwSAwB4E5CMxBYA4CcxCYg8AcMZo/plzn21GuuMp6r1pT1i+9+9DT7wQE5shOGhdmpoLy5bEJSAP4P863klP7AAozU1u/AyfOBDq/nIaHgDtptD77Aj69eRnIzXJTlwZE48t79Srg/ZvlHz15vHV9eO9BoCt+/aa8ffz6rUSvArKTxmHH04KIKkZO50lE3Lhzk9QPXRhVvrFG6aMyop49X1R26NK1yY7sr716q7X/gNtVONkscAC3q3A9DziAwBxxPp8jY6per5MGFZdGglerEnlufpq2//vfYH+mj+jXa7/+XDeKRF/6uansYP/hQy3tB3bb2Dt5Vj1noV9wsnRBiMpZqZaj+A5Hy0lD+gXXo282KntVtdyKJDvug8AcBOZIf7yHQz4qN8d7OOSjcjfZJ+hkChn6zjLOHiLvlZ31C7s1/k0BgTkIzMG413/TkIW5WS0DlR+fwWTk6vKyloHcAP1UtVgsFvasLDxt7ESXalZCDrNzPuw4W+dNQUDCWXu9QCLIdemeYLH4ncib5TKRL165nXgfLRaLxWLpESJug3HnF+ie//dsU9QxJL8Au2XYlPwCBOYIXQPdyi+I6/x/1yLAMfR8AeMyZOr5IgJzJBiO7n6BjKMTOvkFuuf/B3PDvZ8EXUPHfxP2cwACc5Dr+u8jdQ3o5hdAaQOMfgCrmvkF5waP6HZBi9+8Fx5tnPZcnwAAAABJRU5ErkJggg==",
+          "model": "slim",
+          "nickname": "Fixture_User"
+        }
+      },
+      "snapshot": {
+        "preset": {
+          "petRightArmBendPercent": 100,
+          "petRightArmSpreadDegrees": 0,
+          "petLeftArmBendPercent": 100,
+          "petLeftArmSpreadDegrees": 0,
+          "petHeadScalePercent": 100,
+          "petRotationDegrees": 0,
+          "petDeskOffset": 0,
+          "dmeloperEyebrows": {
+            "enabled": true,
+            "color": "#123456",
+            "centerOffsetPixels": 0,
+            "heightOffsetPixels": 0.3,
+            "spacingPixels": 1.5,
+            "widthPixels": 2,
+            "thicknessPixels": 0.5,
+            "depthPercent": 50
+          },
+          "dmeloperPalmColor": "#ABCDEF",
+          "lighting": {
+            "key": {
+              "color": "#ffffff",
+              "azimuthDegrees": -39,
+              "elevationDegrees": 44,
+              "strengthPercent": 100
+            }
+          },
+          "showDisplayArea": false,
+          "autoViewportEnabled": true,
+          "autoViewportPaddingPixels": 2,
+          "manualViewportRect": {
+            "x": 0,
+            "y": 0,
+            "width": 500,
+            "height": 422
+          },
+          "sceneRotationOffsetDegrees": 0,
+          "cameraHorizontalOffset": 0,
+          "cameraVerticalOffset": 0,
+          "cameraZoomPercent": 137,
+          "deskTransparent": true,
+          "deskHeightOffset": 0,
+          "deskWidthOffset": -0.28,
+          "deskDepthOffset": 0.1,
+          "deskColor": "#D9D9D9",
+          "keyboardColor": "#d5d8dc",
+          "keyboardKeycapColor": "#f7f3e8",
+          "keyboardLegendColor": "#31343a",
+          "keyboardPressedColor": "#f2b36d",
+          "mouseColor": "#ffffff",
+          "mousePressedColor": "#f2b36d",
+          "mouseEnabled": true,
+          "mouseBaseXOffset": 0,
+          "mouseBaseZOffset": 0,
+          "mouseScalePercent": 100,
+          "keyboardBaseXOffset": 0,
+          "keyboardBaseZOffset": 0,
+          "keyboardScalePercent": 100,
+          "keyboardLegendLanguage": "ko"
+        },
+        "appearance": {
+          "selectedModelId": "dmeloper",
+          "dmeloperSkinModel": "slim",
+          "useDefaultDmeloperSkin": true,
+          "dmeloperSkinDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAACg0lEQVR4nO2aT2sTQRTA37xMlqIXb34AxYMURaQ1ENSTaLGHIl6s1YIVPChKUdSPoOBXKAVpwIP00H8IlkI9qScpHkTwIl5aomJswOzmj6S6674lnTTOptnZNz8IO+/N7GPe7puZzcwT0Iarp443VPV3708q7z86PCYgwSAwB4E5CMxBYA4CcxCYg8AcMZo/plzn21GuuMp6r1pT1i+9+9DT7wQE5shOGhdmpoLy5bEJSAP4P863klP7AAozU1u/AyfOBDq/nIaHgDtptD77Aj69eRnIzXJTlwZE48t79Srg/ZvlHz15vHV9eO9BoCt+/aa8ffz6rUSvArKTxmHH04KIKkZO50lE3Lhzk9QPXRhVvrFG6aMyop49X1R26NK1yY7sr716q7X/gNtVONkscAC3q3A9DziAwBxxPp8jY6per5MGFZdGglerEnlufpq2//vfYH+mj+jXa7/+XDeKRF/6uansYP/hQy3tB3bb2Dt5Vj1noV9wsnRBiMpZqZaj+A5Hy0lD+gXXo282KntVtdyKJDvug8AcBOZIf7yHQz4qN8d7OOSjcjfZJ+hkChn6zjLOHiLvlZ31C7s1/k0BgTkIzMG413/TkIW5WS0DlR+fwWTk6vKyloHcAP1UtVgsFvasLDxt7ESXalZCDrNzPuw4W+dNQUDCWXu9QCLIdemeYLH4ncib5TKRL165nXgfLRaLxWLpESJug3HnF+ie//dsU9QxJL8Au2XYlPwCBOYIXQPdyi+I6/x/1yLAMfR8AeMyZOr5IgJzJBiO7n6BjKMTOvkFuuf/B3PDvZ8EXUPHfxP2cwACc5Dr+u8jdQ3o5hdAaQOMfgCrmvkF5waP6HZBi9+8Fx5tnPZcnwAAAABJRU5ErkJggg==",
+          "activeSkinLibraryEntryId": "c79c163fcde7edd727499d449421dae7a1f5e5d1004152512c84b68656099b88",
+          "minecraftSkinUsername": "Fixture_User"
+        },
+        "mirror": false,
+        "opacity": 100,
+        "eyebrowAnimationEnabled": true
+      }
+    },
+    {
+      "id": "custom-nickname",
+      "portable": {
+        "format": "dmeloper.petpreset",
+        "version": 1,
+        "name": "Historical nickname",
+        "settings": {
+          "preset": {
+            "petRightArmBendPercent": 100,
+            "petRightArmSpreadDegrees": 0,
+            "petLeftArmBendPercent": 100,
+            "petLeftArmSpreadDegrees": 0,
+            "petHeadScalePercent": 100,
+            "petRotationDegrees": 0,
+            "petDeskOffset": 0,
+            "dmeloperEyebrows": {
+              "enabled": true,
+              "color": "#123456",
+              "centerOffsetPixels": 0,
+              "heightOffsetPixels": 0.3,
+              "spacingPixels": 1.5,
+              "widthPixels": 2,
+              "thicknessPixels": 0.5,
+              "depthPercent": 50
+            },
+            "dmeloperPalmColor": "#ABCDEF",
+            "lighting": {
+              "key": {
+                "color": "#ffffff",
+                "azimuthDegrees": -39,
+                "elevationDegrees": 44,
+                "strengthPercent": 100
+              }
+            },
+            "showDisplayArea": false,
+            "autoViewportEnabled": true,
+            "autoViewportPaddingPixels": 2,
+            "manualViewportRect": {
+              "x": 0,
+              "y": 0,
+              "width": 500,
+              "height": 422
+            },
+            "sceneRotationOffsetDegrees": 0,
+            "cameraHorizontalOffset": 0,
+            "cameraVerticalOffset": 0,
+            "cameraZoomPercent": 137,
+            "deskTransparent": true,
+            "deskHeightOffset": 0,
+            "deskWidthOffset": -0.28,
+            "deskDepthOffset": 0.1,
+            "deskColor": "#D9D9D9",
+            "keyboardColor": "#d5d8dc",
+            "keyboardKeycapColor": "#f7f3e8",
+            "keyboardLegendColor": "#31343a",
+            "keyboardPressedColor": "#f2b36d",
+            "mouseColor": "#ffffff",
+            "mousePressedColor": "#f2b36d",
+            "mouseEnabled": true,
+            "mouseBaseXOffset": 0,
+            "mouseBaseZOffset": 0,
+            "mouseScalePercent": 100,
+            "keyboardBaseXOffset": 0,
+            "keyboardBaseZOffset": 0,
+            "keyboardScalePercent": 100,
+            "keyboardLegendLanguage": "ko"
+          },
+          "mirror": false,
+          "opacity": 100,
+          "eyebrowAnimationEnabled": true
+        },
+        "skin": {
+          "mode": "nickname",
+          "nickname": "Fixture_User"
+        }
+      },
+      "snapshot": {
+        "preset": {
+          "petRightArmBendPercent": 100,
+          "petRightArmSpreadDegrees": 0,
+          "petLeftArmBendPercent": 100,
+          "petLeftArmSpreadDegrees": 0,
+          "petHeadScalePercent": 100,
+          "petRotationDegrees": 0,
+          "petDeskOffset": 0,
+          "dmeloperEyebrows": {
+            "enabled": true,
+            "color": "#123456",
+            "centerOffsetPixels": 0,
+            "heightOffsetPixels": 0.3,
+            "spacingPixels": 1.5,
+            "widthPixels": 2,
+            "thicknessPixels": 0.5,
+            "depthPercent": 50
+          },
+          "dmeloperPalmColor": "#ABCDEF",
+          "lighting": {
+            "key": {
+              "color": "#ffffff",
+              "azimuthDegrees": -39,
+              "elevationDegrees": 44,
+              "strengthPercent": 100
+            }
+          },
+          "showDisplayArea": false,
+          "autoViewportEnabled": true,
+          "autoViewportPaddingPixels": 2,
+          "manualViewportRect": {
+            "x": 0,
+            "y": 0,
+            "width": 500,
+            "height": 422
+          },
+          "sceneRotationOffsetDegrees": 0,
+          "cameraHorizontalOffset": 0,
+          "cameraVerticalOffset": 0,
+          "cameraZoomPercent": 137,
+          "deskTransparent": true,
+          "deskHeightOffset": 0,
+          "deskWidthOffset": -0.28,
+          "deskDepthOffset": 0.1,
+          "deskColor": "#D9D9D9",
+          "keyboardColor": "#d5d8dc",
+          "keyboardKeycapColor": "#f7f3e8",
+          "keyboardLegendColor": "#31343a",
+          "keyboardPressedColor": "#f2b36d",
+          "mouseColor": "#ffffff",
+          "mousePressedColor": "#f2b36d",
+          "mouseEnabled": true,
+          "mouseBaseXOffset": 0,
+          "mouseBaseZOffset": 0,
+          "mouseScalePercent": 100,
+          "keyboardBaseXOffset": 0,
+          "keyboardBaseZOffset": 0,
+          "keyboardScalePercent": 100,
+          "keyboardLegendLanguage": "ko"
+        },
+        "appearance": {
+          "selectedModelId": "dmeloper",
+          "dmeloperSkinModel": "slim",
+          "useDefaultDmeloperSkin": true,
+          "dmeloperSkinDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAACg0lEQVR4nO2aT2sTQRTA37xMlqIXb34AxYMURaQ1ENSTaLGHIl6s1YIVPChKUdSPoOBXKAVpwIP00H8IlkI9qScpHkTwIl5aomJswOzmj6S6674lnTTOptnZNz8IO+/N7GPe7puZzcwT0Iarp443VPV3708q7z86PCYgwSAwB4E5CMxBYA4CcxCYg8AcMZo/plzn21GuuMp6r1pT1i+9+9DT7wQE5shOGhdmpoLy5bEJSAP4P863klP7AAozU1u/AyfOBDq/nIaHgDtptD77Aj69eRnIzXJTlwZE48t79Srg/ZvlHz15vHV9eO9BoCt+/aa8ffz6rUSvArKTxmHH04KIKkZO50lE3Lhzk9QPXRhVvrFG6aMyop49X1R26NK1yY7sr716q7X/gNtVONkscAC3q3A9DziAwBxxPp8jY6per5MGFZdGglerEnlufpq2//vfYH+mj+jXa7/+XDeKRF/6uansYP/hQy3tB3bb2Dt5Vj1noV9wsnRBiMpZqZaj+A5Hy0lD+gXXo282KntVtdyKJDvug8AcBOZIf7yHQz4qN8d7OOSjcjfZJ+hkChn6zjLOHiLvlZ31C7s1/k0BgTkIzMG413/TkIW5WS0DlR+fwWTk6vKyloHcAP1UtVgsFvasLDxt7ESXalZCDrNzPuw4W+dNQUDCWXu9QCLIdemeYLH4ncib5TKRL165nXgfLRaLxWLpESJug3HnF+ie//dsU9QxJL8Au2XYlPwCBOYIXQPdyi+I6/x/1yLAMfR8AeMyZOr5IgJzJBiO7n6BjKMTOvkFuuf/B3PDvZ8EXUPHfxP2cwACc5Dr+u8jdQ3o5hdAaQOMfgCrmvkF5waP6HZBi9+8Fx5tnPZcnwAAAABJRU5ErkJggg==",
+          "activeSkinLibraryEntryId": "c79c163fcde7edd727499d449421dae7a1f5e5d1004152512c84b68656099b88",
+          "minecraftSkinUsername": "Fixture_User"
+        },
+        "mirror": false,
+        "opacity": 100,
+        "eyebrowAnimationEnabled": true
+      }
+    },
+    {
+      "id": "missing-optional-legacy",
+      "portable": {
+        "format": "dmeloper.petpreset",
+        "version": 1,
+        "name": "Historical nickname",
+        "settings": {
+          "preset": {
+            "petRightArmBendPercent": 100,
+            "petRightArmSpreadDegrees": 0,
+            "petLeftArmBendPercent": 100,
+            "petLeftArmSpreadDegrees": 0,
+            "petHeadScalePercent": 100,
+            "petRotationDegrees": 0,
+            "petDeskOffset": 0,
+            "dmeloperEyebrows": {
+              "enabled": true,
+              "color": "#123456",
+              "centerOffsetPixels": 0,
+              "heightOffsetPixels": 0.3,
+              "spacingPixels": 1.5,
+              "widthPixels": 2,
+              "thicknessPixels": 0.5
+            },
+            "dmeloperPalmColor": "#ABCDEF",
+            "showDisplayArea": false,
+            "autoViewportEnabled": true,
+            "autoViewportPaddingPixels": 2,
+            "manualViewportRect": {
+              "x": 0,
+              "y": 0,
+              "width": 500,
+              "height": 422
+            },
+            "sceneRotationOffsetDegrees": 0,
+            "cameraHorizontalOffset": 0,
+            "cameraVerticalOffset": 0,
+            "cameraZoomPercent": 137,
+            "keyboardColor": "#d5d8dc",
+            "keyboardKeycapColor": "#f7f3e8",
+            "keyboardLegendColor": "#31343a",
+            "keyboardPressedColor": "#f2b36d",
+            "mouseColor": "#ffffff",
+            "mousePressedColor": "#f2b36d",
+            "mouseEnabled": true,
+            "mouseBaseXOffset": 0,
+            "mouseBaseZOffset": 0,
+            "mouseScalePercent": 100,
+            "keyboardBaseXOffset": 0,
+            "keyboardBaseZOffset": 0,
+            "keyboardScalePercent": 100,
+            "keyboardLegendLanguage": "ko"
+          },
+          "mirror": false,
+          "opacity": 100,
+          "eyebrowAnimationEnabled": true
+        },
+        "skin": {
+          "mode": "nickname",
+          "nickname": "Fixture_User"
+        }
+      },
+      "expectedLegacySettings": {
+        "preset": {
+          "petRightArmBendPercent": 100,
+          "petRightArmSpreadDegrees": 0,
+          "petLeftArmBendPercent": 100,
+          "petLeftArmSpreadDegrees": 0,
+          "petHeadScalePercent": 100,
+          "petRotationDegrees": 0,
+          "petDeskOffset": 0,
+          "dmeloperEyebrows": {
+            "enabled": true,
+            "color": "#123456",
+            "centerOffsetPixels": 0,
+            "heightOffsetPixels": 0.3,
+            "spacingPixels": 1.5,
+            "widthPixels": 2,
+            "thicknessPixels": 0.5,
+            "depthPercent": 100
+          },
+          "dmeloperPalmColor": "#ABCDEF",
+          "lighting": {
+            "key": {
+              "color": "#ffffff",
+              "azimuthDegrees": -39,
+              "elevationDegrees": 44,
+              "strengthPercent": 100
+            }
+          },
+          "showDisplayArea": false,
+          "autoViewportEnabled": true,
+          "autoViewportPaddingPixels": 2,
+          "manualViewportRect": {
+            "x": 0,
+            "y": 0,
+            "width": 500,
+            "height": 422
+          },
+          "sceneRotationOffsetDegrees": 0,
+          "cameraHorizontalOffset": 0,
+          "cameraVerticalOffset": 0,
+          "cameraZoomPercent": 137,
+          "deskTransparent": true,
+          "deskHeightOffset": 0,
+          "deskWidthOffset": -1,
+          "deskDepthOffset": 0.1,
+          "deskColor": "#D9D9D9",
+          "keyboardColor": "#d5d8dc",
+          "keyboardKeycapColor": "#f7f3e8",
+          "keyboardLegendColor": "#31343a",
+          "keyboardPressedColor": "#f2b36d",
+          "mouseColor": "#ffffff",
+          "mousePressedColor": "#f2b36d",
+          "mouseEnabled": true,
+          "mouseBaseXOffset": 0,
+          "mouseBaseZOffset": 0,
+          "mouseScalePercent": 100,
+          "keyboardBaseXOffset": 0,
+          "keyboardBaseZOffset": 0,
+          "keyboardScalePercent": 100,
+          "keyboardLegendLanguage": "ko"
+        },
+        "mirror": false,
+        "opacity": 100,
+        "eyebrowAnimationEnabled": true
+      },
+      "snapshot": {
+        "preset": {
+          "petRightArmBendPercent": 100,
+          "petRightArmSpreadDegrees": 0,
+          "petLeftArmBendPercent": 100,
+          "petLeftArmSpreadDegrees": 0,
+          "petHeadScalePercent": 100,
+          "petRotationDegrees": 0,
+          "petDeskOffset": 0,
+          "dmeloperEyebrows": {
+            "enabled": true,
+            "color": "#123456",
+            "centerOffsetPixels": 0,
+            "heightOffsetPixels": 0.3,
+            "spacingPixels": 1.5,
+            "widthPixels": 2,
+            "thicknessPixels": 0.5,
+            "depthPercent": 100
+          },
+          "dmeloperPalmColor": "#ABCDEF",
+          "lighting": {
+            "key": {
+              "color": "#ffffff",
+              "azimuthDegrees": -39,
+              "elevationDegrees": 44,
+              "strengthPercent": 100
+            }
+          },
+          "showDisplayArea": false,
+          "autoViewportEnabled": true,
+          "autoViewportPaddingPixels": 2,
+          "manualViewportRect": {
+            "x": 0,
+            "y": 0,
+            "width": 500,
+            "height": 422
+          },
+          "sceneRotationOffsetDegrees": 0,
+          "cameraHorizontalOffset": 0,
+          "cameraVerticalOffset": 0,
+          "cameraZoomPercent": 137,
+          "deskTransparent": true,
+          "deskHeightOffset": 0,
+          "deskWidthOffset": -1,
+          "deskDepthOffset": 0.1,
+          "deskColor": "#D9D9D9",
+          "keyboardColor": "#d5d8dc",
+          "keyboardKeycapColor": "#f7f3e8",
+          "keyboardLegendColor": "#31343a",
+          "keyboardPressedColor": "#f2b36d",
+          "mouseColor": "#ffffff",
+          "mousePressedColor": "#f2b36d",
+          "mouseEnabled": true,
+          "mouseBaseXOffset": 0,
+          "mouseBaseZOffset": 0,
+          "mouseScalePercent": 100,
+          "keyboardBaseXOffset": 0,
+          "keyboardBaseZOffset": 0,
+          "keyboardScalePercent": 100,
+          "keyboardLegendLanguage": "ko"
+        },
+        "mirror": false,
+        "opacity": 100,
+        "eyebrowAnimationEnabled": true,
+        "appearance": {
+          "selectedModelId": "dmeloper",
+          "dmeloperSkinModel": "slim",
+          "useDefaultDmeloperSkin": true,
+          "dmeloperSkinDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAACg0lEQVR4nO2aT2sTQRTA37xMlqIXb34AxYMURaQ1ENSTaLGHIl6s1YIVPChKUdSPoOBXKAVpwIP00H8IlkI9qScpHkTwIl5aomJswOzmj6S6674lnTTOptnZNz8IO+/N7GPe7puZzcwT0Iarp443VPV3708q7z86PCYgwSAwB4E5CMxBYA4CcxCYg8AcMZo/plzn21GuuMp6r1pT1i+9+9DT7wQE5shOGhdmpoLy5bEJSAP4P863klP7AAozU1u/AyfOBDq/nIaHgDtptD77Aj69eRnIzXJTlwZE48t79Srg/ZvlHz15vHV9eO9BoCt+/aa8ffz6rUSvArKTxmHH04KIKkZO50lE3Lhzk9QPXRhVvrFG6aMyop49X1R26NK1yY7sr716q7X/gNtVONkscAC3q3A9DziAwBxxPp8jY6per5MGFZdGglerEnlufpq2//vfYH+mj+jXa7/+XDeKRF/6uansYP/hQy3tB3bb2Dt5Vj1noV9wsnRBiMpZqZaj+A5Hy0lD+gXXo282KntVtdyKJDvug8AcBOZIf7yHQz4qN8d7OOSjcjfZJ+hkChn6zjLOHiLvlZ31C7s1/k0BgTkIzMG413/TkIW5WS0DlR+fwWTk6vKyloHcAP1UtVgsFvasLDxt7ESXalZCDrNzPuw4W+dNQUDCWXu9QCLIdemeYLH4ncib5TKRL165nXgfLRaLxWLpESJug3HnF+ie//dsU9QxJL8Au2XYlPwCBOYIXQPdyi+I6/x/1yLAMfR8AeMyZOr5IgJzJBiO7n6BjKMTOvkFuuf/B3PDvZ8EXUPHfxP2cwACc5Dr+u8jdQ3o5hdAaQOMfgCrmvkF5waP6HZBi9+8Fx5tnPZcnwAAAABJRU5ErkJggg==",
+          "activeSkinLibraryEntryId": "c79c163fcde7edd727499d449421dae7a1f5e5d1004152512c84b68656099b88",
+          "minecraftSkinUsername": "Fixture_User"
+        }
+      }
+    }
+  ],
+  "valueCases": [
+    {
+      "path": [
+        "preset",
+        "lighting",
+        "key",
+        "color"
+      ],
+      "values": [
+        "#123456",
+        "#ABCDEF"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "lighting",
+        "key",
+        "azimuthDegrees"
+      ],
+      "values": [
+        -180,
+        180,
+        -45
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "lighting",
+        "key",
+        "elevationDegrees"
+      ],
+      "values": [
+        -90,
+        90,
+        -22.5
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "lighting",
+        "key",
+        "strengthPercent"
+      ],
+      "values": [
+        25,
+        200,
+        90.625
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "deskTransparent"
+      ],
+      "values": [
+        false,
+        true
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "deskHeightOffset"
+      ],
+      "values": [
+        -1,
+        1,
+        -0.25
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "deskWidthOffset"
+      ],
+      "values": [
+        -1,
+        1,
+        -0.25
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "deskDepthOffset"
+      ],
+      "values": [
+        -1,
+        1,
+        -0.25
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "deskColor"
+      ],
+      "values": [
+        "#123456",
+        "#ABCDEF"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "showDisplayArea"
+      ],
+      "values": [
+        false,
+        true
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "autoViewportEnabled"
+      ],
+      "values": [
+        false,
+        true
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "autoViewportPaddingPixels"
+      ],
+      "values": [
+        0,
+        30,
+        15
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "manualViewportRect",
+        "x"
+      ],
+      "values": [
+        -9007199254740991,
+        9007199254740991,
+        -2251799813685248
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "manualViewportRect",
+        "y"
+      ],
+      "values": [
+        -9007199254740991,
+        9007199254740991,
+        -2251799813685248
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "manualViewportRect",
+        "width"
+      ],
+      "values": [
+        100,
+        9007199254740991,
+        4503599627370546
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "manualViewportRect",
+        "height"
+      ],
+      "values": [
+        100,
+        9007199254740991,
+        4503599627370546
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "sceneRotationOffsetDegrees"
+      ],
+      "values": [
+        -360,
+        360,
+        -90
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "cameraHorizontalOffset"
+      ],
+      "values": [
+        -1.5,
+        1.5,
+        -0.375
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "cameraVerticalOffset"
+      ],
+      "values": [
+        -1.5,
+        1.5,
+        -0.375
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "cameraZoomPercent"
+      ],
+      "values": [
+        25,
+        200,
+        90.625
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "petRightArmBendPercent"
+      ],
+      "values": [
+        0,
+        400,
+        150
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "petRightArmSpreadDegrees"
+      ],
+      "values": [
+        -45,
+        45,
+        -11.25
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "petLeftArmBendPercent"
+      ],
+      "values": [
+        0,
+        400,
+        150
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "petLeftArmSpreadDegrees"
+      ],
+      "values": [
+        -45,
+        45,
+        -11.25
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "petHeadScalePercent"
+      ],
+      "values": [
+        25,
+        200,
+        90.625
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "petRotationDegrees"
+      ],
+      "values": [
+        -30,
+        30,
+        -7.5
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "petDeskOffset"
+      ],
+      "values": [
+        -0.4,
+        0.4,
+        -0.09999999999999998
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "mouseEnabled"
+      ],
+      "values": [
+        false,
+        true
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "mouseBaseXOffset"
+      ],
+      "values": [
+        -0.6,
+        0.6,
+        -0.15000000000000002
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "mouseBaseZOffset"
+      ],
+      "values": [
+        -0.45,
+        0.45,
+        -0.11249999999999999
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "mouseScalePercent"
+      ],
+      "values": [
+        50,
+        200,
+        106.25
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardBaseXOffset"
+      ],
+      "values": [
+        -0.8,
+        0.8,
+        -0.19999999999999996
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardBaseZOffset"
+      ],
+      "values": [
+        -0.45,
+        0.45,
+        -0.11249999999999999
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardScalePercent"
+      ],
+      "values": [
+        50,
+        200,
+        106.25
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardLegendLanguage"
+      ],
+      "values": [
+        "ko",
+        "en"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardColor"
+      ],
+      "values": [
+        "#123456",
+        "#ABCDEF"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardKeycapColor"
+      ],
+      "values": [
+        "#123456",
+        "#ABCDEF"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardLegendColor"
+      ],
+      "values": [
+        "#123456",
+        "#ABCDEF"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "keyboardPressedColor"
+      ],
+      "values": [
+        "#123456",
+        "#ABCDEF"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "mouseColor"
+      ],
+      "values": [
+        "#123456",
+        "#ABCDEF"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "mousePressedColor"
+      ],
+      "values": [
+        "#123456",
+        "#ABCDEF"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "enabled"
+      ],
+      "values": [
+        false,
+        true
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "color"
+      ],
+      "values": [
+        "#123456",
+        "#ABCDEF"
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "centerOffsetPixels"
+      ],
+      "values": [
+        -1.5,
+        1.5,
+        -0.375
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "heightOffsetPixels"
+      ],
+      "values": [
+        -3,
+        3,
+        -0.75
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "spacingPixels"
+      ],
+      "values": [
+        0.5,
+        3,
+        1.4375
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "widthPixels"
+      ],
+      "values": [
+        0.8,
+        4,
+        2
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "thicknessPixels"
+      ],
+      "values": [
+        0.2,
+        1.4,
+        0.6499999999999999
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperEyebrows",
+        "depthPercent"
+      ],
+      "values": [
+        0,
+        200,
+        75
+      ]
+    },
+    {
+      "path": [
+        "preset",
+        "dmeloperPalmColor"
+      ],
+      "values": [
+        "#123456",
+        "#ABCDEF"
+      ]
+    },
+    {
+      "path": [
+        "mirror"
+      ],
+      "values": [
+        false,
+        true
+      ]
+    },
+    {
+      "path": [
+        "opacity"
+      ],
+      "values": [
+        0,
+        100,
+        37.5
+      ]
+    },
+    {
+      "path": [
+        "eyebrowAnimationEnabled"
+      ],
+      "values": [
+        false,
+        true
+      ]
+    }
+  ],
+  "portableVersion": 1,
+  "readerContract": {
+    "version": 1,
+    "fields": [
+      {
+        "path": [
+          "preset",
+          "lighting",
+          "key",
+          "color"
+        ],
+        "type": "color",
+        "label": "lighting.key.color"
+      },
+      {
+        "path": [
+          "preset",
+          "lighting",
+          "key",
+          "azimuthDegrees"
+        ],
+        "type": "number",
+        "label": "lighting.key.azimuthDegrees",
+        "min": -180,
+        "max": 180
+      },
+      {
+        "path": [
+          "preset",
+          "lighting",
+          "key",
+          "elevationDegrees"
+        ],
+        "type": "number",
+        "label": "lighting.key.elevationDegrees",
+        "min": -90,
+        "max": 90
+      },
+      {
+        "path": [
+          "preset",
+          "lighting",
+          "key",
+          "strengthPercent"
+        ],
+        "type": "number",
+        "label": "lighting.key.strengthPercent",
+        "min": 25,
+        "max": 200
+      },
+      {
+        "path": [
+          "preset",
+          "deskTransparent"
+        ],
+        "type": "boolean",
+        "label": "deskTransparent"
+      },
+      {
+        "path": [
+          "preset",
+          "deskHeightOffset"
+        ],
+        "type": "number",
+        "label": "deskHeightOffset",
+        "min": -1,
+        "max": 1
+      },
+      {
+        "path": [
+          "preset",
+          "deskWidthOffset"
+        ],
+        "type": "number",
+        "label": "deskWidthOffset",
+        "min": -1,
+        "max": 1
+      },
+      {
+        "path": [
+          "preset",
+          "deskDepthOffset"
+        ],
+        "type": "number",
+        "label": "deskDepthOffset",
+        "min": -1,
+        "max": 1
+      },
+      {
+        "path": [
+          "preset",
+          "deskColor"
+        ],
+        "type": "color",
+        "label": "deskColor"
+      },
+      {
+        "path": [
+          "preset",
+          "showDisplayArea"
+        ],
+        "type": "boolean",
+        "label": "showDisplayArea"
+      },
+      {
+        "path": [
+          "preset",
+          "autoViewportEnabled"
+        ],
+        "type": "boolean",
+        "label": "autoViewportEnabled"
+      },
+      {
+        "path": [
+          "preset",
+          "autoViewportPaddingPixels"
+        ],
+        "type": "number",
+        "label": "autoViewportPaddingPixels",
+        "min": 0,
+        "max": 30,
+        "integer": true
+      },
+      {
+        "path": [
+          "preset",
+          "manualViewportRect",
+          "x"
+        ],
+        "type": "number",
+        "label": "manualViewportRect.x",
+        "min": -9007199254740991,
+        "max": 9007199254740991
+      },
+      {
+        "path": [
+          "preset",
+          "manualViewportRect",
+          "y"
+        ],
+        "type": "number",
+        "label": "manualViewportRect.y",
+        "min": -9007199254740991,
+        "max": 9007199254740991
+      },
+      {
+        "path": [
+          "preset",
+          "manualViewportRect",
+          "width"
+        ],
+        "type": "number",
+        "label": "manualViewportRect.width",
+        "min": 100,
+        "max": 9007199254740991,
+        "integer": true
+      },
+      {
+        "path": [
+          "preset",
+          "manualViewportRect",
+          "height"
+        ],
+        "type": "number",
+        "label": "manualViewportRect.height",
+        "min": 100,
+        "max": 9007199254740991,
+        "integer": true
+      },
+      {
+        "path": [
+          "preset",
+          "sceneRotationOffsetDegrees"
+        ],
+        "type": "number",
+        "label": "sceneRotationOffsetDegrees",
+        "min": -360,
+        "max": 360
+      },
+      {
+        "path": [
+          "preset",
+          "cameraHorizontalOffset"
+        ],
+        "type": "number",
+        "label": "cameraHorizontalOffset",
+        "min": -1.5,
+        "max": 1.5
+      },
+      {
+        "path": [
+          "preset",
+          "cameraVerticalOffset"
+        ],
+        "type": "number",
+        "label": "cameraVerticalOffset",
+        "min": -1.5,
+        "max": 1.5
+      },
+      {
+        "path": [
+          "preset",
+          "cameraZoomPercent"
+        ],
+        "type": "number",
+        "label": "cameraZoomPercent",
+        "min": 25,
+        "max": 200
+      },
+      {
+        "path": [
+          "preset",
+          "petRightArmBendPercent"
+        ],
+        "type": "number",
+        "label": "petRightArmBendPercent",
+        "min": 0,
+        "max": 400
+      },
+      {
+        "path": [
+          "preset",
+          "petRightArmSpreadDegrees"
+        ],
+        "type": "number",
+        "label": "petRightArmSpreadDegrees",
+        "min": -45,
+        "max": 45
+      },
+      {
+        "path": [
+          "preset",
+          "petLeftArmBendPercent"
+        ],
+        "type": "number",
+        "label": "petLeftArmBendPercent",
+        "min": 0,
+        "max": 400
+      },
+      {
+        "path": [
+          "preset",
+          "petLeftArmSpreadDegrees"
+        ],
+        "type": "number",
+        "label": "petLeftArmSpreadDegrees",
+        "min": -45,
+        "max": 45
+      },
+      {
+        "path": [
+          "preset",
+          "petHeadScalePercent"
+        ],
+        "type": "number",
+        "label": "petHeadScalePercent",
+        "min": 25,
+        "max": 200
+      },
+      {
+        "path": [
+          "preset",
+          "petRotationDegrees"
+        ],
+        "type": "number",
+        "label": "petRotationDegrees",
+        "rangeRef": [
+          "preset",
+          "petRotationDegrees"
+        ]
+      },
+      {
+        "path": [
+          "preset",
+          "petDeskOffset"
+        ],
+        "type": "number",
+        "label": "petDeskOffset",
+        "rangeRef": [
+          "preset",
+          "petDeskOffset"
+        ]
+      },
+      {
+        "path": [
+          "preset",
+          "mouseEnabled"
+        ],
+        "type": "boolean",
+        "label": "mouseEnabled"
+      },
+      {
+        "path": [
+          "preset",
+          "mouseBaseXOffset"
+        ],
+        "type": "number",
+        "label": "mouseBaseXOffset",
+        "rangeRef": [
+          "preset",
+          "mouseBaseXOffset"
+        ]
+      },
+      {
+        "path": [
+          "preset",
+          "mouseBaseZOffset"
+        ],
+        "type": "number",
+        "label": "mouseBaseZOffset",
+        "rangeRef": [
+          "preset",
+          "mouseBaseZOffset"
+        ]
+      },
+      {
+        "path": [
+          "preset",
+          "mouseScalePercent"
+        ],
+        "type": "number",
+        "label": "mouseScalePercent",
+        "min": 50,
+        "max": 200
+      },
+      {
+        "path": [
+          "preset",
+          "keyboardBaseXOffset"
+        ],
+        "type": "number",
+        "label": "keyboardBaseXOffset",
+        "rangeRef": [
+          "preset",
+          "keyboardBaseXOffset"
+        ]
+      },
+      {
+        "path": [
+          "preset",
+          "keyboardBaseZOffset"
+        ],
+        "type": "number",
+        "label": "keyboardBaseZOffset",
+        "rangeRef": [
+          "preset",
+          "keyboardBaseZOffset"
+        ]
+      },
+      {
+        "path": [
+          "preset",
+          "keyboardScalePercent"
+        ],
+        "type": "number",
+        "label": "keyboardScalePercent",
+        "min": 50,
+        "max": 200
+      },
+      {
+        "path": [
+          "preset",
+          "keyboardLegendLanguage"
+        ],
+        "type": "enum",
+        "label": "keyboardLegendLanguage",
+        "values": [
+          "ko",
+          "en"
+        ]
+      },
+      {
+        "path": [
+          "preset",
+          "keyboardColor"
+        ],
+        "type": "color",
+        "label": "keyboardColor"
+      },
+      {
+        "path": [
+          "preset",
+          "keyboardKeycapColor"
+        ],
+        "type": "color",
+        "label": "keyboardKeycapColor"
+      },
+      {
+        "path": [
+          "preset",
+          "keyboardLegendColor"
+        ],
+        "type": "color",
+        "label": "keyboardLegendColor"
+      },
+      {
+        "path": [
+          "preset",
+          "keyboardPressedColor"
+        ],
+        "type": "color",
+        "label": "keyboardPressedColor"
+      },
+      {
+        "path": [
+          "preset",
+          "mouseColor"
+        ],
+        "type": "color",
+        "label": "mouseColor"
+      },
+      {
+        "path": [
+          "preset",
+          "mousePressedColor"
+        ],
+        "type": "color",
+        "label": "mousePressedColor"
+      },
+      {
+        "path": [
+          "preset",
+          "dmeloperEyebrows",
+          "enabled"
+        ],
+        "type": "boolean",
+        "label": "dmeloperEyebrows.enabled"
+      },
+      {
+        "path": [
+          "preset",
+          "dmeloperEyebrows",
+          "color"
+        ],
+        "type": "color",
+        "label": "dmeloperEyebrows.color"
+      },
+      {
+        "path": [
+          "preset",
+          "dmeloperEyebrows",
+          "centerOffsetPixels"
+        ],
+        "type": "number",
+        "label": "dmeloperEyebrows.centerOffsetPixels",
+        "min": -1.5,
+        "max": 1.5
+      },
+      {
+        "path": [
+          "preset",
+          "dmeloperEyebrows",
+          "heightOffsetPixels"
+        ],
+        "type": "number",
+        "label": "dmeloperEyebrows.heightOffsetPixels",
+        "min": -3,
+        "max": 3
+      },
+      {
+        "path": [
+          "preset",
+          "dmeloperEyebrows",
+          "spacingPixels"
+        ],
+        "type": "number",
+        "label": "dmeloperEyebrows.spacingPixels",
+        "rangeRef": [
+          "eyebrows",
+          "spacingPixels"
+        ]
+      },
+      {
+        "path": [
+          "preset",
+          "dmeloperEyebrows",
+          "widthPixels"
+        ],
+        "type": "number",
+        "label": "dmeloperEyebrows.widthPixels",
+        "rangeRef": [
+          "eyebrows",
+          "widthPixels"
+        ]
+      },
+      {
+        "path": [
+          "preset",
+          "dmeloperEyebrows",
+          "thicknessPixels"
+        ],
+        "type": "number",
+        "label": "dmeloperEyebrows.thicknessPixels",
+        "rangeRef": [
+          "eyebrows",
+          "thicknessPixels"
+        ]
+      },
+      {
+        "path": [
+          "preset",
+          "dmeloperEyebrows",
+          "depthPercent"
+        ],
+        "type": "number",
+        "label": "dmeloperEyebrows.depthPercent",
+        "min": 0,
+        "max": 200
+      },
+      {
+        "path": [
+          "preset",
+          "dmeloperPalmColor"
+        ],
+        "type": "color",
+        "label": "dmeloperPalmColor"
+      },
+      {
+        "path": [
+          "mirror"
+        ],
+        "type": "boolean",
+        "label": "mirror"
+      },
+      {
+        "path": [
+          "opacity"
+        ],
+        "type": "number",
+        "label": "opacity",
+        "min": 0,
+        "max": 100
+      },
+      {
+        "path": [
+          "eyebrowAnimationEnabled"
+        ],
+        "type": "boolean",
+        "label": "eyebrowAnimationEnabled"
+      }
+    ],
+    "atomicGroups": [
+      [
+        "preset",
+        "manualViewportRect"
+      ]
+    ],
+    "migrations": [
+      "legacy-desk-v1",
+      "eyebrow-depth-v1",
+      "lighting-v1"
+    ]
+  },
+  "ranges": {
+    "preset": {
+      "petRotationDegrees": {
+        "min": -30,
+        "max": 30
+      },
+      "petDeskOffset": {
+        "min": -0.4,
+        "max": 0.4
+      },
+      "keyboardBaseXOffset": {
+        "min": -0.8,
+        "max": 0.8
+      },
+      "keyboardBaseZOffset": {
+        "min": -0.45,
+        "max": 0.45
+      },
+      "mouseBaseXOffset": {
+        "min": -0.6,
+        "max": 0.6
+      },
+      "mouseBaseZOffset": {
+        "min": -0.45,
+        "max": 0.45
+      }
+    },
+    "eyebrows": {
+      "spacingPixels": {
+        "min": 0.5,
+        "max": 3
+      },
+      "widthPixels": {
+        "min": 0.8,
+        "max": 4
+      },
+      "thicknessPixels": {
+        "min": 0.2,
+        "max": 1.4
+      }
+    }
+  },
+  "maxPadding": 30,
+  "catalog": {
+    "schemaVersion": 4,
+    "activeId": "historical-custom",
+    "entries": [
+      {
+        "id": "historical-default",
+        "name": "Historical default",
+        "favorite": false,
+        "snapshot": {
+          "preset": {
+            "petRightArmBendPercent": 100,
+            "petRightArmSpreadDegrees": 0,
+            "petLeftArmBendPercent": 100,
+            "petLeftArmSpreadDegrees": 0,
+            "petHeadScalePercent": 100,
+            "petRotationDegrees": 0,
+            "petDeskOffset": 0,
+            "dmeloperEyebrows": {
+              "enabled": true,
+              "color": "#523830",
+              "centerOffsetPixels": 0,
+              "heightOffsetPixels": 0.3,
+              "spacingPixels": 1.5,
+              "widthPixels": 2,
+              "thicknessPixels": 0.5,
+              "depthPercent": 50
+            },
+            "dmeloperPalmColor": "#FFDFCE",
+            "lighting": {
+              "key": {
+                "color": "#ffffff",
+                "azimuthDegrees": -39,
+                "elevationDegrees": 44,
+                "strengthPercent": 100
+              }
+            },
+            "showDisplayArea": false,
+            "autoViewportEnabled": true,
+            "autoViewportPaddingPixels": 2,
+            "manualViewportRect": {
+              "x": 0,
+              "y": 0,
+              "width": 500,
+              "height": 422
+            },
+            "sceneRotationOffsetDegrees": 0,
+            "cameraHorizontalOffset": 0,
+            "cameraVerticalOffset": 0,
+            "cameraZoomPercent": 100,
+            "deskTransparent": true,
+            "deskHeightOffset": 0,
+            "deskWidthOffset": -0.28,
+            "deskDepthOffset": 0.1,
+            "deskColor": "#D9D9D9",
+            "keyboardColor": "#d5d8dc",
+            "keyboardKeycapColor": "#f7f3e8",
+            "keyboardLegendColor": "#31343a",
+            "keyboardPressedColor": "#f2b36d",
+            "mouseColor": "#ffffff",
+            "mousePressedColor": "#f2b36d",
+            "mouseEnabled": true,
+            "mouseBaseXOffset": 0,
+            "mouseBaseZOffset": 0,
+            "mouseScalePercent": 100,
+            "keyboardBaseXOffset": 0,
+            "keyboardBaseZOffset": 0,
+            "keyboardScalePercent": 100,
+            "keyboardLegendLanguage": "ko"
+          },
+          "appearance": {
+            "selectedModelId": "dmeloper",
+            "dmeloperSkinModel": "wide",
+            "useDefaultDmeloperSkin": true
+          },
+          "mirror": false,
+          "opacity": 100,
+          "eyebrowAnimationEnabled": true
+        }
+      },
+      {
+        "id": "historical-custom",
+        "name": "Historical custom",
+        "favorite": true,
+        "snapshot": {
+          "preset": {
+            "petRightArmBendPercent": 100,
+            "petRightArmSpreadDegrees": 0,
+            "petLeftArmBendPercent": 100,
+            "petLeftArmSpreadDegrees": 0,
+            "petHeadScalePercent": 100,
+            "petRotationDegrees": 0,
+            "petDeskOffset": 0,
+            "dmeloperEyebrows": {
+              "enabled": true,
+              "color": "#123456",
+              "centerOffsetPixels": 0,
+              "heightOffsetPixels": 0.3,
+              "spacingPixels": 1.5,
+              "widthPixels": 2,
+              "thicknessPixels": 0.5,
+              "depthPercent": 50
+            },
+            "dmeloperPalmColor": "#ABCDEF",
+            "lighting": {
+              "key": {
+                "color": "#ffffff",
+                "azimuthDegrees": -39,
+                "elevationDegrees": 44,
+                "strengthPercent": 100
+              }
+            },
+            "showDisplayArea": false,
+            "autoViewportEnabled": true,
+            "autoViewportPaddingPixels": 2,
+            "manualViewportRect": {
+              "x": 0,
+              "y": 0,
+              "width": 500,
+              "height": 422
+            },
+            "sceneRotationOffsetDegrees": 0,
+            "cameraHorizontalOffset": 0,
+            "cameraVerticalOffset": 0,
+            "cameraZoomPercent": 137,
+            "deskTransparent": true,
+            "deskHeightOffset": 0,
+            "deskWidthOffset": -0.28,
+            "deskDepthOffset": 0.1,
+            "deskColor": "#D9D9D9",
+            "keyboardColor": "#d5d8dc",
+            "keyboardKeycapColor": "#f7f3e8",
+            "keyboardLegendColor": "#31343a",
+            "keyboardPressedColor": "#f2b36d",
+            "mouseColor": "#ffffff",
+            "mousePressedColor": "#f2b36d",
+            "mouseEnabled": true,
+            "mouseBaseXOffset": 0,
+            "mouseBaseZOffset": 0,
+            "mouseScalePercent": 100,
+            "keyboardBaseXOffset": 0,
+            "keyboardBaseZOffset": 0,
+            "keyboardScalePercent": 100,
+            "keyboardLegendLanguage": "ko"
+          },
+          "appearance": {
+            "selectedModelId": "dmeloper",
+            "dmeloperSkinModel": "slim",
+            "useDefaultDmeloperSkin": true,
+            "dmeloperSkinDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAACg0lEQVR4nO2aT2sTQRTA37xMlqIXb34AxYMURaQ1ENSTaLGHIl6s1YIVPChKUdSPoOBXKAVpwIP00H8IlkI9qScpHkTwIl5aomJswOzmj6S6674lnTTOptnZNz8IO+/N7GPe7puZzcwT0Iarp443VPV3708q7z86PCYgwSAwB4E5CMxBYA4CcxCYg8AcMZo/plzn21GuuMp6r1pT1i+9+9DT7wQE5shOGhdmpoLy5bEJSAP4P863klP7AAozU1u/AyfOBDq/nIaHgDtptD77Aj69eRnIzXJTlwZE48t79Srg/ZvlHz15vHV9eO9BoCt+/aa8ffz6rUSvArKTxmHH04KIKkZO50lE3Lhzk9QPXRhVvrFG6aMyop49X1R26NK1yY7sr716q7X/gNtVONkscAC3q3A9DziAwBxxPp8jY6per5MGFZdGglerEnlufpq2//vfYH+mj+jXa7/+XDeKRF/6uansYP/hQy3tB3bb2Dt5Vj1noV9wsnRBiMpZqZaj+A5Hy0lD+gXXo282KntVtdyKJDvug8AcBOZIf7yHQz4qN8d7OOSjcjfZJ+hkChn6zjLOHiLvlZ31C7s1/k0BgTkIzMG413/TkIW5WS0DlR+fwWTk6vKyloHcAP1UtVgsFvasLDxt7ESXalZCDrNzPuw4W+dNQUDCWXu9QCLIdemeYLH4ncib5TKRL165nXgfLRaLxWLpESJug3HnF+ie//dsU9QxJL8Au2XYlPwCBOYIXQPdyi+I6/x/1yLAMfR8AeMyZOr5IgJzJBiO7n6BjKMTOvkFuuf/B3PDvZ8EXUPHfxP2cwACc5Dr+u8jdQ3o5hdAaQOMfgCrmvkF5waP6HZBi9+8Fx5tnPZcnwAAAABJRU5ErkJggg==",
+            "activeSkinLibraryEntryId": "c79c163fcde7edd727499d449421dae7a1f5e5d1004152512c84b68656099b88",
+            "minecraftSkinUsername": "Fixture_User"
+          },
+          "mirror": false,
+          "opacity": 100,
+          "eyebrowAnimationEnabled": true
+        }
+      }
+    ]
+  }
+}

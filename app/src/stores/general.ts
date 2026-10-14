@@ -3,13 +3,20 @@ import type { Theme } from '@tauri-apps/api/window'
 import { defineStore } from 'pinia'
 import { computed, reactive, ref } from 'vue'
 
+import type { ForegroundHidingSettings } from '@/features/foregroundHiding/settings'
 import type { LanguagePreference } from '@/locales/languageBranch'
 
 import { DEFAULT_GENERAL_SETTINGS } from '@/config/defaultSettings'
+import { createForegroundHidingSettings } from '@/features/foregroundHiding/settings'
 import { isLanguagePreference, resolveLanguage } from '@/locales/languageBranch'
 import { getSystemLanguage } from '@/services/systemLanguage'
 
 export type { Language, LanguagePreference } from '@/locales/languageBranch'
+
+export interface UpdateReminderSnooze {
+  version: string
+  hiddenUntil: number
+}
 
 export interface GeneralStore {
   broadcast: {
@@ -21,14 +28,27 @@ export interface GeneralStore {
     taskbarVisible: boolean
     autoUpdateCheck: boolean
     updateReminderHiddenUntil: number
+    updateReminderSnooze: UpdateReminderSnooze
     broadcastRestorePromptDismissed: boolean
     applyPresetSkin: boolean
+    foregroundHiding: ForegroundHidingSettings
   }
   appearance: {
     theme: 'auto' | Theme
     isDark: boolean
     language?: LanguagePreference
   }
+}
+
+function normalizeReminderSnooze(value: unknown): UpdateReminderSnooze {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const pair = value as Partial<UpdateReminderSnooze>
+    if (typeof pair.version === 'string' && pair.version.trim()
+      && typeof pair.hiddenUntil === 'number' && Number.isFinite(pair.hiddenUntil) && pair.hiddenUntil >= 0) {
+      return { version: pair.version, hiddenUntil: pair.hiddenUntil }
+    }
+  }
+  return { ...DEFAULT_GENERAL_SETTINGS.app.updateReminderSnooze }
 }
 
 export const useGeneralStore = defineStore('general', () => {
@@ -49,7 +69,11 @@ export const useGeneralStore = defineStore('general', () => {
   /** @deprecated 用于标识数据是否已迁移，后续版本将删除 */
   const migrated = ref(false)
 
-  const app = reactive<GeneralStore['app']>({ ...DEFAULT_GENERAL_SETTINGS.app })
+  const app = reactive<GeneralStore['app']>({
+    ...DEFAULT_GENERAL_SETTINGS.app,
+    updateReminderSnooze: { ...DEFAULT_GENERAL_SETTINGS.app.updateReminderSnooze },
+    foregroundHiding: createForegroundHidingSettings(),
+  })
 
   const broadcast = reactive<GeneralStore['broadcast']>({ ...DEFAULT_GENERAL_SETTINGS.broadcast })
 
@@ -58,6 +82,11 @@ export const useGeneralStore = defineStore('general', () => {
   const resolvedLanguage = computed(() => resolveLanguage(appearance.language, getSystemLanguage()))
 
   const init = async () => {
+    // A legacy global deadline has no recoverable target. Keep it for older readers.
+    const snooze = normalizeReminderSnooze(app.updateReminderSnooze)
+    if (app.updateReminderSnooze?.version !== snooze.version || app.updateReminderSnooze?.hiddenUntil !== snooze.hiddenUntil) {
+      app.updateReminderSnooze = snooze
+    }
     if (!Number.isFinite(app.updateReminderHiddenUntil) || app.updateReminderHiddenUntil < 0) {
       app.updateReminderHiddenUntil = DEFAULT_GENERAL_SETTINGS.app.updateReminderHiddenUntil
     }
@@ -89,7 +118,10 @@ export const useGeneralStore = defineStore('general', () => {
     taskbarVisibility.value = DEFAULT_GENERAL_SETTINGS.app.taskbarVisible
     theme.value = DEFAULT_GENERAL_SETTINGS.appearance.theme
     isDark.value = DEFAULT_GENERAL_SETTINGS.appearance.isDark
-    Object.assign(app, DEFAULT_GENERAL_SETTINGS.app)
+    Object.assign(app, DEFAULT_GENERAL_SETTINGS.app, {
+      updateReminderSnooze: { ...DEFAULT_GENERAL_SETTINGS.app.updateReminderSnooze },
+      foregroundHiding: createForegroundHidingSettings(app.foregroundHiding),
+    })
     Object.assign(appearance, DEFAULT_GENERAL_SETTINGS.appearance, { isDark: observedDark })
     migrated.value = true
   }
@@ -103,4 +135,24 @@ export const useGeneralStore = defineStore('general', () => {
     init,
     reset,
   }
+}, {
+  tauri: {
+    hooks: {
+      beforeFrontendSync(state) {
+        const app = state.app
+        if (!app || typeof app !== 'object' || Array.isArray(app)) return state
+        // Normalize the whole incoming pair before Pinia deep-merges it with a
+        // previous target/deadline. Partial records must never borrow either half.
+        const incoming: Record<string, unknown> = { ...app }
+        if ('updateReminderSnooze' in app) incoming.updateReminderSnooze = normalizeReminderSnooze(app.updateReminderSnooze)
+        // Pinia replaces a reactive subpatch instead of recursively merging it.
+        // Treat this config as one raw record: partial/malformed fields must not
+        // borrow defaults or previous rules and become valid by accident.
+        if ('foregroundHiding' in app && app.foregroundHiding && typeof app.foregroundHiding === 'object') {
+          incoming.foregroundHiding = reactive(app.foregroundHiding)
+        }
+        return { ...state, app: incoming }
+      },
+    },
+  },
 })

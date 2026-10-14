@@ -4,6 +4,7 @@ mod bootstrap;
 mod data_paths;
 mod distribution;
 mod external_links;
+mod foreground_hiding;
 mod native_operation;
 mod windows_process;
 #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
@@ -92,6 +93,7 @@ pub fn run() {
         .plugin(tauri_plugin_log::Builder::new().skip_logger().build())
         .plugin(asset_scope::init())
         .manage(PerformanceMonitorState::new())
+        .manage(foreground_hiding::ForegroundHidingState::default())
         // Configured webviews can invoke commands while setup is still running.
         .manage(StartupReady::new())
         .setup(|app| {
@@ -108,6 +110,8 @@ pub fn run() {
                 // or let a corrupt stored file become a new frontend default snapshot.
                 std::io::Error::other(code)
             })?;
+            app.state::<foreground_hiding::ForegroundHidingState>()
+                .start(app.handle());
             app.manage(MinecraftSkinState::new(app.handle()));
             app.manage(SkinLibraryState::new(app.handle()));
             app.manage(BroadcastState::new(app.handle()));
@@ -171,7 +175,15 @@ pub fn run() {
             state_safety::verify_state_quiescence,
             state_safety::release_state_quiescence,
             await_native_startup,
-            system_language::get_system_ui_language
+            system_language::get_system_ui_language,
+            foreground_hiding::get_foreground_hiding_status,
+            foreground_hiding::configure_foreground_hiding,
+            foreground_hiding::show_foreground_hiding_visit,
+            foreground_hiding::list_foreground_applications,
+            foreground_hiding::stream_foreground_applications,
+            foreground_hiding::stream_foreground_programs,
+            foreground_hiding::describe_foreground_applications,
+            foreground_hiding::select_foreground_application
         ])
         .plugin(tauri_plugin_custom_window::init())
         .plugin(tauri_plugin_os::init())
@@ -223,6 +235,9 @@ pub fn run() {
     lifetime_lock.listen(app.handle().clone());
     app.run(|app_handle, event| match event {
         tauri::RunEvent::Exit => {
+            app_handle
+                .state::<foreground_hiding::ForegroundHidingState>()
+                .shutdown();
             app_handle.state::<BroadcastState>().shutdown();
             let _ = core::device::stop_listening();
         }

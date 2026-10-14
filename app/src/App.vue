@@ -23,6 +23,7 @@ import { initializePetForStartup } from './features/stateSafety/bridge'
 import { markStoresReady, registerStateSnapshots } from './features/stateSafety/runtime'
 import { hideWindow, showWindow } from './plugins/window'
 import { createShowWindowRequestHandler } from './plugins/windowNavigation'
+import { startForegroundHiding } from './services/foregroundHiding'
 import { useAppStore } from './stores/app'
 import { useBlockStore } from './stores/block'
 import { useGeneralStore } from './stores/general'
@@ -47,8 +48,10 @@ const { language } = useAppLanguage()
 const router = useRouter()
 let settingsReady: Promise<void>
 let disposed = false
+let stopForegroundHiding: (() => void) | undefined
 onUnmounted(() => {
   disposed = true
+  stopForegroundHiding?.()
 })
 
 async function restoreSettings() {
@@ -59,6 +62,13 @@ async function restoreSettings() {
   initializePetForStartup(blockStore)
   await generalStore.$tauri.start()
   await generalStore.init()
+  stopForegroundHiding = await startForegroundHiding(appWindow.label === WINDOW_LABEL.PREFERENCE
+    ? () => generalStore.app.foregroundHiding
+    : undefined, () => isDesktopPetVisible(blockStore.window.visible, generalStore.broadcast))
+  if (disposed) {
+    stopForegroundHiding()
+    return
+  }
   await shortcutStore.$tauri.start()
   if (appWindow.label === WINDOW_LABEL.MAIN || appWindow.label === WINDOW_LABEL.PREFERENCE) {
     await invoke('initialize_shortcut_defaults')

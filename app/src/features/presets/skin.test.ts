@@ -1,10 +1,13 @@
 /* eslint-disable test/no-import-node-test */
+import { mockIPC } from '@tauri-apps/api/mocks'
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { it } from 'node:test'
 
 import type { SkinLibraryEntry, SkinLibraryStoreRequest } from '@/services/skinLibrary'
+
+import { SkinLibraryError } from '@/services/skinLibrary'
 
 import { clonePreset, createDefaultPresetSnapshot } from './model'
 import { preparePresetSkin, restorePresetSkin } from './skin'
@@ -14,7 +17,7 @@ it('migrates unregistered legacy default snapshots while retaining registered im
   const browser = installPresetSkinBrowser()
   try {
     const snapshot = createDefaultPresetSnapshot()
-    const id = 'a'.repeat(64)
+    const id = createHash('sha256').update(Buffer.from(browser.dataUrl.split(',')[1], 'base64')).digest('hex')
     snapshot.appearance.activeSkinLibraryEntryId = id
     snapshot.appearance.dmeloperSkinDataUrl = browser.dataUrl
     snapshot.preset.dmeloperEyebrows.color = '#123456'
@@ -184,6 +187,115 @@ it('does not register bundled skins and surfaces failed user-library acknowledge
     assert.deepEqual(snapshot, before)
     browser.failCatalog(true)
     await assert.rejects(restorePresetSkin(snapshot, 'User'), /IO_ERROR/)
+    assert.deepEqual(snapshot, before)
+  } finally {
+    browser.restore()
+  }
+})
+
+for (const failure of ['lookup', 'write'] as const) {
+  it(`retains validated embedded PNG bytes and identity when optional library ${failure} is unavailable`, async () => {
+    let writes = 0
+    const browser = installPresetSkinBrowser(() => {
+      writes++
+      throw new SkinLibraryError('STORAGE_UNAVAILABLE')
+    })
+    try {
+      const snapshot = createDefaultPresetSnapshot()
+      snapshot.appearance.dmeloperSkinDataUrl = browser.dataUrl
+      snapshot.appearance.activeSkinLibraryEntryId = 'a'.repeat(64)
+      snapshot.appearance.minecraftSkinUsername = 'Retained_Name'
+      snapshot.preset.dmeloperPalmColor = '#123456'
+      snapshot.preset.dmeloperEyebrows.color = '#abcdef'
+      const before = clonePreset(snapshot)
+      browser.failCatalog(failure === 'lookup')
+      const warnings: string[] = []
+      const prepared = await restorePresetSkin(snapshot, 'Retained scene', cause => warnings.push(cause.code))
+      assert.deepEqual(prepared, before)
+      assert.deepEqual(snapshot, before)
+      assert.deepEqual(warnings, [failure === 'lookup' ? 'IO_ERROR' : 'STORAGE_UNAVAILABLE'])
+      assert.equal(writes, failure === 'lookup' ? 0 : 1)
+      assert.ok(browser.decoded() > 0, 'validated asset bytes are required before optional fallback')
+    } finally {
+      browser.restore()
+    }
+  })
+}
+
+for (const code of ['CATALOG_CORRUPT', 'INVALID_PNG', 'INVALID_DIMENSIONS', 'TOO_LARGE', 'INVALID_RESPONSE', 'INVALID_REQUEST'] as const) {
+  it(`does not downgrade unsafe library ${code} to an optional application warning`, async () => {
+    const browser = installPresetSkinBrowser(() => {
+      throw new SkinLibraryError(code)
+    })
+    try {
+      const snapshot = createDefaultPresetSnapshot()
+      snapshot.appearance.dmeloperSkinDataUrl = browser.dataUrl
+      snapshot.appearance.activeSkinLibraryEntryId = 'a'.repeat(64)
+      const before = clonePreset(snapshot)
+      const warnings: string[] = []
+      await assert.rejects(restorePresetSkin(snapshot, 'Unsafe library', cause => warnings.push(cause.code)), new RegExp(code))
+      assert.deepEqual(warnings, [])
+      assert.deepEqual(snapshot, before)
+    } finally {
+      browser.restore()
+    }
+  })
+}
+
+it('rejects corrupt embedded PNG bytes before considering optional library recovery', async () => {
+  const browser = installPresetSkinBrowser()
+  try {
+    browser.failCatalog(true)
+    const snapshot = createDefaultPresetSnapshot()
+    snapshot.appearance.dmeloperSkinDataUrl = 'data:image/png;base64,YQ=='
+    snapshot.appearance.activeSkinLibraryEntryId = 'a'.repeat(64)
+    const before = clonePreset(snapshot)
+    const warnings: string[] = []
+    await assert.rejects(restorePresetSkin(snapshot, 'Corrupt image', cause => warnings.push(cause.code)), /valid PNG signature/)
+    assert.deepEqual(warnings, [])
+    assert.deepEqual(snapshot, before)
+  } finally {
+    browser.restore()
+  }
+})
+
+it('does not hide a corrupt catalog during legacy bundled-identity verification', async () => {
+  const browser = installPresetSkinBrowser()
+  try {
+    await preparePresetSkin(createDefaultPresetSnapshot())
+    const snapshot = createDefaultPresetSnapshot()
+    snapshot.appearance.dmeloperSkinDataUrl = browser.dataUrl
+    snapshot.appearance.activeSkinLibraryEntryId = createHash('sha256').update(Buffer.from(browser.dataUrl.split(',')[1], 'base64')).digest('hex')
+    const before = clonePreset(snapshot)
+    mockIPC((command) => {
+      assert.equal(command, 'list_skin_library')
+      throw new SkinLibraryError('CATALOG_CORRUPT')
+    })
+    await assert.rejects(preparePresetSkin(snapshot), /CATALOG_CORRUPT/)
+    assert.deepEqual(snapshot, before)
+  } finally {
+    browser.restore()
+  }
+})
+
+it('preserves a removed local skin identity matching bundled PNG bytes after library recovery and JSON reload', async () => {
+  const browser = installPresetSkinBrowser()
+  try {
+    const snapshot = createDefaultPresetSnapshot()
+    // Native identity_id hashes namespace, NUL and lowercased filename, not PNG bytes.
+    const id = createHash('sha256').update('local\0kept-user-skin.png').digest('hex')
+    snapshot.appearance.activeSkinLibraryEntryId = id
+    snapshot.appearance.dmeloperSkinDataUrl = browser.dataUrl
+    const before = clonePreset(snapshot)
+    browser.failCatalog(true)
+    const warnings: string[] = []
+    const applied = await restorePresetSkin(snapshot, 'Kept local skin', cause => warnings.push(cause.code))
+    assert.deepEqual(warnings, ['IO_ERROR'])
+    browser.failCatalog(false)
+    const saved = await preparePresetSkin(applied)
+    assert.equal(saved.appearance.activeSkinLibraryEntryId, id, 'metadata availability cannot reinterpret an explicit user identity as bundled')
+    assert.equal((await preparePresetSkin(clonePreset(saved))).appearance.activeSkinLibraryEntryId, id)
+    assert.deepEqual(saved, before)
     assert.deepEqual(snapshot, before)
   } finally {
     browser.restore()

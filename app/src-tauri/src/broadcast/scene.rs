@@ -90,14 +90,16 @@ fn number(value: &Value, min: f64, max: f64) -> bool {
 
 fn validate_preset(preset: &Value) -> Result<(), String> {
     let object = preset.as_object().ok_or("scene_invalid")?;
-    let optional = ["petHeadScalePercent", "deskTransparent", "deskHeightOffset", "deskWidthOffset", "deskDepthOffset", "deskColor", "lighting"];
+    let optional = ["petAnimationMode", "petShoulderTorsoConnected", "petRightArmDisabled", "petLeftArmDisabled", "petHeadScalePercent", "deskTransparent", "deskHeightOffset", "deskWidthOffset", "deskDepthOffset", "deskColor", "lighting", "petHeadbuttRecoilEnabled", "petHeadbuttRecoilStrengthPercent", "petHeadbuttRecoilWobblePercent", "petTypingHandLiftPercent", "petTypingBodyMotionPercent", "petTypingReturnSpeedPercent", "petHeadbuttMaxRadiusOffset", "petTypingMaxRadiusOffset"];
     if object.len() != 32 + optional.iter().filter(|key| object.contains_key(**key)).count() {
         return Err("scene_invalid".into());
     }
     for (key, value) in object {
         let valid = match key.as_str() {
             "lighting" => crate::lighting_settings::is_valid(value),
-            "showDisplayArea" | "autoViewportEnabled" | "mouseEnabled" | "deskTransparent" => value.is_boolean(),
+            "petAnimationMode" => matches!(value.as_str(), Some("default" | "headbutt")),
+            "petShoulderTorsoConnected" | "petRightArmDisabled" | "petLeftArmDisabled"
+            | "showDisplayArea" | "autoViewportEnabled" | "mouseEnabled" | "deskTransparent" | "petHeadbuttRecoilEnabled" => value.is_boolean(),
             "deskColor"
             | "keyboardColor"
             | "keyboardKeycapColor"
@@ -118,7 +120,11 @@ fn validate_preset(preset: &Value) -> Result<(), String> {
             "petRightArmBendPercent" | "petLeftArmBendPercent" => number(value, 0.0, 400.0),
             "petRightArmSpreadDegrees" | "petLeftArmSpreadDegrees" => number(value, -45.0, 45.0),
             "sceneRotationOffsetDegrees" => number(value, -360.0, 360.0),
-            "petRotationDegrees" => crate::settings_defaults::in_numeric_range(value, "preset", key),
+            "petRotationDegrees" | "petHeadbuttRecoilStrengthPercent" | "petHeadbuttRecoilWobblePercent"
+            | "petTypingHandLiftPercent" | "petTypingBodyMotionPercent" | "petTypingReturnSpeedPercent"
+            | "petHeadbuttMaxRadiusOffset"
+            | "petTypingMaxRadiusOffset"
+            => crate::settings_defaults::in_numeric_range(value, "preset", key),
             "cameraHorizontalOffset" | "cameraVerticalOffset" => number(value, -100_000.0, 100_000.0),
             "petDeskOffset"
             | "mouseBaseXOffset"
@@ -188,6 +194,47 @@ fn validate_skin(encoded: &str) -> Result<(), String> {
 mod lighting_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn motion_controls_accept_legacy_current_and_reject_malformed_scenes() {
+        let defaults: Value = crate::settings_defaults::section("preset").unwrap();
+        let keys = ["petHeadbuttRecoilEnabled", "petHeadbuttRecoilStrengthPercent",
+            "petHeadbuttRecoilWobblePercent", "petTypingHandLiftPercent",
+            "petTypingBodyMotionPercent", "petTypingReturnSpeedPercent", "petHeadbuttMaxRadiusOffset", "petTypingMaxRadiusOffset"];
+        assert!(validate_preset(&defaults).is_ok());
+        let mut legacy = defaults.clone();
+        for key in keys { legacy.as_object_mut().unwrap().remove(key); }
+        assert!(validate_preset(&legacy).is_ok());
+        for key in keys {
+            let mut supported = legacy.clone();
+            supported[key] = defaults[key].clone();
+            assert!(validate_preset(&supported).is_ok());
+            for invalid in [Value::Null, json!("100"), json!({"value":100})] {
+                let mut rejected = defaults.clone();
+                rejected[key] = invalid;
+                assert!(validate_preset(&rejected).is_err(), "{key}");
+            }
+        }
+        for enabled in [false, true] {
+            let mut current = defaults.clone();
+            current["petHeadbuttRecoilEnabled"] = json!(enabled);
+            current["petHeadbuttRecoilStrengthPercent"] = json!(200);
+            current["petHeadbuttRecoilWobblePercent"] = json!(0);
+            current["petTypingHandLiftPercent"] = json!(300);
+            current["petTypingBodyMotionPercent"] = json!(0);
+            current["petTypingReturnSpeedPercent"] = json!(400);
+            assert!(validate_preset(&current).is_ok());
+            let round_trip: Value = serde_json::from_str(&serde_json::to_string(&current).unwrap()).unwrap();
+            assert_eq!(round_trip, current);
+            assert!(validate_preset(&round_trip).is_ok());
+        }
+        let mut rejected = defaults.clone();
+        rejected["petHeadbuttRecoilEnabled"] = json!(1);
+        assert!(validate_preset(&rejected).is_err());
+        rejected = defaults;
+        rejected["futureMotion"] = json!(true);
+        assert!(validate_preset(&rejected).is_err());
+    }
 
     #[test]
     fn shared_ranges_validate_actual_fractional_obs_values() {

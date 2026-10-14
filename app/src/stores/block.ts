@@ -8,7 +8,9 @@ import type { DmeloperEyebrowPreset } from '@/config/dmeloperEyebrows'
 import type { LightingSettings } from '@/config/lighting'
 import type { PetModelId } from '@/config/model3d'
 import type { ShadowQuality, ShadowQualitySelection } from '@/config/performance'
+import type { PetAnimationMode } from '@/config/petAnimation'
 import type { PetArmPoseSettings } from '@/config/petArmPose'
+import type { PetMotionSettings } from '@/config/petMotion'
 import type { PresetCollection } from '@/features/presets/types'
 import type { ProgramSettingsResetOptions } from '@/utils/programSettingsReset'
 import type { VoxelSkinModel, VoxelSkinModelPreference } from '@/utils/three3d/voxelSkin'
@@ -26,7 +28,9 @@ import { createDefaultLightingSettings, migratePresetLighting, normalizeLighting
 import { DEFAULT_PET_MODEL_ID, getPetModelOption, MODEL_3D_CONFIG } from '@/config/model3d'
 import { DEFAULT_PERFORMANCE_SETTINGS, MAX_FPS, MIN_FPS, normalizeShadowQuality } from '@/config/performance'
 import { BLOCK_STORE_ID } from '@/config/persistedNames'
+import { normalizePetAnimationMode } from '@/config/petAnimation'
 import { DEFAULT_PET_ARM_POSE_SETTINGS, normalizePetArmPoseSettings } from '@/config/petArmPose'
+import { migratePetMotionSettings, normalizePetMotionSettings, PET_MOTION_SETTING_KEYS } from '@/config/petMotion'
 import presetRanges from '@/config/presetRanges.json'
 import { BUILTIN_DMELOPER_SKIN, isSkinSelectionId } from '@/config/skinIdentity'
 import { WINDOW_LABEL } from '@/constants'
@@ -37,7 +41,11 @@ import { DEFAULT_PROGRAM_SETTINGS_RESET_OPTIONS } from '@/utils/programSettingsR
 
 import { migrateLegacySkinAppearanceState, migratePetCharacterState } from './petSettingsMigration'
 
-export interface Pet3dPreset extends PetArmPoseSettings, DeviceColorSettings, DeskSettings {
+export interface Pet3dPreset extends PetArmPoseSettings, PetMotionSettings, DeviceColorSettings, DeskSettings {
+  petAnimationMode: PetAnimationMode
+  petShoulderTorsoConnected: boolean
+  petRightArmDisabled: boolean
+  petLeftArmDisabled: boolean
   lighting: LightingSettings
   windowScalePercent: number
   showDisplayArea: boolean
@@ -144,11 +152,16 @@ export interface BlockStore {
   sanitizePet3dPreset: (candidate: Partial<Pet3dPreset> | undefined) => Pet3dPreset
 }
 
-const PRESET_SCHEMA_VERSION = 13
+const PRESET_SCHEMA_VERSION = 14
 const MINECRAFT_USERNAME_PATTERN = /^\w{3,16}$/
 const SKIN_LIBRARY_ENTRY_ID_PATTERN = /^[0-9a-f]{64}$/
 
 const PET_3D_PRESET_KEYS = [
+  'petAnimationMode',
+  ...PET_MOTION_SETTING_KEYS,
+  'petShoulderTorsoConnected',
+  'petRightArmDisabled',
+  'petLeftArmDisabled',
   'lighting',
   ...DESK_SETTING_KEYS,
   ...DEVICE_COLOR_KEYS,
@@ -249,7 +262,11 @@ export function preparePetStateForSync(state: Record<string, unknown>): Record<s
     && 'preset' in customization && customization.preset && typeof customization.preset === 'object'
     && !Array.isArray(customization.preset)) {
     customization = { ...customization, preset: {
-      ...migrateDeskSettings(customization.preset),
+      ...migratePetMotionSettings(migrateDeskSettings(customization.preset)),
+      ...('petAnimationMode' in customization.preset ? {} : { petAnimationMode: DEFAULT_PET_PRESET.petAnimationMode }),
+      ...('petShoulderTorsoConnected' in customization.preset ? {} : { petShoulderTorsoConnected: DEFAULT_PET_PRESET.petShoulderTorsoConnected }),
+      ...('petRightArmDisabled' in customization.preset ? {} : { petRightArmDisabled: DEFAULT_PET_PRESET.petRightArmDisabled }),
+      ...('petLeftArmDisabled' in customization.preset ? {} : { petLeftArmDisabled: DEFAULT_PET_PRESET.petLeftArmDisabled }),
       ...('lighting' in customization.preset ? { lighting: migratePresetLighting(customization.preset).lighting } : {}),
       ...('dmeloperEyebrows' in customization.preset ? { dmeloperEyebrows: migrateDmeloperEyebrowDepth(customization.preset.dmeloperEyebrows) } : {}),
     } }
@@ -537,7 +554,12 @@ export const useBlockStore = defineStore(BLOCK_STORE_ID, () => {
       ...defaults,
       ...normalizeDeviceColors(source),
       ...normalizeDeskSettings(source),
+      ...normalizePetMotionSettings(source),
       lighting: normalizeLightingSettings(source.lighting),
+      petAnimationMode: normalizePetAnimationMode(source.petAnimationMode),
+      petShoulderTorsoConnected: source.petShoulderTorsoConnected === true,
+      petRightArmDisabled: source.petRightArmDisabled === true,
+      petLeftArmDisabled: source.petLeftArmDisabled === true,
       mouseEnabled: source.mouseEnabled !== false,
       showDisplayArea: source.showDisplayArea === true,
       autoViewportEnabled: source.autoViewportEnabled !== false,
@@ -810,6 +832,8 @@ export const useBlockStore = defineStore(BLOCK_STORE_ID, () => {
     markPresetUserEdit()
     const defaults = createDefaultPet3dPreset()
     Object.assign(customization3d.preset, {
+      petRightArmDisabled: defaults.petRightArmDisabled,
+      petLeftArmDisabled: defaults.petLeftArmDisabled,
       petRightArmBendPercent: defaults.petRightArmBendPercent,
       petRightArmSpreadDegrees: defaults.petRightArmSpreadDegrees,
       petLeftArmBendPercent: defaults.petLeftArmBendPercent,

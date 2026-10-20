@@ -113,6 +113,35 @@ const scene = { type: 'scene', revision: 1, scene: { schemaVersion: 1, modelId: 
 const input = { type: 'input', event: { kind: 'mouse_primary', active: true } }
 const flush = () => new Promise(resolve => setImmediate(resolve))
 
+it('accepts current language before scene readiness, rejects stale states and refreshes on reconnect without scene reload', async () => {
+  const languages: string[] = []
+  let applications = 0
+  const session = createBroadcastSession({
+    apply: async () => {
+      applications++
+    },
+    input: () => {},
+    reset: () => {},
+    clear: () => {},
+    ready: () => {},
+    keyboardLanguage: language => languages.push(language),
+  })
+  session.receive({ type: 'keyboard_language', revision: 9, language: 'en' })
+  session.receive(scene)
+  session.receive({ type: 'keyboard_language', revision: 10, language: 'ko' })
+  session.receive({ type: 'keyboard_language', revision: 9, language: 'en' })
+  session.receive({ type: 'keyboard_language', revision: 11, language: 'system' })
+  await session.idle()
+  assert.deepEqual(languages, ['en', 'ko'])
+  assert.equal(applications, 1)
+  session.disconnect()
+  session.receive({ type: 'keyboard_language', revision: 0, language: 'en' })
+  session.receive(scene)
+  await session.idle()
+  assert.deepEqual(languages, ['en', 'ko', 'en'])
+  assert.equal(applications, 2)
+})
+
 it('reconnects with a fresh revision and ignores messages from the retired socket', async () => {
   const h = harness()
   const first = h.sockets[0]

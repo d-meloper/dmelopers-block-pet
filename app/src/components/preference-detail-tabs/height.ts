@@ -1,9 +1,33 @@
-import type { ObjectDirective } from 'vue'
+import type { DirectiveBinding, ObjectDirective } from 'vue'
 
 const paneSelector = ':scope > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane'
-const optionSelector = '[data-detail-height-option]'
+const optionAttribute = 'data-detail-height-option'
+const optionSelector = `[${optionAttribute}]`
 const variantAttribute = 'data-detail-height-variant'
 const disposers = new WeakMap<HTMLElement, () => void>()
+
+// Component attributes may stop at Ant Flex. Vue directives reach its DOM root.
+function markDetailHeightOption(element: HTMLElement, { value }: DirectiveBinding<string | undefined>) {
+  if (!element.hasAttribute(optionAttribute)) element.setAttribute(optionAttribute, '')
+  const variant = value || null
+  if (element.getAttribute(variantAttribute) === variant) return
+  if (variant === null) element.removeAttribute(variantAttribute)
+  else element.setAttribute(variantAttribute, variant)
+}
+
+export const vDetailHeightOption: ObjectDirective<HTMLElement, string | undefined> = {
+  beforeMount: markDetailHeightOption,
+  updated: markDetailHeightOption,
+}
+
+function changesMeasuredContent(record: MutationRecord): boolean {
+  if (record.type === 'characterData') return record.target.nodeType !== Node.COMMENT_NODE
+  if (record.type !== 'childList') return true
+  return [...record.addedNodes, ...record.removedNodes].some(node =>
+    node.nodeType !== Node.COMMENT_NODE
+    && !(node instanceof HTMLElement && node.classList.contains('ant-segmented-thumb')),
+  )
+}
 
 // DOM-only copies preserve real widths/theme/wrapping without duplicate Vue owners
 // or temporarily changing a persisted setting just to measure its expanded rows.
@@ -59,8 +83,11 @@ export function reserveDetailHeight(root: HTMLElement): () => void {
 
   // Tab selection and slider/switch styles do not affect the fully expanded
   // maximum. Observe only available rows/text and width, not animation frames.
-  const mutations = new MutationObserver(schedule)
-  mutations.observe(root, { childList: true, characterData: true, subtree: true })
+  const mutations = new MutationObserver((records) => {
+    // Segmented's temporary thumb changes no content or available rows.
+    if (records.some(changesMeasuredContent)) schedule()
+  })
+  mutations.observe(root, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: [optionAttribute, variantAttribute] })
   const resize = new ResizeObserver(() => {
     const width = group.getBoundingClientRect().width
     if (width === lastWidth) return

@@ -837,6 +837,35 @@ describe('preset list interactions', () => {
     assert.equal(control.dropTarget.value, undefined)
   })
 
+  it('retains the drag target across repeated moves while honoring side changes and the final reorder', async () => {
+    const { value, calls } = manager()
+    const { control, surface } = pointerControls(value)
+    const updates: Array<string | undefined> = []
+    const stop = vue.watch(control.dropTarget, target => updates.push(target && `${target.id}:${target.after}`), { flush: 'sync' })
+    try {
+      control.startPointerDrag(surface.event().event, value.entries.value[1])
+      surface.hitCard('last')
+      for (let x = 10; x < 40; x++) control.movePointerDrag(surface.event(x).event)
+      assert.deepEqual(updates, ['last:false'])
+      for (let x = 60; x < 90; x++) control.movePointerDrag(surface.event(x).event)
+      assert.deepEqual(updates, ['last:false', 'last:true'])
+      surface.hitGroupEnd(false)
+      control.movePointerDrag(surface.event(90).event)
+      assert.equal(control.dropTarget.value, undefined)
+      assert.equal(control.dropAtGroupEnd.value, true)
+      surface.hitCard('last')
+      control.movePointerDrag(surface.event(20).event)
+      assert.equal(control.dropAtGroupEnd.value, false)
+      await control.finishPointerDrag(surface.event(20).event)
+      assert.deepEqual(calls, [{ action: 'reorder', args: ['first', 'last'] }])
+      assert.equal(control.dropTarget.value, undefined)
+      assert.equal(control.draggedId.value, undefined)
+    } finally {
+      stop()
+      control.cancelPointerDrag(surface.event().event)
+    }
+  })
+
   it('requires a primary pointer and movement threshold, and never selects a card from its handle click', async () => {
     const { value, calls } = manager()
     const { control, surface } = pointerControls(value)

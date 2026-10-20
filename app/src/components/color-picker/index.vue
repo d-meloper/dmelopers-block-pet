@@ -45,7 +45,7 @@ function applyColor(value: string) {
 
 const session = createScreenColorSession({
   pick: async (id) => {
-    // Finish demoting the owner before creating its owned native overlay.
+    // Await the serialized picker close before creating its owned native overlay.
     // The session is already registered, so cancellation also covers this wait.
     await setColorPickerOpen(false)
     return pickScreenColor(id, t('pages.preference.colorPicker.screenInstruction'), createScreenColorAppearance(token.value))
@@ -210,14 +210,17 @@ onBeforeUnmount(() => {
           <span class="text-sm font-medium">{{ label }}</span>
           <Button
             :aria-label="t('pages.preference.colorPicker.close')"
+            class="items-center justify-center inline-flex!"
             size="small"
             type="text"
             @click="close(); trigger?.focus()"
           >
-            <span
-              aria-hidden="true"
-              class="i-lucide:x block size-4"
-            />
+            <template #icon>
+              <div
+                aria-hidden="true"
+                class="i-lucide:x size-4"
+              />
+            </template>
           </Button>
         </div>
         <div
@@ -397,7 +400,7 @@ onBeforeUnmount(() => {
 .color-picker__area:focus-visible,
 .color-picker__hue:focus-visible,
 .color-picker__input:focus-visible {
-  outline: 2px solid #4096ff;
+  outline: 2px solid var(--ant-color-primary, #3aa76d);
   outline-offset: 3px;
 }
 </style>

@@ -39,6 +39,7 @@ function onOpenChange(value: boolean) {
 // Ancestor resizing can move a fixed-size button during sidebar transitions.
 useResizeObserver(() => {
   const elements: HTMLElement[] = []
+  if (!open.value) return elements
   for (let element = anchor.value; element; element = element.parentElement ?? undefined) {
     elements.push(element)
   }

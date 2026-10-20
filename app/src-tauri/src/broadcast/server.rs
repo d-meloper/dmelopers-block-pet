@@ -199,6 +199,11 @@ async fn send(socket: &mut WebSocket, json: &str) -> bool {
     }
 }
 
+async fn send_keyboard_language(socket: &mut WebSocket, status: crate::keyboard_language::Status) -> bool {
+    let json = serde_json::json!({"type":"keyboard_language", "revision":status.revision, "language":status.language}).to_string();
+    send(socket, &json).await
+}
+
 async fn socket_session(service: Arc<Service>, mut socket: WebSocket) {
     let Some((id, mut shutdown)) = service.register_client() else {
         let _ = timeout(Duration::from_millis(250), socket.close()).await;
@@ -206,12 +211,15 @@ async fn socket_session(service: Arc<Service>, mut socket: WebSocket) {
     };
     let mut scenes = service.scenes.subscribe();
     let mut inputs = service.inputs.subscribe();
+    let mut keyboard_language = service.keyboard_language.subscribe();
     let first = scenes.borrow_and_update().clone();
     let mut ready = false;
     let mut last_activity = Instant::now();
     let mut heartbeat = tokio::time::interval(Duration::from_secs(2));
     let started = if let Some(packet) = first {
+        let status = *keyboard_language.borrow_and_update();
         send(&mut socket, &packet.json).await
+            && (!packet.scene.system_keyboard_language() || send_keyboard_language(&mut socket, status).await)
     } else {
         false
     };
@@ -226,7 +234,17 @@ async fn socket_session(service: Arc<Service>, mut socket: WebSocket) {
                 result = scenes.changed() => {
                     if result.is_err() { break; }
                     let packet = scenes.borrow_and_update().clone();
-                    if let Some(packet) = packet { if !send(&mut socket, &packet.json).await { break; } }
+                    if let Some(packet) = packet {
+                        if !send(&mut socket, &packet.json).await { break; }
+                        let status = *keyboard_language.borrow_and_update();
+                        if packet.scene.system_keyboard_language() && !send_keyboard_language(&mut socket, status).await { break; }
+                    }
+                }
+                result = keyboard_language.changed() => {
+                    if result.is_err() { break; }
+                    let status = *keyboard_language.borrow_and_update();
+                    let automatic = scenes.borrow().as_ref().is_some_and(|packet| packet.scene.system_keyboard_language());
+                    if automatic && !send_keyboard_language(&mut socket, status).await { break; }
                 }
                 received = socket.recv() => match received {
                     Some(Ok(Message::Text(text))) => {

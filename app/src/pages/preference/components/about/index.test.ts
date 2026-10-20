@@ -116,6 +116,7 @@ function harness(renderTemplate = false) {
     '@/components/pro-list-item/index.vue': { default: 'list-item' },
     '@/components/pro-list/index.vue': { default: 'list' },
     './AutomaticUpdates.vue': { default: 'updates' },
+    './SupportMe.vue': { default: 'support-me' },
     './supportRecovery': supportRecovery,
     '@/components/recovery-feedback/index.vue': { default: 'recovery-feedback' },
   }
@@ -175,6 +176,15 @@ function harness(renderTemplate = false) {
     },
   }
 }
+
+it('places the independent encouragement box before the existing support panel', () => {
+  const h = harness(true)
+  const nodes = h.nodes()
+  const heading = nodes.findIndex(node => node.props?.title === 'pages.preference.about.labels.troubleshootingSupport')
+  const support = nodes.findIndex(node => node.type === 'support-me')
+  const contact = nodes.findIndex(node => node.props?.title === 'pages.preference.about.labels.contactUs')
+  assert.ok(heading >= 0 && support > heading && contact > support)
+})
 
 it('selects Korean or other values using the current application locale', async () => {
   assert.equal(isKoreanLanguage('ko-KR'), true)
@@ -246,6 +256,29 @@ it('reports native open and clipboard failures without success notifications', a
   assert.deepEqual(h.successes, [])
 })
 
+it('opens support destinations and logs without adding an inline status box, retaining failure toasts', async () => {
+  const h = harness(true)
+  const hasFeedback = () => h.nodes().some(node => node.type === 'recovery-feedback')
+  assert.equal(hasFeedback(), false)
+  let release!: () => void
+  h.pauseLogPreparation(new Promise<void>((resolve) => {
+    release = resolve
+  }))
+  const opening = h.buttons('pages.preference.about.labels.appLog')[0].props!.onClick()
+  assert.equal(hasFeedback(), false, 'running support action stays within the existing panel')
+  release()
+  await opening
+  assert.deepEqual(h.openedPaths, ['/logs'])
+  assert.equal(hasFeedback(), false)
+  await h.buttons('pages.preference.about.labels.contactUs')[0].props!.onClick()
+  assert.deepEqual(h.opened, [externalLinks.korean.support])
+  assert.equal(hasFeedback(), false)
+  h.fail()
+  await h.buttons('pages.preference.about.labels.contactUs')[0].props!.onClick()
+  assert.deepEqual(h.errors, ['pages.preference.about.errors.openLink'])
+  assert.equal(hasFeedback(), false)
+})
+
 it('opens the introduction, Release Notes and survey destinations and reports opener failures', async () => {
   const h = harness(true)
   const introductionButtons = h.buttons('pages.preference.about.labels.introduction')
@@ -287,6 +320,23 @@ it('opens the introduction, Release Notes and survey destinations and reports op
   await failed.buttons('pages.preference.about.labels.introduction')[2].props!.onClick()
   assert.deepEqual(failed.errors, ['pages.preference.about.errors.openLink'])
   assert.deepEqual(failed.opened, [])
+})
+
+it('opens links and logs without adding a persistent report to the support section', async () => {
+  const h = harness(true)
+  await h.mount()
+  const assertNoReport = () => assert.equal(h.nodes().some(node => node.type === 'recovery-feedback'), false)
+  assertNoReport()
+  await h.buttons('pages.preference.about.labels.contactUs')[0].props!.onClick()
+  assert.equal(h.opened.length, 1)
+  assertNoReport()
+  await h.buttons('pages.preference.about.labels.appLog')[0].props!.onClick()
+  assert.deepEqual(h.openedPaths, ['/logs'])
+  assertNoReport()
+  h.fail()
+  await h.buttons('pages.preference.about.labels.appLog')[0].props!.onClick()
+  assert.deepEqual(h.errors, ['pages.preference.about.errors.openLog'])
+  assertNoReport()
 })
 
 it('prepares the fixed log folder before every open and keeps real failures visible', async () => {

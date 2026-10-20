@@ -95,7 +95,7 @@ export function isPresetSnapshot(value: unknown): value is PresetSnapshot {
     && !LEGACY_SKIN_APPEARANCE_KEYS.some(key => key in snapshot.appearance)
     && snapshot.preset.cameraZoomPercent > 0
     && snapshot.preset.manualViewportRect.width > 0 && snapshot.preset.manualViewportRect.height > 0
-    && ['ko', 'en'].includes(snapshot.preset.keyboardLegendLanguage)
+    && ['ko', 'en', 'system'].includes(snapshot.preset.keyboardLegendLanguage)
     && (!('petAnimationMode' in snapshot.preset) || ['default', 'headbutt'].includes(snapshot.preset.petAnimationMode))
     && DEVICE_COLOR_KEYS.every(key => /^#[0-9a-f]{6}$/i.test(snapshot.preset[key]))
     && (snapshot.appearance.activeSkinLibraryEntryId === undefined || isSkinSelectionId(snapshot.appearance.activeSkinLibraryEntryId))

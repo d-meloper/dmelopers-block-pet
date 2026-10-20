@@ -1,11 +1,13 @@
+import type { ResolvedKeyboardLanguage } from '@/config/keyboardLanguage'
 import type { Pet3dPreset } from '@/stores/block'
 import type { Three3DRenderer } from '@/utils/three3d'
 
+import { resolveKeyboardLanguage } from '@/config/keyboardLanguage'
 import { MODEL_3D_CONFIG } from '@/config/model3d'
 import { normalizePetMotionSettings } from '@/config/petMotion'
 
 /** Shared by the desktop renderer and isolated, input-free thumbnail renderer. */
-export function applyPresetVisualSettings(renderer: Three3DRenderer, preset: Pet3dPreset, mouseEnabled = preset.mouseEnabled): void {
+export function applyPresetVisualSettings(renderer: Three3DRenderer, preset: Pet3dPreset, mouseEnabled = preset.mouseEnabled, systemLanguage?: ResolvedKeyboardLanguage): void {
   renderer.setLightingSettings(preset.lighting)
   renderer.setAutoViewportPadding(preset.autoViewportPaddingPixels)
   renderer.setDeskSettings(preset)
@@ -28,7 +30,7 @@ export function applyPresetVisualSettings(renderer: Three3DRenderer, preset: Pet
   renderer.setDeviceColors(preset)
   renderer.setCameraPan(preset.autoViewportEnabled ? 0 : -preset.cameraHorizontalOffset, preset.autoViewportEnabled ? 0 : -preset.cameraVerticalOffset)
   renderer.setCameraDistance(MODEL_3D_CONFIG.camera.distancePercent * 100 / preset.cameraZoomPercent)
-  renderer.setKeyboardLegendLanguage(preset.keyboardLegendLanguage)
+  renderer.setKeyboardLegendLanguage(resolveKeyboardLanguage(preset.keyboardLegendLanguage, systemLanguage))
   renderer.setDmeloperEyebrows(preset.dmeloperEyebrows)
   renderer.setDmeloperPalmColor(preset.dmeloperPalmColor)
 }

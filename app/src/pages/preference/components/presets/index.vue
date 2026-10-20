@@ -556,22 +556,26 @@ function canDrop(entry: PresetListEntry) {
     && draggedEntry.value.favorite === entry.favorite
 }
 
+function setDropTarget(target?: { id: string, after: boolean }, atGroupEnd = false) {
+  const previous = dropTarget.value
+  if (previous?.id !== target?.id || previous?.after !== target?.after) dropTarget.value = target
+  dropAtGroupEnd.value = atGroupEnd
+}
+
 function updateDropTarget(x: number, y: number) {
-  dropTarget.value = undefined
-  dropAtGroupEnd.value = false
   const hit = document.elementFromPoint(x, y)
   const card = hit?.closest<HTMLElement>('[data-preset-id]')
   if (card && presetList.value?.contains(card)) {
     const entry = entries.value.find(candidate => candidate.id === card.dataset.presetId)
-    if (!entry || entry.id === draggedId.value || !canDrop(entry)) return
+    if (!entry || entry.id === draggedId.value || !canDrop(entry)) return setDropTarget()
     const rect = card.getBoundingClientRect()
-    dropTarget.value = { id: entry.id, after: x >= rect.left + rect.width / 2 }
+    setDropTarget({ id: entry.id, after: x >= rect.left + rect.width / 2 })
     return
   }
   const groupEnd = hit?.closest<HTMLElement>('[data-preset-group-end]')
-  if (groupEnd && presetList.value?.contains(groupEnd) && draggedEntry.value && !isEntryDisabled(draggedEntry.value)) {
-    dropAtGroupEnd.value = groupEnd.dataset.presetGroupEnd === String(draggedEntry.value.favorite)
-  }
+  setDropTarget(undefined, !!groupEnd && !!presetList.value?.contains(groupEnd)
+  && !!draggedEntry.value && !isEntryDisabled(draggedEntry.value)
+  && groupEnd.dataset.presetGroupEnd === String(draggedEntry.value.favorite))
 }
 
 function scrollPointerDrag() {

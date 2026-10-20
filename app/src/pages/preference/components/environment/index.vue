@@ -3,12 +3,13 @@ import { Button, Flex, Modal, Select, Switch, TabPane, Tabs } from 'ant-design-v
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import type { KeyboardLanguageSelection } from '@/config/keyboardLanguage'
 import type { Pet3dPreset } from '@/stores/block'
 
 import ColorPicker from '@/components/color-picker/index.vue'
 import DefaultSnapSlider from '@/components/default-snap-slider/index.vue'
 import OptionTransition from '@/components/option-transition/index.vue'
-import { vStableDetailHeight } from '@/components/preference-detail-tabs/height'
+import { vDetailHeightOption, vStableDetailHeight } from '@/components/preference-detail-tabs/height'
 import PreferenceOptionGroup from '@/components/preference-option-group/index.vue'
 import PreferenceSections from '@/components/preference-sections/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
@@ -48,7 +49,7 @@ const mouseControlsDisabled = computed(() => !activePet3dPreset.value.mouseEnabl
 const objectResetLabel = computed(() => t(`pages.preference.environment.labels.reset${activeObjectTab.value[0].toUpperCase()}${activeObjectTab.value.slice(1)}`))
 const keyboardLanguage = computed({
   get: () => activePet3dPreset.value.keyboardLegendLanguage,
-  set: (value: 'ko' | 'en') => {
+  set: (value: KeyboardLanguageSelection) => {
     if (editorsLocked.value) return
     markPresetUserEdit()
     activePet3dPreset.value.keyboardLegendLanguage = value
@@ -149,8 +150,8 @@ function confirmObjectReset(object: ObjectTab) {
             <OptionTransition>
               <div
                 v-show="activePet3dPreset.mouseEnabled"
+                v-detail-height-option
                 class="grid grid-cols-2 gap-4"
-                data-detail-height-option
               >
                 <ProListItem
                   v-for="key in mouseColorKeys"
@@ -171,8 +172,8 @@ function confirmObjectReset(object: ObjectTab) {
             <OptionTransition>
               <div
                 v-show="activePet3dPreset.mouseEnabled"
+                v-detail-height-option
                 class="grid grid-cols-3 gap-4"
-                data-detail-height-option
               >
                 <ProListItem
                   plain
@@ -259,6 +260,9 @@ function confirmObjectReset(object: ObjectTab) {
                 <Select.Option value="en">
                   {{ $t('pages.preference.environment.options.keyboardEnglish') }}
                 </Select.Option>
+                <Select.Option value="system">
+                  {{ $t('pages.preference.environment.options.keyboardSystem') }}
+                </Select.Option>
               </Select>
             </ProListItem>
 
@@ -332,7 +336,7 @@ function confirmObjectReset(object: ObjectTab) {
             <OptionTransition>
               <PreferenceOptionGroup
                 v-show="!activePet3dPreset.deskTransparent"
-                data-detail-height-option
+                v-detail-height-option
               >
                 <ProListItem
                   :description="$t('pages.preference.environment.hints.deskColor')"

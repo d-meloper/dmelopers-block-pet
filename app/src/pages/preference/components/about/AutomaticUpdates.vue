@@ -19,7 +19,7 @@ const app = useAppStore()
 const { channel, appInfo: info, checking, phase, percent, failed, busy, canCancel, cancelling, cancel, check, update: install, recovery, handoffUnconfirmed } = usePreferenceUpdates()
 const openingStore = ref(false)
 const storeRecovery = createSupportRecovery()
-const { report: storeReport, busy: storeBusy } = storeRecovery
+const { busy: storeBusy } = storeRecovery
 let disposed = false
 onBeforeUnmount(() => {
   disposed = true
@@ -47,7 +47,7 @@ async function runUpdateAction() {
   if (channel.value === 'store') {
     openingStore.value = true
     try {
-      await storeRecovery.run('open', current => openStore(current), (error) => {
+      await storeRecovery.run(current => openStore(current), (error) => {
         reportDiagnostic('warn', 'updates.open_store', error)
         message.error(t('storeUpdates.openFailed'))
       })
@@ -129,7 +129,7 @@ async function runUpdateAction() {
       </Button>
     </Flex>
   </AppIdentity>
-  <RecoveryFeedback :report="storeReport ?? recovery" />
+  <RecoveryFeedback :report="recovery" />
 </template>
 
 <style scoped>

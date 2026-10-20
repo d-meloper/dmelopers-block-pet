@@ -21,7 +21,6 @@ pub(super) struct WindowOrder {
     pub preference_focused: bool,
     pub picker_hwnd: Option<isize>,
     pub context_menu_open: bool,
-    raised_preference: Option<isize>,
 }
 
 impl WindowOrder {
@@ -58,7 +57,6 @@ pub(super) fn maintain_topmost(
         let request = if state.main_topmost()
             || state.context_menu_open
             || state.picker_hwnd.is_some()
-            || state.raised_preference.is_some()
             || retry_apply
         {
             receiver.recv_timeout(Duration::from_millis(16))
@@ -115,12 +113,12 @@ pub(super) fn reconcile_topmost(
     Ok(false)
 }
 
-/// Only entering/recovering picker priority may reorder the preference window.
-/// A closed picker must finish restoration before its owned eyedropper starts.
+/// A DOM picker shares the preference HWND: raising its owner also hides the pet.
+/// Keep the pet's normal saved/focus/menu reasons and validate the picker without
+/// changing preference order. Native overlays retain their own popup priority.
 pub(super) fn reconcile_window_order(
     state: &mut WindowOrder,
     available: impl Fn(isize) -> bool,
-    retired: impl Fn(isize) -> bool,
     read: impl Fn(isize) -> Option<bool>,
     mut write: impl FnMut(isize, bool) -> Result<(), String>,
 ) -> Result<(), String> {
@@ -129,25 +127,8 @@ pub(super) fn reconcile_window_order(
         state.picker_hwnd = None;
         state.preference_focused = false;
     }
-    if let Some(hwnd) = state.raised_preference {
-        if state.picker_hwnd != Some(hwnd) {
-            match read(hwnd) {
-                Some(true) => write(hwnd, false)?,
-                Some(false) => {},
-                None if retired(hwnd) => {},
-                None => return Err("WINDOW_PICKER_RESTORE_UNCONFIRMED".into()),
-            }
-            state.raised_preference = None;
-        }
-    }
     let desired_main = state.main_topmost();
-    let main_changed = reconcile_topmost(state.main_hwnd, desired_main, &read, &mut write)?;
-    if let Some(hwnd) = state.picker_hwnd {
-        if state.raised_preference != Some(hwnd) || main_changed || read(hwnd) != Some(true) {
-            state.raised_preference = Some(hwnd);
-            write(hwnd, true)?;
-        }
-    }
+    reconcile_topmost(state.main_hwnd, desired_main, &read, &mut write)?;
     if stale_open {
         Err("The color picker requires a visible, focused preference window.".into())
     } else {
@@ -280,10 +261,10 @@ mod tests {
     }
 
     #[test]
-    fn picker_priority_is_temporary_and_does_not_reorder_on_every_check() {
+    fn picker_never_writes_preference_order_and_retries_only_main_membership() {
         for always_on_top in [false, true] {
             for preference_focused in [false, true] {
-                let levels = RefCell::new([always_on_top || preference_focused, false]);
+                let level = Cell::new(always_on_top || preference_focused);
                 let writes = RefCell::new(Vec::new());
                 let mut state = WindowOrder {
                     main_hwnd: 1,
@@ -293,95 +274,60 @@ mod tests {
                     ..Default::default()
                 };
                 let check = |state: &mut WindowOrder| {
-                    reconcile_window_order(
-                        state,
-                        |_| true,
-                        |_| false,
-                        |hwnd| Some(levels.borrow()[(hwnd - 1) as usize]),
+                    reconcile_window_order(state, |_| true,
+                        |hwnd| { assert_eq!(hwnd, 1); Some(level.get()) },
                         |hwnd, topmost| {
-                            levels.borrow_mut()[(hwnd - 1) as usize] = topmost;
-                            writes.borrow_mut().push((hwnd, topmost));
+                            assert_eq!(hwnd, 1, "DOM picker must never raise its owner");
+                            level.set(topmost);
+                            writes.borrow_mut().push(topmost);
                             Ok(())
-                        },
-                    )
-                    .unwrap();
+                        }).unwrap();
                 };
+                for _ in 0..100 { check(&mut state); }
+                assert!(writes.borrow().is_empty());
+                level.set(!state.main_topmost());
                 check(&mut state);
-                for _ in 0..100 {
-                    check(&mut state);
-                }
-                assert_eq!(*writes.borrow(), [(2, true)]);
-                if state.main_topmost() {
-                    levels.borrow_mut()[0] = false;
-                    check(&mut state);
-                    assert_eq!(&writes.borrow()[1..], [(1, true), (2, true)]);
-                }
+                assert_eq!(*writes.borrow(), [state.main_topmost()]);
                 state.picker_hwnd = None;
-                check(&mut state);
-                let closed_writes = writes.borrow().len();
-                // The owned screen eyedropper can now start safely: no further
-                // preference demotion may propagate to that new owned window.
-                check(&mut state);
-                assert_eq!(writes.borrow().len(), closed_writes);
-                assert_eq!(writes.borrow().last(), Some(&(2, false)));
-                assert_eq!(
-                    *levels.borrow(),
-                    [always_on_top || preference_focused, false]
-                );
+                for _ in 0..100 { check(&mut state); }
+                assert_eq!(writes.borrow().len(), 1, "close must not demote an owned screen overlay");
             }
         }
     }
 
     #[test]
-    fn hidden_or_unfocused_preference_releases_priority_without_changing_saved_setting() {
+    fn hidden_or_unfocused_picker_cancels_without_changing_saved_setting() {
         for always_on_top in [false, true] {
-            let levels = RefCell::new([true, true]);
+            let level = Cell::new(true);
             let mut state = WindowOrder {
                 main_hwnd: 1,
                 always_on_top,
                 preference_focused: true,
                 picker_hwnd: Some(2),
-                raised_preference: Some(2),
-                context_menu_open: false,
+                ..Default::default()
             };
-            let result = reconcile_window_order(
-                &mut state,
-                |_| false,
-                |_| false,
-                |hwnd| Some(levels.borrow()[(hwnd - 1) as usize]),
+            let result = reconcile_window_order(&mut state, |_| false,
+                |hwnd| { assert_eq!(hwnd, 1); Some(level.get()) },
                 |hwnd, topmost| {
-                    levels.borrow_mut()[(hwnd - 1) as usize] = topmost;
+                    assert_eq!(hwnd, 1);
+                    level.set(topmost);
                     Ok(())
-                },
-            );
+                });
             assert!(result.is_err());
             assert_eq!(state.picker_hwnd, None);
-            assert_eq!(state.raised_preference, None);
             assert!(!state.preference_focused);
             assert_eq!(state.always_on_top, always_on_top);
-            assert_eq!(*levels.borrow(), [always_on_top, false]);
+            assert_eq!(level.get(), always_on_top);
         }
     }
 
     #[test]
-    fn stale_open_never_raises_preference_and_destroyed_preference_needs_no_restore() {
-        let mut state = WindowOrder {
-            main_hwnd: 1,
-            picker_hwnd: Some(2),
-            raised_preference: Some(2),
-            ..Default::default()
-        };
-        assert!(
-            reconcile_window_order(
-                &mut state,
-                |_| false,
-                |hwnd| hwnd == 2,
-                |hwnd| (hwnd == 1).then_some(false),
-                |_, _| panic!("A stale or destroyed preference must not be raised"),
-            )
-            .is_err()
-        );
-        assert_eq!(state.raised_preference, None);
+    fn stale_open_never_reads_or_writes_preference_order() {
+        let mut state = WindowOrder { main_hwnd: 1, picker_hwnd: Some(2), ..Default::default() };
+        assert!(reconcile_window_order(&mut state, |_| false,
+            |hwnd| { assert_eq!(hwnd, 1); Some(false) },
+            |_, _| panic!("a stale picker must not raise its owner")).is_err());
+        assert_eq!(state.picker_hwnd, None);
     }
 
     #[test]
@@ -445,44 +391,25 @@ mod tests {
     }
 
     #[test]
-    fn focus_loss_clears_picker_and_failed_restoration_remains_pending() {
-        let mut state = WindowOrder {
-            main_hwnd: 1,
-            picker_hwnd: Some(2),
-            raised_preference: Some(2),
-            ..Default::default()
-        };
-        state.change(&TopmostRequest {
-            hwnd: 1,
-            change: TopmostChange::PreferenceFocused(false),
-            completion: None,
-        });
+    fn focus_loss_clears_picker_and_retries_a_failed_main_demotion() {
+        let mut state = WindowOrder { main_hwnd: 1, preference_focused: true,
+            picker_hwnd: Some(2), ..Default::default() };
+        state.change(&TopmostRequest { hwnd: 1, change: TopmostChange::PreferenceFocused(false), completion: None });
         assert_eq!(state.picker_hwnd, None);
-        let preference_level = Cell::new(true);
+        let level = Cell::new(true);
         let attempts = Cell::new(0);
-        let mut check = || {
-            reconcile_window_order(
-                &mut state,
-                |_| false,
-                |_| false,
-                |hwnd| Some(hwnd == 2 && preference_level.get()),
-                |hwnd, topmost| {
-                    assert_eq!((hwnd, topmost), (2, false));
-                    attempts.set(attempts.get() + 1);
-                    if attempts.get() == 1 {
-                        Err("temporary native failure".into())
-                    } else {
-                        preference_level.set(false);
-                        Ok(())
-                    }
-                },
-            )
-        };
+        let mut check = || reconcile_window_order(&mut state, |_| false,
+            |hwnd| { assert_eq!(hwnd, 1); Some(level.get()) },
+            |hwnd, topmost| {
+                assert_eq!((hwnd, topmost), (1, false));
+                attempts.set(attempts.get() + 1);
+                if attempts.get() == 1 { Err("temporary native failure".into()) }
+                else { level.set(false); Ok(()) }
+            });
         assert!(check().is_err());
         assert!(check().is_ok());
         assert!(check().is_ok());
         assert_eq!(attempts.get(), 2);
-        assert_eq!(state.raised_preference, None);
     }
 
     #[test]
@@ -547,44 +474,6 @@ mod tests {
     }
 
     #[test]
-    fn unknown_live_restore_rejects_close_ack_until_retry_confirms_demotion() {
-        let (sender, receiver) = mpsc::channel();
-        let (completion, completed) = mpsc::channel();
-        sender.send(TopmostRequest { hwnd: 1, change: TopmostChange::AlwaysOnTop(true),
-            completion: None }).unwrap();
-        sender.send(TopmostRequest { hwnd: 1, change: TopmostChange::ColorPicker(None),
-            completion: Some(completion) }).unwrap();
-        drop(sender);
-        let preference_level = Cell::new(None);
-        let mut initial = true;
-        let mut writes = Vec::new();
-        maintain_topmost(receiver, |state| {
-            if initial { state.raised_preference = Some(2); initial = false; }
-            let result = reconcile_window_order(state, |_| true, |_| false,
-                |hwnd| if hwnd == 2 { preference_level.get() } else { Some(true) },
-                |hwnd, topmost| { writes.push((hwnd, topmost)); Ok(()) });
-            assert_eq!(result, Err("WINDOW_PICKER_RESTORE_UNCONFIRMED".into()));
-            assert_eq!(state.raised_preference, Some(2));
-            assert!(completed.try_recv().is_err());
-            result
-        });
-        assert_eq!(completed.try_recv(), Ok(Err("WINDOW_PICKER_RESTORE_UNCONFIRMED".into())));
-        assert!(writes.is_empty());
-        let mut state = WindowOrder { main_hwnd: 1, always_on_top: true,
-            raised_preference: Some(2), ..Default::default() };
-        preference_level.set(Some(true));
-        reconcile_window_order(&mut state, |_| true, |_| false,
-            |hwnd| if hwnd == 2 { preference_level.get() } else { Some(true) },
-            |hwnd, topmost| {
-                writes.push((hwnd, topmost));
-                if hwnd == 2 { preference_level.set(Some(topmost)); }
-                Ok(())
-            }).unwrap();
-        assert_eq!(writes, [(2, false)]);
-        assert_eq!(state.raised_preference, None);
-    }
-
-    #[test]
     fn off_queued_during_inflight_membership_write_stops_after_its_native_ack() {
         let (sender, receiver) = mpsc::channel();
         let (output, written) = mpsc::channel();
@@ -593,7 +482,7 @@ mod tests {
             let level = Cell::new(false);
             let mut first = true;
             maintain_topmost(receiver, |state| {
-                reconcile_window_order(state, |_| true, |_| false, |_| Some(level.get()), |_, topmost| {
+                reconcile_window_order(state, |_| true, |_| Some(level.get()), |_, topmost| {
                     output.send(topmost).unwrap();
                     if first { first = false; blocked.recv().unwrap(); }
                     level.set(topmost);
@@ -623,7 +512,7 @@ mod tests {
         let (output, written) = mpsc::channel();
         let worker = thread::spawn(move || {
             maintain_topmost(receiver, |state| {
-                reconcile_window_order(state, |_| true, |_| false,
+                reconcile_window_order(state, |_| true,
                     |_| Some(native_level.load(Ordering::SeqCst)), |_, topmost| {
                         native_level.store(topmost, Ordering::SeqCst);
                         output.send(topmost).unwrap();

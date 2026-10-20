@@ -433,7 +433,8 @@
       "label": "keyboardLegendLanguage",
       "values": [
         "ko",
-        "en"
+        "en",
+        "system"
       ]
     },
     {

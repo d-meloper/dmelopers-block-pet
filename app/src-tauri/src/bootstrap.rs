@@ -438,7 +438,7 @@ pub fn prepare() -> Result<Option<(LifetimeLock, DataRoots)>, String> {
     Ok(Some((lock, roots)))
 }
 
-fn store_identity_preflight() -> Result<(), String> {
+pub(crate) fn store_identity_preflight() -> Result<(), String> {
     if crate::distribution::channel() != crate::distribution::Channel::Store {
         return Ok(());
     }

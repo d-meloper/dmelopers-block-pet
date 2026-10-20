@@ -28,6 +28,8 @@ function harness() {
   const Switch = { name: 'Switch' }
   const Button = { name: 'Button' }
   const status = Vue.ref<BroadcastStatus>({ enabled: true, clients: 1 })
+  const copied: string[] = []
+  const hiddenNodes = new WeakSet<VNode>()
   let retried = 0
   let desktopShown = false
   const controller = { status, pending: Vue.ref(false), retryPending: Vue.ref(false), recovery: Vue.ref(undefined), retry: () => {
@@ -35,11 +37,13 @@ function harness() {
   } }
   const exports = {} as { default: { setup: (props: object, context: object) => (ctx: object, cache: unknown[]) => VNode } }
   runInNewContext(source, { exports, window: {}, document: {}, require: (id: string) => {
+    if (id === '@tauri-apps/plugin-clipboard-manager') return { writeText: async (text: string) => copied.push(text) }
     if (id === '@vueuse/core') return { useEventListener: () => {} }
     if (id === '@/services/diagnostics') return { reportDiagnostic: () => {} }
     if (id === 'vue') {
       return { ...Vue, inject: () => controller, withDirectives: (node: VNode, bindings: Array<[unknown, boolean]>) => {
-        desktopShown = bindings[0][1]
+        if (node.props?.title === 'pages.preference.broadcast.desktopVisible') desktopShown = bindings[0][1]
+        if (!bindings[0][1]) hiddenNodes.add(node)
         return node
       } }
     }
@@ -69,6 +73,7 @@ function harness() {
   }
   function rendered() {
     const buttons: VNode[] = []
+    const nodes: VNode[] = []
     const text: string[] = []
     function visit(node: unknown) {
       if (typeof node === 'string') {
@@ -79,22 +84,25 @@ function harness() {
         node.forEach(visit)
         return
       }
-      if (!Vue.isVNode(node)) return
+      if (!Vue.isVNode(node) || hiddenNodes.has(node)) return
+      nodes.push(node)
       if (node.type === Button) buttons.push(node)
       if (node.children && typeof node.children === 'object' && !Array.isArray(node.children)) {
-        const slot = node.children.default
-        if (typeof slot === 'function') visit(slot())
+        for (const name of ['default', 'suffix']) {
+          const slot = node.children[name]
+          if (typeof slot === 'function') visit(slot())
+        }
       } else {
         visit(node.children)
       }
     }
     visit(render({}, []))
-    return { buttons, text: text.join(' ') }
+    return { buttons, nodes, text: text.join(' ') }
   }
   return { block, general, desktop: () => switches()[1].props!, desktopShown: () => {
     switches()
     return desktopShown
-  }, status, rendered, retried: () => retried }
+  }, status, rendered, copied, retried: () => retried }
 }
 
 it('hides and disables the local display row while output is OFF and ignores attempted edits', () => {
@@ -136,6 +144,7 @@ it('retains its own OFF choice through presets and enables basic visibility only
 })
 it('retains the connected status with a backup warning and exposes a working retry', () => {
   const h = harness()
+  h.general.broadcast.enabled = true
   h.status.value.warning = 'endpoint_backup_unavailable'
   const view = h.rendered()
   assert.ok(view.text.includes('pages.preference.broadcast.status.connected'))
@@ -145,6 +154,47 @@ it('retains the connected status with a backup warning and exposes a working ret
   assert.equal(h.retried(), 1)
   h.status.value.warning = undefined
   assert.equal(h.rendered().buttons.length, 1)
+})
+
+it('hides the OBS address and connection status while output is OFF, retaining native state for ON', () => {
+  const h = harness()
+  h.status.value.url = 'http://127.0.0.1:12345/retained-endpoint'
+  const connectionTitles = ['pages.preference.broadcast.connection', 'pages.preference.broadcast.statusTitle']
+  const visible = () => connectionTitles.map(title => h.rendered().nodes.some(node => node.props?.title === title))
+  assert.deepEqual(visible(), [false, false], 'desired OFF hides rows even before native status catches up')
+  assert.ok(!h.rendered().text.includes('pages.preference.broadcast.status.connected'))
+  h.general.broadcast.enabled = true
+  assert.deepEqual(visible(), [true, true])
+  assert.ok(h.rendered().text.includes('pages.preference.broadcast.status.connected'))
+  h.general.broadcast.enabled = false
+  assert.deepEqual(visible(), [false, false])
+  assert.equal(h.status.value.url, 'http://127.0.0.1:12345/retained-endpoint')
+  assert.equal(h.status.value.clients, 1)
+})
+
+it('ignores delayed copy and reveal events after output turns OFF and restores a masked address on ON', async () => {
+  const h = harness()
+  h.general.broadcast.enabled = true
+  h.status.value.url = 'http://127.0.0.1:12345/retained-endpoint'
+  const addressView = h.rendered()
+  const copy = addressView.buttons.find(node => node.props?.class === 'broadcast-copy')!
+  const reveal = addressView.nodes.find(node => node.props?.class === 'broadcast-reveal')!
+  await copy.props!.onClick()
+  assert.deepEqual(h.copied, [h.status.value.url])
+  const keyEvent = { key: 'Enter', repeat: false, preventDefault: () => {} }
+  reveal.props!.onKeydown(keyEvent)
+  assert.equal(h.rendered().nodes.find(node => node.props?.class === 'broadcast-reveal')!.props!['aria-pressed'], true)
+  h.general.broadcast.enabled = false
+  await Vue.nextTick()
+  await copy.props!.onClick()
+  let captures = 0
+  reveal.props!.onPointerdown({ isPrimary: true, button: 0, pointerId: 1, currentTarget: { setPointerCapture: () => captures++ } })
+  reveal.props!.onKeydown(keyEvent)
+  h.general.broadcast.enabled = true
+  await Vue.nextTick()
+  assert.equal(h.copied.length, 1)
+  assert.equal(captures, 0)
+  assert.equal(h.rendered().nodes.find(node => node.props?.class === 'broadcast-reveal')!.props!['aria-pressed'], false)
 })
 
 it('distinguishes address preservation errors from rendering and port errors', () => {

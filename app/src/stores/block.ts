@@ -5,6 +5,7 @@ import { computed, reactive, ref } from 'vue'
 import type { DeskSettings } from '@/config/desk'
 import type { DeviceColorSettings } from '@/config/deviceColors'
 import type { DmeloperEyebrowPreset } from '@/config/dmeloperEyebrows'
+import type { KeyboardLanguageSelection } from '@/config/keyboardLanguage'
 import type { LightingSettings } from '@/config/lighting'
 import type { PetModelId } from '@/config/model3d'
 import type { ShadowQuality, ShadowQualitySelection } from '@/config/performance'
@@ -67,7 +68,7 @@ export interface Pet3dPreset extends PetArmPoseSettings, PetMotionSettings, Devi
   keyboardBaseXOffset: number
   keyboardBaseZOffset: number
   keyboardScalePercent: number
-  keyboardLegendLanguage: 'ko' | 'en'
+  keyboardLegendLanguage: KeyboardLanguageSelection
   dmeloperEyebrows: DmeloperEyebrowPreset
   dmeloperPalmColor: string
 }
@@ -650,8 +651,8 @@ export const useBlockStore = defineStore(BLOCK_STORE_ID, () => {
     }
 
     preset.keyboardLegendLanguage
-      = source.keyboardLegendLanguage === 'en'
-        ? 'en'
+      = source.keyboardLegendLanguage === 'ko' || source.keyboardLegendLanguage === 'en' || source.keyboardLegendLanguage === 'system'
+        ? source.keyboardLegendLanguage
         : defaults.keyboardLegendLanguage
 
     preset.dmeloperEyebrows = sanitizeDmeloperEyebrows(source.dmeloperEyebrows)

@@ -27,6 +27,36 @@ fn scene() -> BroadcastScene {
     }"##).unwrap()
 }
 
+#[tokio::test]
+async fn system_keyboard_language_is_latest_state_independent_of_scene_and_input_readiness() {
+    let (_root, service, _) = make_service();
+    let demands = Arc::new(Mutex::new(Vec::new()));
+    let observed = demands.clone();
+    assert!(service.keyboard_demand.set(Arc::new(move |enabled| observed.lock().unwrap().push(enabled))).is_ok());
+    let mut automatic = scene();
+    automatic.preset["keyboardLegendLanguage"] = json!("system");
+    service.keyboard_language.send_replace(crate::keyboard_language::Status { revision: 7, language: crate::keyboard_language::Language::En });
+    service.configure(true, Some(automatic.clone())).await.unwrap();
+    let mut first = connect(&service).await;
+    let packet = next_type(&mut first, "scene").await;
+    assert_eq!(packet["scene"]["preset"]["keyboardLegendLanguage"], "system");
+    let revision = packet["revision"].clone();
+    assert_eq!(next_type(&mut first, "keyboard_language").await, json!({"type":"keyboard_language", "revision":7, "language":"en"}));
+    // Mode delivery does not require ready/input demand or send another scene.
+    service.keyboard_language.send_replace(crate::keyboard_language::Status { revision: 8, language: crate::keyboard_language::Language::Ko });
+    assert_eq!(next_type(&mut first, "keyboard_language").await["language"], "ko");
+    assert_eq!(service.status().scene_revision, revision.as_u64());
+    let mut second = connect(&service).await;
+    next_type(&mut second, "scene").await;
+    assert_eq!(next_type(&mut second, "keyboard_language").await["revision"], 8);
+    service.configure(true, Some(scene())).await.unwrap();
+    assert_eq!(demands.lock().unwrap().last(), Some(&false));
+    service.configure(true, Some(automatic)).await.unwrap();
+    assert_eq!(demands.lock().unwrap().last(), Some(&true));
+    service.configure(false, None).await.unwrap();
+    assert_eq!(demands.lock().unwrap().last(), Some(&false));
+}
+
 #[test]
 fn automatic_padding_obs_round_trip_preserves_thirty_and_legacy_values() {
     for padding in [0.0, 2.0, 10.0, 16.0, 16.5, 17.0, 20.0, 30.0] {

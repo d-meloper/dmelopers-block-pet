@@ -25,6 +25,7 @@ import type { VoxelSkinModel } from '@/utils/three3d/voxelSkin'
 
 import { useAppMenu } from '@/composables/useAppMenu'
 import { useDevice } from '@/composables/useDevice'
+import { useSystemKeyboardLanguage } from '@/composables/useSystemKeyboardLanguage'
 import { useTauriListen } from '@/composables/useTauriListen'
 import {
   applyMainViewportGeometry,
@@ -34,6 +35,7 @@ import {
   setAutomaticViewportMutationGuard,
   subscribeMainViewportSnapshot,
 } from '@/composables/useWindowState'
+import { resolveKeyboardLanguage } from '@/config/keyboardLanguage'
 import { MODEL_3D_CONFIG } from '@/config/model3d'
 import { ANTIALIAS_SETTING_CANCEL, ANTIALIAS_SETTING_REQUEST, ANTIALIAS_SETTING_RESPONSE, isAntialiasSettingRequest } from '@/config/performance'
 import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
@@ -85,6 +87,10 @@ import {
 
 const appWindow = getCurrentWebviewWindow()
 const blockStore = useBlockStore()
+const systemKeyboardLanguage = useSystemKeyboardLanguage(() => blockStore.activePet3dPreset.keyboardLegendLanguage)
+watch(systemKeyboardLanguage, (language) => {
+  three3d.setKeyboardLegendLanguage(resolveKeyboardLanguage(blockStore.activePet3dPreset.keyboardLegendLanguage, language))
+})
 const generalStore = useGeneralStore()
 const requestedForegroundMask = computed(() => isForegroundHidingSettings(generalStore.app.foregroundHiding)
   && generalStore.app.foregroundHiding.enabled && foregroundHidingSuppressed.value)
@@ -515,7 +521,7 @@ function destroyRendererResources() {
 function apply3dPreset(preset: Pet3dPreset) {
   activeViewportAutomatic = preset.autoViewportEnabled
   desiredManualViewportRect = { ...preset.manualViewportRect }
-  applyPresetVisualSettings(three3d, preset, confirmedMouseEnabled())
+  applyPresetVisualSettings(three3d, preset, confirmedMouseEnabled(), systemKeyboardLanguage.value)
 }
 
 function resizeRendererToViewport(snapshot: MainViewportSnapshot): void {
@@ -2122,12 +2128,6 @@ function handleContextmenu(event: MouseEvent) {
     transform: rotate(360deg);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .pet-loading-spinner {
-    animation: none;
-  }
-}
-
 .viewport-hologram {
   box-shadow:
     inset 0 0 0 1px black,

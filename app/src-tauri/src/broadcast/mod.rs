@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tokio::sync::{Mutex as AsyncMutex, broadcast, watch};
 
 const MAX_CLIENTS: usize = 8;
@@ -51,26 +51,32 @@ impl BroadcastState {
         });
         let status_app = app.clone();
         let input_app = app.clone();
-        Self {
-            service: Service::new(
-                loader,
-                Arc::new(move |status| {
-                    if status_app.emit_to(PREFERENCE_WINDOW, STATUS_EVENT, status).is_err() {
-                        crate::diagnostics::warn("broadcast.status", "event_delivery_failed");
-                    }
-                }),
-                Arc::new(move |demand| {
-                    crate::core::device::set_broadcast_input(input_app.clone(), demand)
-                }),
-            ),
-        }
+        let service = Service::new(
+            loader,
+            Arc::new(move |status| {
+                if status_app.emit_to(PREFERENCE_WINDOW, STATUS_EVENT, status).is_err() {
+                    crate::diagnostics::warn("broadcast.status", "event_delivery_failed");
+                }
+            }),
+            Arc::new(move |demand| {
+                crate::core::device::set_broadcast_input(input_app.clone(), demand)
+            }),
+        );
+        let keyboard = app.state::<crate::keyboard_language::KeyboardLanguageState>().inner().clone();
+        let _ = service.keyboard_demand.set(Arc::new(move |enabled| keyboard.configure_broadcast(enabled)));
+        Self { service }
     }
 
     pub(crate) fn publish_input(&self, event: crate::core::device::SemanticInputEvent) {
         self.service.publish_input(event);
     }
 
+    pub(crate) fn publish_keyboard_language(&self, status: crate::keyboard_language::Status) {
+        self.service.keyboard_language.send_replace(status);
+    }
+
     pub fn shutdown(&self) {
+        if let Some(demand) = self.service.keyboard_demand.get() { demand(false); }
         // Application exit cannot wait for a webview or an async command. Closing
         // this channel directly invalidates all sockets; lib.rs stops the hooks.
         let mut inner = self
@@ -192,6 +198,8 @@ struct Service {
     pending_input: AsyncMutex<Option<PendingInput>>,
     scenes: watch::Sender<Option<Arc<ScenePacket>>>,
     inputs: broadcast::Sender<String>,
+    keyboard_language: watch::Sender<crate::keyboard_language::Status>,
+    keyboard_demand: OnceLock<Arc<dyn Fn(bool) + Send + Sync>>,
     status_sink: StatusSink,
     input_control: InputControl,
 }
@@ -217,6 +225,7 @@ impl Service {
         }
         let (scenes, _) = watch::channel(None);
         let (inputs, _) = broadcast::channel(256);
+        let (keyboard_language, _) = watch::channel(crate::keyboard_language::Status::default());
         Arc::new(Self {
             identity,
             identity_loader,
@@ -230,6 +239,8 @@ impl Service {
             pending_input: AsyncMutex::new(None),
             scenes,
             inputs,
+            keyboard_language,
+            keyboard_demand: OnceLock::new(),
             status_sink,
             input_control,
         })
@@ -448,6 +459,12 @@ impl Service {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .enabled = enabled;
+        // Reconcile inside serialized configure, before any await. A cancelled
+        // frontend request cannot leave a stale observer demand.
+        if let Some(demand) = self.keyboard_demand.get() {
+            let automatic = self.scenes.borrow().as_ref().is_some_and(|packet| packet.scene.system_keyboard_language());
+            demand(enabled && automatic);
+        }
         if !enabled {
             {
                 let mut inner = self.inner.lock().unwrap_or_else(|error| error.into_inner());

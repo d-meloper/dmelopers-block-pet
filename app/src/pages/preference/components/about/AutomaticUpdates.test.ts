@@ -7,6 +7,7 @@ import ts from 'typescript'
 import * as Vue from 'vue'
 import { compileScript, parse } from 'vue/compiler-sfc'
 
+import type { RecoveryReport } from '@/features/recovery/types'
 import type { PreferenceUpdates } from '@/features/updates/preferenceUpdates'
 import type { DistributionChannel, DistributionInfo } from '@/services/distribution'
 import type { AppUpdateInfo, UpdatePhase } from '@/services/inAppUpdates'
@@ -302,6 +303,29 @@ it('opens only Microsoft Store with a duplicate guard and reports an open failur
   assert.ok(h.nodes().some(node => node.type === 'microsoft-store-icon'))
 })
 
+it('keeps Store opening silent while preserving genuine update recovery feedback', async () => {
+  const h = harness('store')
+  const recovery = Vue.shallowRef<RecoveryReport>()
+  const nodes = renderComponent('AutomaticUpdates.vue', h.updates, {
+    '@/composables/usePreferenceUpdates': { usePreferenceUpdates: () => ({ ...h.updates, recovery }) },
+    '@/services/distribution': { openStore: async () => {} },
+  })
+  const click = () => (nodes().find(node => node.props?.class === 'update-action')!.props!.onClick as () => Promise<void>)()
+  try {
+    await h.updates.setVisible(true)
+    await click()
+    const feedback = () => nodes().find(node => node.type === 'recovery-feedback')!
+    assert.equal(feedback().props!.report, undefined)
+    const report = { status: 'unresolved' as const, steps: [] }
+    recovery.value = report
+    assert.deepEqual(feedback().props!.report, report)
+    await click()
+    assert.deepEqual(feedback().props!.report, report)
+  } finally {
+    h.updates.dispose()
+  }
+})
+
 for (const operation of ['await_native_startup', 'distribution_info']) {
   it(`does not open Store after recovery times out during ${operation}, then permits a current retry`, async () => {
     const h = await storeRecoveryFixture()
@@ -310,7 +334,6 @@ for (const operation of ['await_native_startup', 'distribution_info']) {
     try {
       await h.click()
       assert.ok(h.calls.includes(operation))
-      assert.equal(h.recovery.report.value?.status, 'unknown')
       assert.equal(h.recovery.busy.value, true)
       assert.equal(h.action().props!.disabled, true)
       const before = [...h.calls]
@@ -320,7 +343,6 @@ for (const operation of ['await_native_startup', 'distribution_info']) {
       await settle()
       assert.deepEqual(h.calls, ['await_native_startup', 'distribution_info'])
       assert.equal(h.recovery.busy.value, false)
-      assert.equal(h.recovery.report.value?.status, 'unknown')
       assert.equal(h.action().props!.disabled, false)
       await h.click()
       assert.equal(h.calls.at(-1), 'open:ms-windows-store://downloadsandupdates')
@@ -343,7 +365,6 @@ for (const operation of ['await_native_startup', 'distribution_info']) {
     preparation.resolve()
     await settle()
     assert.deepEqual(h.calls, ['await_native_startup', 'distribution_info'])
-    assert.equal(h.recovery.report.value, undefined)
     assert.deepEqual(h.errors, [])
     await h.click()
     assert.equal(h.calls.length, 2)
@@ -357,7 +378,6 @@ it('retains an already issued Store opener through recovery timeout without repl
   try {
     await h.click()
     assert.equal(h.calls.filter(call => call.startsWith('open:')).length, 1)
-    assert.equal(h.recovery.report.value?.status, 'unknown')
     assert.equal(h.recovery.busy.value, true)
     assert.equal(h.action().props!.disabled, true)
     await h.click()
@@ -365,7 +385,6 @@ it('retains an already issued Store opener through recovery timeout without repl
     opener.resolve()
     await settle()
     assert.equal(h.recovery.busy.value, false)
-    assert.equal(h.recovery.report.value?.status, 'unknown', 'native completion does not prove that Store appeared')
     assert.equal(h.calls.length, 3)
   } finally {
     opener.resolve()
@@ -384,7 +403,6 @@ it('disposal retires feedback but does not cancel or repeat an already issued St
   await opening
   opener.resolve()
   await settle()
-  assert.equal(h.recovery.report.value, undefined)
   assert.deepEqual(h.errors, [])
   await h.click()
   assert.equal(h.calls.length, 3)

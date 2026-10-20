@@ -41,6 +41,19 @@ it('round-trips automatic padding through 30 and classifies unsupported archived
   }
 })
 
+it('exports and imports the system selection unchanged instead of its current resolved language', async () => {
+  const snapshot = createDefaultPresetSnapshot()
+  snapshot.preset.keyboardLegendLanguage = 'system'
+  snapshot.appearance.minecraftSkinUsername = 'Fixture_User'
+  const exported = await exportPortablePreset('System', snapshot, 'nickname')
+  const serialized = serializePortablePreset(exported)
+  const imported = parsePortablePreset(new TextEncoder().encode(serialized))
+  assert.equal(imported.settings.preset.keyboardLegendLanguage, 'system')
+  assert.equal((imported.sourceSettings!.preset as Record<string, unknown>).keyboardLegendLanguage, 'system')
+  assert.deepEqual(inspectPresetCompatibility(imported.sourceSettings!), [])
+  assert.equal(serializePortablePreset(imported), serialized)
+})
+
 it('projects nickname exports without reading images, issuing network calls or leaking local state', async () => {
   const snapshot = createDefaultPresetSnapshot()
   snapshot.appearance.minecraftSkinUsername = 'Fixture_User'

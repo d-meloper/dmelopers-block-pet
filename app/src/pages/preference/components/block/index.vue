@@ -15,7 +15,7 @@ import ColorPicker from '@/components/color-picker/index.vue'
 import { toSliderDisplayValue } from '@/components/default-snap-slider/displayValue'
 import DefaultSnapSlider from '@/components/default-snap-slider/index.vue'
 import OptionTransition from '@/components/option-transition/index.vue'
-import { vStableDetailHeight } from '@/components/preference-detail-tabs/height'
+import { vDetailHeightOption, vStableDetailHeight } from '@/components/preference-detail-tabs/height'
 import PreferenceOptionGroup from '@/components/preference-option-group/index.vue'
 import PreferenceSections from '@/components/preference-sections/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
@@ -762,7 +762,7 @@ function confirmPetDetailReset() {
                 <OptionTransition>
                   <Flex
                     v-show="isArmVisible(arm.side)"
-                    data-detail-height-option
+                    v-detail-height-option
                     :gap="32"
                     vertical
                   >
@@ -842,7 +842,7 @@ function confirmPetDetailReset() {
             <OptionTransition>
               <Flex
                 v-show="dmeloperEyebrowsEnabled"
-                data-detail-height-option
+                v-detail-height-option
                 :gap="32"
                 vertical
               >
@@ -983,46 +983,48 @@ function confirmPetDetailReset() {
                 :options="petAnimationModeOptions"
               />
             </ProListItem>
-            <OptionTransition>
-              <TypingMotionOptions
-                v-show="petAnimationMode === 'default'"
-                data-detail-height-option
-                :disabled="editorsLocked || petAnimationMode !== 'default'"
-                :settings="activePet3dPreset"
-                @update:settings="updateTypingMotionSettings"
-              />
-            </OptionTransition>
-            <OptionTransition>
-              <Flex
-                v-show="petAnimationMode === 'headbutt'"
-                data-detail-height-option
-                gap="middle"
-                vertical
-              >
-                <ProListItem
-                  :description="$t('pages.preference.block.hints.petHeadbuttMaxRadius')"
-                  :title="$t('pages.preference.block.labels.petHeadbuttMaxRadius')"
+            <div class="motion-options-grid">
+              <OptionTransition>
+                <TypingMotionOptions
+                  v-show="petAnimationMode === 'default'"
+                  v-detail-height-option="'default'"
+                  :disabled="editorsLocked || petAnimationMode !== 'default'"
+                  :settings="activePet3dPreset"
+                  @update:settings="updateTypingMotionSettings"
+                />
+              </OptionTransition>
+              <OptionTransition>
+                <Flex
+                  v-show="petAnimationMode === 'headbutt'"
+                  v-detail-height-option="'headbutt'"
+                  gap="middle"
                   vertical
                 >
-                  <DefaultSnapSlider
-                    class="m-[0]!"
-                    :default-value="defaultPet3dPreset.petHeadbuttMaxRadiusOffset"
+                  <ProListItem
+                    :description="$t('pages.preference.block.hints.petHeadbuttMaxRadius')"
+                    :title="$t('pages.preference.block.labels.petHeadbuttMaxRadius')"
+                    vertical
+                  >
+                    <DefaultSnapSlider
+                      class="m-[0]!"
+                      :default-value="defaultPet3dPreset.petHeadbuttMaxRadiusOffset"
+                      :disabled="editorsLocked || petAnimationMode !== 'headbutt'"
+                      display-mode="centered"
+                      :display-step="0.1"
+                      :max="presetRanges.preset.petHeadbuttMaxRadiusOffset.max"
+                      :min="presetRanges.preset.petHeadbuttMaxRadiusOffset.min"
+                      :value="activePet3dPreset.petHeadbuttMaxRadiusOffset"
+                      @update:value="updateHeadbuttMaxRadiusOffset"
+                    />
+                  </ProListItem>
+                  <HeadbuttRecoilOptions
                     :disabled="editorsLocked || petAnimationMode !== 'headbutt'"
-                    display-mode="centered"
-                    :display-step="0.1"
-                    :max="presetRanges.preset.petHeadbuttMaxRadiusOffset.max"
-                    :min="presetRanges.preset.petHeadbuttMaxRadiusOffset.min"
-                    :value="activePet3dPreset.petHeadbuttMaxRadiusOffset"
-                    @update:value="updateHeadbuttMaxRadiusOffset"
+                    :settings="activePet3dPreset"
+                    @update:settings="updateHeadbuttRecoilSettings"
                   />
-                </ProListItem>
-                <HeadbuttRecoilOptions
-                  :disabled="editorsLocked || petAnimationMode !== 'headbutt'"
-                  :settings="activePet3dPreset"
-                  @update:settings="updateHeadbuttRecoilSettings"
-                />
-              </Flex>
-            </OptionTransition>
+                </Flex>
+              </OptionTransition>
+            </div>
           </Flex>
         </TabPane>
       </Tabs>
@@ -1039,6 +1041,15 @@ function confirmPetDetailReset() {
 </template>
 
 <style scoped>
+.motion-options-grid {
+  display: grid;
+}
+
+.motion-options-grid > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
 .skin-library-open-button {
   align-items: center;
   display: inline-flex;

@@ -17,6 +17,7 @@ interface ShortcutEvent {
 }
 
 interface Element {
+  text: string
   props: Record<string, unknown>
   children: Element[]
   parent: Element | null
@@ -26,6 +27,7 @@ interface Element {
 
 function element(): Element {
   const node: Element = {
+    text: '',
     props: {},
     children: [],
     parent: null,
@@ -44,11 +46,11 @@ function walk(node: Element): Element[] {
 
 const require = createRequire(import.meta.url)
 
-function mountShortcuts() {
+function mountShortcuts(mirrorMode = 'Control+B') {
   setActivePinia(createPinia())
   const store = useShortcutStore()
   store.visibleBlock = 'Control+Shift+A'
-  store.mirrorMode = 'Control+B'
+  store.mirrorMode = mirrorMode
   const wrapper = Vue.defineComponent({ setup: (_, { slots }) => () => Vue.h('div', slots.default?.()) })
   let dataBridge: Record<string, unknown>
   let shortcut: Vue.Component
@@ -115,8 +117,12 @@ function mountShortcuts() {
     createElement: element,
     createText: element,
     createComment: element,
-    setText: () => {},
-    setElementText: () => {},
+    setText: (node, text) => {
+      node.text = text
+    },
+    setElementText: (node, text) => {
+      node.text = text
+    },
     patchProp: (node, name, _previous, value) => {
       node.props[name] = value
     },
@@ -141,8 +147,8 @@ function mountShortcuts() {
     assert.ok(input)
     ;(input.props.onFocus as () => void)()
   }
-  const keyDown = (index: number, key: string, code: string) => {
-    const event = { key, code, prevented: false, stopped: false, preventDefault() {
+  const keyDown = (index: number, key: string, code: string, composition: { isComposing?: boolean, keyCode?: number } = {}) => {
+    const event = { key, code, ...composition, prevented: false, stopped: false, preventDefault() {
       this.prevented = true
     }, stopPropagation() {
       this.stopped = true
@@ -157,6 +163,7 @@ function mountShortcuts() {
     showPanel,
     focus,
     inputs,
+    text: () => walk(root).map(node => node.text).join(' '),
     rows: () => walk(root).filter(node => typeof node.props.description === 'string'),
     keyDown,
     cancelRecording: () => keyPress.cancelShortcutRecording(),
@@ -318,6 +325,46 @@ describe('native shortcut actions during recording', () => {
 })
 
 describe('shortcut cancellation and complete panel', () => {
+  for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+    it(`ignores IME confirmation without saving a binding (${JSON.stringify(composition)})`, async () => {
+      const h = mountShortcuts()
+      try {
+        await flush()
+        h.focus(5)
+        h.keyDown(5, 'Control', 'ControlLeft')
+        h.keyDown(5, 'b', 'KeyB', composition)
+        await flush()
+        assert.equal(h.inputs()[5].blurCount, 0)
+        assert.equal(h.store.mirrorMode, 'Control+B')
+        h.keyDown(5, 'Escape', 'Escape', composition)
+        assert.equal(h.inputs()[5].blurCount, 0, 'IME Escape belongs to the composition')
+        h.keyDown(5, 'c', 'KeyC')
+        await flush()
+        assert.equal(h.store.mirrorMode, 'Control+C', 'ordinary recording still commits')
+        assert.equal(h.inputs()[5].blurCount, 1)
+      } finally {
+        h.app.unmount()
+        await flush()
+      }
+    })
+  }
+
+  it('shows an unfamiliar saved shortcut token and preserves it on focus cancellation', async () => {
+    const h = mountShortcuts('Control+MediaPlayPause')
+    try {
+      await flush()
+      assert.ok(h.text().includes('Ctrl MediaPlayPause'))
+      h.focus(5)
+      h.keyDown(5, 'Escape', 'Escape')
+      await flush()
+      assert.equal(h.store.mirrorMode, 'Control+MediaPlayPause')
+      assert.ok(h.text().includes('Ctrl MediaPlayPause'))
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
+  })
+
   it('adds empty cycle defaults when restoring legacy shortcut state', () => {
     setActivePinia(createPinia())
     const store = useShortcutStore()

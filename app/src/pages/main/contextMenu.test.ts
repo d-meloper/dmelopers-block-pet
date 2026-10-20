@@ -133,6 +133,7 @@ function menuHarness(label: string) {
     '@/features/stateSafety': { editorsLocked: { value: false } },
     '@/plugins/process': { quitApp: async () => {}, restartApp: async () => {} },
     '@/plugins/window': { showWindow: async () => {} },
+    '@/services/foregroundHiding': { foregroundHidingSuppressed: { value: false } },
     '@/stores/block': { useBlockStore: () => block },
     '@/stores/general': { useGeneralStore: () => general },
     './menuViewportSetting': menuViewportSetting,

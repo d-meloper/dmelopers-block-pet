@@ -1,5 +1,7 @@
+import type { ResolvedKeyboardLanguage } from '@/config/keyboardLanguage'
 import type { SemanticInputEvent } from '@/features/input/types'
 
+import { resolveKeyboardLanguage } from '@/config/keyboardLanguage'
 import { fitBroadcastOutput } from '@/features/broadcast/scene'
 import { applyPresetVisualSettings } from '@/features/presets/visualSettings'
 import { Three3DRenderer } from '@/utils/three3d'
@@ -17,6 +19,7 @@ interface View {
 export function createBroadcastView(container: HTMLElement, assetBase: URL) {
   let current: View | undefined
   let loading: View | undefined
+  let systemLanguage: ResolvedKeyboardLanguage = 'ko'
   let crop = { width: 500, height: 422 }
   const resize = () => {
     if (!current) return
@@ -36,7 +39,7 @@ export function createBroadcastView(container: HTMLElement, assetBase: URL) {
     renderer.setShadowsEnabled(quality.shadowsEnabled)
     renderer.setPixelFilterEnabled(quality.pixelFilterEnabled === true)
     renderer.setEyebrowAnimationEnabled(scene.eyebrowAnimationEnabled)
-    applyPresetVisualSettings(renderer, scene.preset)
+    applyPresetVisualSettings(renderer, scene.preset, scene.preset.mouseEnabled, systemLanguage)
     view.canvas.style.transform = scene.mirror ? 'scaleX(-1)' : ''
     view.canvas.style.opacity = String(scene.opacity / 100)
     renderer.setInputActive(true)
@@ -86,6 +89,7 @@ export function createBroadcastView(container: HTMLElement, assetBase: URL) {
           if (!isCurrent()) return
           if (canvas) view.canvas = canvas
         }
+        view.scene = scene
         configure(view, scene)
         if (replacement) view.renderer.renderStillFrame()
         // Settings reach the damped rig on update. Measure the new pose without
@@ -118,6 +122,14 @@ export function createBroadcastView(container: HTMLElement, assetBase: URL) {
       }
     },
     input: (event: SemanticInputEvent) => current?.renderer.handleSemanticInput(event),
+    keyboardLanguage(language: ResolvedKeyboardLanguage) {
+      systemLanguage = language
+      for (const view of [current, loading]) {
+        if (view?.scene.preset.keyboardLegendLanguage === 'system') {
+          view.renderer.setKeyboardLegendLanguage(resolveKeyboardLanguage('system', language))
+        }
+      }
+    },
     reset() {
       if (!current) return
       current.renderer.setInputActive(false)

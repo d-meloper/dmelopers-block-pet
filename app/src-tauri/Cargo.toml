@@ -1,6 +1,6 @@
 [package]
 name = "dmelopers-block-pet"
-version = "1.1.3"
+version = "1.1.4"
 description = "DMeloper's Block Pet desktop companion"
 license = "MIT"
 authors = [ "DMeloper" ]
@@ -73,7 +73,7 @@ tauri-plugin-locale = "2"
 rdev = { git = "https://github.com/kunkunsh/rdev" }
 
 [target."cfg(target_os = \"windows\")".dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Graphics_Gdi", "Win32_UI_Controls_Dialogs", "Win32_Storage_FileSystem", "Win32_System_Performance", "Win32_System_SystemInformation", "Win32_System_ProcessStatus", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_HiDpi", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_UI_Shell", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Environment", "Win32_System_Com", "Win32_Globalization"] }
+windows-sys = { version = "0.61", features = ["Win32_Graphics_Gdi", "Win32_UI_Controls_Dialogs", "Win32_Storage_FileSystem", "Win32_System_Performance", "Win32_System_SystemInformation", "Win32_System_ProcessStatus", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Input_Ime", "Win32_UI_HiDpi", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_UI_Shell", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Registry", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Environment", "Win32_System_Com", "Win32_Globalization"] }
 windows = { version = "0.61", features = ["ApplicationModel", "Management_Deployment", "Storage", "Storage_Search", "Data_Xml_Dom", "Win32_System_WinRT", "Win32_UI_Shell", "Win32_UI_Shell_PropertiesSystem", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Ole", "Win32_Storage_FileSystem", "Win32_Graphics_Gdi"] }
 # windows 0.61 does not forward its std feature to WinRT futures.
 windows-future = { version = "0.2", features = ["std"] }
@@ -89,7 +89,7 @@ windows = { version = "0.61", features = ["Win32_Devices_HumanInterfaceDevice", 
 [features]
 default = ["channel-github"]
 channel-github = []
-channel-store = []
+channel-store = ["windows/Services_Store"]
 cargo-clippy = []
 # Recognize old invocations only to reject them explicitly in build.rs.
 private-update-qa = []

@@ -166,15 +166,6 @@ fn owned_window(hwnd: isize) -> bool {
     window_process_id(hwnd) == Some(std::process::id())
 }
 
-fn window_retired(hwnd: isize) -> bool {
-    match window_process_id(hwnd) {
-        Some(process_id) => process_id != std::process::id(),
-        // An unreadable live HWND still owes restoration. Only known retirement
-        // or reuse by a foreign process can release that obligation without a write.
-        None => unsafe { !IsWindow(Some(HWND(hwnd as *mut _))).as_bool() },
-    }
-}
-
 fn read_topmost(hwnd: isize) -> Option<bool> {
     if !owned_window(hwnd) {
         return None;
@@ -236,7 +227,7 @@ fn topmost_requests() -> &'static mpsc::Sender<TopmostRequest> {
         let (sender, receiver) = mpsc::channel();
         thread::spawn(move || {
             maintain_topmost(receiver, |state| {
-                reconcile_window_order(state, preference_available, window_retired,
+                reconcile_window_order(state, preference_available,
                     read_topmost, write_topmost)?;
                 if read_topmost(state.main_hwnd) != Some(state.main_topmost()) {
                     return Err("WINDOW_TOPMOST_STATE_UNCONFIRMED".into());
@@ -531,7 +522,6 @@ mod tests {
     #[test]
     fn invalid_hwnd_cannot_be_read_reasserted_or_written() {
         assert!(!owned_window(0));
-        assert!(window_retired(0));
         assert_eq!(read_topmost(0), None);
         assert_eq!(write_topmost(0, true), Err("WINDOW_OWNER_UNCONFIRMED".into()));
         assert_eq!(write_topmost(0, false), Err("WINDOW_OWNER_UNCONFIRMED".into()));
@@ -552,7 +542,6 @@ mod tests {
                 10, 10, 8, 8, None, None, None, None).unwrap());
             let hwnd = fixture.0.0 as isize;
             assert!(owned_window(hwnd));
-            assert!(!window_retired(hwnd));
             let mut before = RECT::default();
             GetWindowRect(fixture.0, &mut before).unwrap();
             assert_eq!(read_topmost(hwnd), Some(true));
@@ -560,7 +549,7 @@ mod tests {
             state.main_hwnd = hwnd;
             state.always_on_top = true;
             for _ in 0..100 {
-                reconcile_window_order(&mut state, preference_available, window_retired,
+                reconcile_window_order(&mut state, preference_available,
                     read_topmost,
                     |_, _| panic!("a hidden already-topmost main must never repeat a write")).unwrap();
             }
@@ -573,6 +562,85 @@ mod tests {
     }
 
     #[test]
+    fn real_dom_picker_preserves_pet_order_and_native_overlay_priority() {
+        use super::super::topmost::WindowOrder;
+        use windows::Win32::Foundation::RECT;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, GetWindow, GetWindowRect, GW_HWNDPREV,
+            WS_POPUP, WS_VISIBLE,
+        };
+        use windows::core::w;
+        struct Fixture(HWND);
+        impl Drop for Fixture {
+            fn drop(&mut self) { unsafe { let _ = DestroyWindow(self.0); } }
+        }
+        fn fixture(owner: Option<HWND>, topmost: bool) -> Fixture {
+            // Visible offscreen windows exercise actual native order without
+            // activating a window or covering another application's pixels.
+            Fixture(unsafe { CreateWindowExW(
+                WS_EX_NOACTIVATE | if topmost { WS_EX_TOPMOST } else { Default::default() },
+                w!("STATIC"), w!(""), WS_POPUP | WS_VISIBLE,
+                -32000, -32000, 8, 8, owner, None, None, None,
+            ).unwrap() })
+        }
+        fn above(front: HWND, back: HWND) -> bool {
+            let mut current = back;
+            for _ in 0..10000 {
+                let Ok(previous) = (unsafe { GetWindow(current, GW_HWNDPREV) }) else { return false; };
+                if previous == front { return true; }
+                current = previous;
+            }
+            panic!("Unexpected native window-order cycle")
+        }
+        let foreground = unsafe { GetForegroundWindow() };
+        for always_on_top in [false, true] {
+            let preference = fixture(None, false);
+            let pet = fixture(None, false);
+            let pet_hwnd = pet.0.0 as isize;
+            let preference_hwnd = preference.0.0 as isize;
+            let mut state = WindowOrder::default();
+            state.main_hwnd = pet_hwnd;
+            state.always_on_top = always_on_top;
+            state.preference_focused = true;
+            let mut original = RECT::default();
+            unsafe { GetWindowRect(pet.0, &mut original).unwrap(); }
+            // Availability represents the already-accepted picker request;
+            // readback, writes and relative Z-order use the actual own HWNDs.
+            reconcile_window_order(&mut state, |_| true, read_topmost, write_topmost).unwrap();
+            assert!(above(pet.0, preference.0));
+            state.picker_hwnd = Some(preference_hwnd);
+            let mut writes = 0;
+            for _ in 0..100 {
+                reconcile_window_order(&mut state, |_| true, read_topmost, |hwnd, level| {
+                    writes += 1;
+                    write_topmost(hwnd, level)
+                }).unwrap();
+            }
+            assert_eq!(writes, 0, "a DOM picker must not promote its whole owner");
+            assert_eq!(read_topmost(preference_hwnd), Some(false));
+            assert!(above(pet.0, preference.0), "opening the picker must not hide the pet");
+            write_topmost(pet_hwnd, false).unwrap();
+            reconcile_window_order(&mut state, |_| true, read_topmost, write_topmost).unwrap();
+            assert!(above(pet.0, preference.0));
+            state.picker_hwnd = None;
+            reconcile_window_order(&mut state, |_| true, read_topmost, write_topmost).unwrap();
+            let overlay = fixture(Some(preference.0), true);
+            assert!(above(overlay.0, pet.0));
+            for _ in 0..100 {
+                reconcile_window_order(&mut state, |_| true, read_topmost,
+                    |_, _| panic!("stable picker closure must not reorder an owned native overlay")).unwrap();
+            }
+            assert!(above(overlay.0, pet.0));
+            assert_eq!(read_topmost(overlay.0.0 as isize), Some(true));
+            let mut current = RECT::default();
+            unsafe { GetWindowRect(pet.0, &mut current).unwrap(); }
+            assert_eq!(current, original);
+            assert!(unsafe { IsWindowVisible(pet.0).as_bool() });
+            assert_eq!(unsafe { GetForegroundWindow() }, foreground);
+        }
+    }
+
+    #[test]
     fn real_foreign_desktop_hwnd_is_excluded_before_any_write() {
         use windows::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
         let desktop = unsafe { GetDesktopWindow() };
@@ -580,7 +648,6 @@ mod tests {
         let hwnd = desktop.0 as isize;
         assert_ne!(window_process_id(hwnd), Some(std::process::id()));
         assert!(!owned_window(hwnd));
-        assert!(window_retired(hwnd));
         assert_eq!(read_topmost(hwnd), None);
         assert_eq!(write_topmost(hwnd, true), Err("WINDOW_OWNER_UNCONFIRMED".into()));
     }

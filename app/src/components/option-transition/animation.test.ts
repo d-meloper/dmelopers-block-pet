@@ -4,7 +4,7 @@ import { it } from 'node:test'
 
 import { animateOptionTransition, cancelOptionTransition } from './animation'
 
-it('animates height/opacity, reverses continuously and restores focus/style ownership', () => {
+it('animates independently of OS motion preference, reverses continuously and restores focus/style ownership', () => {
   const names = ['HTMLElement', 'document', 'getComputedStyle', 'matchMedia'] as const
   const originals = new Map(names.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]))
   let reduced = false
@@ -59,8 +59,18 @@ it('animates height/opacity, reverses continuously and restores focus/style owne
     assert.equal(element.style.boxSizing, '')
     reduced = true
     animateOptionTransition(dom, false, () => hidden++)
+    assert.equal(hidden, 0)
+    assert.equal(element.animations.length, 3)
+    assert.equal(element.inert, true)
+    element.animations[2].onfinish!()
     assert.equal(hidden, 1)
-    assert.equal(element.animations.length, 2)
+    assert.equal(element.inert, false)
+    assert.equal(element.style.overflow, 'visible')
+    assert.equal(element.style.boxSizing, '')
+    Object.defineProperty(element, 'animate', { value: undefined })
+    animateOptionTransition(dom, false, () => hidden++)
+    assert.equal(hidden, 2)
+    assert.equal(element.animations.length, 3)
     assert.equal(element.inert, false)
   } finally {
     for (const name of names) {

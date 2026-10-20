@@ -866,6 +866,7 @@ function createMainPageHarness(options: { automatic?: boolean, mouseEnabled?: bo
     '@/stores/block': { useBlockStore: () => store },
     '@/stores/general': { useGeneralStore: () => general },
     '@/composables/useAppMenu': { useAppMenu: () => ({}) },
+    '@/composables/useSystemKeyboardLanguage': { useSystemKeyboardLanguage: () => vueRef('ko') },
     '@/composables/useDevice': { useDevice: (options: { onMouseReset: () => void }) => ({
       getInputState: () => mouseState,
       acceptsInput: (event: Parameters<typeof isCurrentSemanticInput>[0]) => inputActive && isCurrentSemanticInput(event, mouseState),

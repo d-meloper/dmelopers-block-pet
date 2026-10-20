@@ -43,7 +43,7 @@ export function animateOptionTransition(element: Element, showing: boolean, done
   states.set(element, state)
   if (!showing && element.contains(document.activeElement)) (document.activeElement as HTMLElement)?.blur()
   element.inert = !showing || state.inert
-  if (!element.animate || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+  if (!element.animate) {
     restore(element, state)
     states.delete(element)
     done()

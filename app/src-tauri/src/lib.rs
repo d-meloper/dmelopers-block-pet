@@ -5,6 +5,7 @@ mod data_paths;
 mod distribution;
 mod external_links;
 mod foreground_hiding;
+mod keyboard_language;
 mod native_operation;
 mod windows_process;
 #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
@@ -16,9 +17,12 @@ mod diagnostics;
 mod in_app_update;
 mod minecraft_skin;
 mod performance;
+#[cfg(windows)]
+mod session_end;
 mod settings_defaults;
 mod preset_compatibility;
 mod system_language;
+mod store_review;
 #[cfg(test)]
 mod settings_float_roundtrip_tests;
 mod lighting_settings;
@@ -94,6 +98,7 @@ pub fn run() {
         .plugin(asset_scope::init())
         .manage(PerformanceMonitorState::new())
         .manage(foreground_hiding::ForegroundHidingState::default())
+        .manage(keyboard_language::KeyboardLanguageState::default())
         // Configured webviews can invoke commands while setup is still running.
         .manage(StartupReady::new())
         .setup(|app| {
@@ -115,6 +120,7 @@ pub fn run() {
             app.manage(MinecraftSkinState::new(app.handle()));
             app.manage(SkinLibraryState::new(app.handle()));
             app.manage(BroadcastState::new(app.handle()));
+            app.state::<keyboard_language::KeyboardLanguageState>().start(app.handle())?;
             #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
             in_app_update::enabled_profile::initialize(app.handle()).map_err(|error| {
                 diagnostics::error("updater.initialize", "UPDATE_INITIALIZATION_FAILED");
@@ -144,6 +150,7 @@ pub fn run() {
             in_app_update::begin_app_update_save,
             in_app_update::abort_app_update,
             distribution::distribution_info,
+            store_review::request_store_review,
             diagnostics::support_system_info,
             diagnostics::prepare_log_directory,
             autostart::autostart_status,
@@ -176,6 +183,7 @@ pub fn run() {
             state_safety::release_state_quiescence,
             await_native_startup,
             system_language::get_system_ui_language,
+            keyboard_language::configure_system_keyboard_language,
             foreground_hiding::get_foreground_hiding_status,
             foreground_hiding::configure_foreground_hiding,
             foreground_hiding::show_foreground_hiding_visit,
@@ -233,13 +241,26 @@ pub fn run() {
     };
 
     lifetime_lock.listen(app.handle().clone());
-    app.run(|app_handle, event| match event {
+    // ExitRequested is observational here; refused operations never issue app.exit.
+    // A future event-level veto must also reset this requested-exit tracking.
+    #[cfg(windows)]
+    let mut exit_requested = false;
+    app.run(move |app_handle, event| match event {
+        #[cfg(windows)]
+        tauri::RunEvent::ExitRequested { .. } => exit_requested = true,
         tauri::RunEvent::Exit => {
+            app_handle.state::<keyboard_language::KeyboardLanguageState>().shutdown();
             app_handle
                 .state::<foreground_hiding::ForegroundHidingState>()
                 .shutdown();
             app_handle.state::<BroadcastState>().shutdown();
             let _ = core::device::stop_listening();
+            #[cfg(windows)]
+            session_end::finish_unrequested_exit(
+                exit_requested,
+                || app_handle.cleanup_before_exit(),
+                |code| std::process::exit(code),
+            );
         }
         _ => {
             let _ = app_handle;

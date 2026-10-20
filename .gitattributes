@@ -1,5 +1,10 @@
 # Show the three primary application languages: TypeScript, Rust and Vue.
 # These exact paths stay reviewable but do not contribute to language statistics.
+# App source keeps its build-time LF contract without private workspace rules.
+app/**/*.py text eol=lf
+app/**/*.ps1 text eol=lf
+app/src/legal/* text eol=lf
+app/src-tauri/Cargo.toml text eol=lf
 app/index.html -linguist-detectable
 app/scripts/packaging/build.ps1 -linguist-detectable
 app/scripts/packaging/package.py -linguist-detectable

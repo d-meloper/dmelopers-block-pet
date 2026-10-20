@@ -39,6 +39,32 @@ it('judges actual values against the current reader, including the 16 to 30 rang
   }
 })
 
+it('preserves system language in new presets and skips only that choice for older readers', () => {
+  const previous = clonePreset(PRESET_SUPPORT_CONTRACT)
+  previous.fields.find(field => field.path.join('.') === 'preset.keyboardLegendLanguage')!.values = ['ko', 'en']
+  setActivePinia(createPinia())
+  const store = useBlockStore()
+  for (const language of ['ko', 'en', 'system'] as const) {
+    const snapshot = createDefaultPresetSnapshot()
+    snapshot.preset.keyboardLegendLanguage = language
+    snapshot.preset.keyboardScalePercent = 125
+    const retained = JSON.stringify(snapshot)
+    assert.equal(isExecutablePresetSnapshot(snapshot), true)
+    assert.deepEqual(inspectPresetCompatibility(presetSettings(snapshot)), [])
+    applyPresetSnapshot(store, JSON.parse(retained))
+    assert.equal(store.activePet3dPreset.keyboardLegendLanguage, language)
+    const fallback = defaultPresetSettings()
+    fallback.preset.keyboardLegendLanguage = 'en'
+    const issues = inspectPresetCompatibility(presetSettings(snapshot), previous)
+    assert.deepEqual(sorted(issues), language === 'system' ? [{ path: ['preset', 'keyboardLegendLanguage'], reason: 'choice' }] : [])
+    const partial = projectPresetSettings(presetSettings(snapshot), fallback, previous)
+    assert.equal(partial.preset.keyboardLegendLanguage, language === 'system' ? 'en' : language)
+    assert.equal(partial.preset.keyboardScalePercent, 125)
+    assert.equal(JSON.stringify(snapshot), retained, 'partial apply must preserve the source system choice')
+    assert.equal(JSON.parse(JSON.stringify(presetSettings(snapshot))).preset.keyboardLegendLanguage, language)
+  }
+})
+
 it('uses only the reading contract migrations without inventing unsupported settings', () => {
   const reader = clonePreset(PRESET_SUPPORT_CONTRACT)
   reader.fields = reader.fields.filter(field => field.path[1] !== 'lighting')

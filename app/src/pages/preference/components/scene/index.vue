@@ -7,7 +7,7 @@ import type { SceneViewportState } from '@/features/scene/types'
 
 import DefaultSnapSlider from '@/components/default-snap-slider/index.vue'
 import OptionTransition from '@/components/option-transition/index.vue'
-import { vStableDetailHeight } from '@/components/preference-detail-tabs/height'
+import { vDetailHeightOption, vStableDetailHeight } from '@/components/preference-detail-tabs/height'
 import PreferenceOptionGroup from '@/components/preference-option-group/index.vue'
 import PreferenceSections from '@/components/preference-sections/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
@@ -205,9 +205,9 @@ function confirmSceneReset(scene: SceneTab) {
                 <OptionTransition>
                   <Flex
                     v-show="blockStore.window.hideOnHover"
+                    v-detail-height-option
                     align="center"
                     class="w-28"
-                    data-detail-height-option
                   >
                     <Divider type="vertical" />
                     <InputNumber
@@ -266,8 +266,7 @@ function confirmSceneReset(scene: SceneTab) {
               <OptionTransition>
                 <ProListItem
                   v-show="automatic"
-                  data-detail-height-option
-                  data-detail-height-variant="automatic"
+                  v-detail-height-option="'automatic'"
                   :description="$t('pages.preference.scene.hints.automaticPadding')"
                   plain
                   :title="$t('pages.preference.scene.labels.automaticPadding')"
@@ -325,8 +324,7 @@ function confirmSceneReset(scene: SceneTab) {
             <OptionTransition>
               <Flex
                 v-show="!automatic"
-                data-detail-height-option
-                data-detail-height-variant="manual"
+                v-detail-height-option="'manual'"
                 gap="middle"
                 vertical
               >

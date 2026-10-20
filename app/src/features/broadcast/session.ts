@@ -1,5 +1,7 @@
+import type { ResolvedKeyboardLanguage } from '@/config/keyboardLanguage'
 import type { SemanticInputEvent } from '@/features/input/types'
 
+import { isSystemKeyboardLanguageStatus } from '@/config/keyboardLanguage'
 import { isSemanticInputEvent } from '@/features/input/types'
 
 import type { BroadcastScene } from './types'
@@ -12,9 +14,11 @@ export function createBroadcastSession(deps: {
   clear: () => void
   ready: (revision: number) => void
   failed?: (revision: number) => void
+  keyboardLanguage?: (language: ResolvedKeyboardLanguage) => void
 }) {
   let generation = 0
   let revision = 0
+  let languageRevision = -1
   let rendered = false
   let pending: { revision: number, scene: BroadcastScene } | undefined
   let running: Promise<void> | undefined
@@ -42,6 +46,13 @@ export function createBroadcastSession(deps: {
     receive(value: unknown) {
       if (!value || typeof value !== 'object') return
       const message = value as { type?: string, revision?: number, scene?: BroadcastScene, event?: unknown }
+      if (message.type === 'keyboard_language') {
+        if (isSystemKeyboardLanguageStatus(message) && message.revision > languageRevision) {
+          languageRevision = message.revision
+          deps.keyboardLanguage?.(message.language)
+        }
+        return
+      }
       if (message.type === 'reset') {
         deps.reset()
         return
@@ -62,6 +73,7 @@ export function createBroadcastSession(deps: {
     disconnect() {
       generation++
       revision = 0
+      languageRevision = -1
       pending = undefined
       rendered = false
       deps.reset()

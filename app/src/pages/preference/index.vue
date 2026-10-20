@@ -751,16 +751,4 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
     visibility: visible;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .preference-sidebar,
-  .preference-tab,
-  .preference-tab-label {
-    transition: none;
-  }
-
-  .preference-tab-label {
-    transform: none;
-  }
-}
 </style>

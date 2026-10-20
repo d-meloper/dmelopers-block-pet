@@ -36,6 +36,9 @@ struct Performance {
 }
 
 impl BroadcastScene {
+    pub(super) fn system_keyboard_language(&self) -> bool {
+        self.preset["keyboardLegendLanguage"] == "system"
+    }
     pub(super) fn mouse_enabled(&self) -> bool {
         self.preset["mouseEnabled"] == true
     }
@@ -108,7 +111,7 @@ fn validate_preset(preset: &Value) -> Result<(), String> {
             | "mouseColor"
             | "mousePressedColor"
             | "dmeloperPalmColor" => color(value),
-            "keyboardLegendLanguage" => matches!(value.as_str(), Some("ko" | "en")),
+            "keyboardLegendLanguage" => matches!(value.as_str(), Some("ko" | "en" | "system")),
             "windowScalePercent"
             | "mouseScalePercent"
             | "keyboardScalePercent"

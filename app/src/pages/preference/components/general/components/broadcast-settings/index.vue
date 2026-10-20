@@ -54,7 +54,7 @@ function hideAddress() {
 }
 
 function revealAddressWhilePressed(event: PointerEvent) {
-  if (!state.value?.url || !event.isPrimary || event.button !== 0) return
+  if (!general.broadcast.enabled || !state.value?.url || !event.isPrimary || event.button !== 0) return
   const button = event.currentTarget as HTMLElement
   button.setPointerCapture(event.pointerId)
   addressRevealed.value = true
@@ -63,7 +63,7 @@ function revealAddressWhilePressed(event: PointerEvent) {
 function revealAddressWithKeyboard(event: KeyboardEvent) {
   if (event.key !== ' ' && event.key !== 'Enter') return
   event.preventDefault()
-  if (!event.repeat && state.value?.url) addressRevealed.value = true
+  if (general.broadcast.enabled && !event.repeat && state.value?.url) addressRevealed.value = true
 }
 
 function hideAddressWithKeyboard(event: KeyboardEvent) {
@@ -85,7 +85,7 @@ const statusLabel = computed(() => {
 })
 
 async function copyAddress() {
-  if (!state.value?.url) return
+  if (!general.broadcast.enabled || !state.value?.url) return
   copied.value = false
   copyError.value = false
   try {
@@ -160,93 +160,99 @@ async function copyAddress() {
           />
         </ProListItem>
       </OptionTransition>
-      <ProListItem
-        class="broadcast-row broadcast-connection"
-        :description="t('pages.preference.broadcast.setupHint')"
-        :title="t('pages.preference.broadcast.connection')"
-        vertical
-      >
-        <Flex
-          class="broadcast-address min-w-0"
-          gap="small"
-        >
-          <Input
-            :aria-label="t('pages.preference.broadcast.connection')"
-            class="broadcast-address-input"
-            :placeholder="t('pages.preference.broadcast.addressPlaceholder')"
-            readonly
-            :value="displayedAddress"
-          >
-            <template #suffix>
-              <button
-                :aria-label="t('pages.preference.broadcast.holdToShowAddress')"
-                :aria-pressed="addressRevealed"
-                class="broadcast-reveal"
-                :disabled="!state?.url"
-                :title="t('pages.preference.broadcast.holdToShowAddress')"
-                type="button"
-                @blur="hideAddress"
-                @keydown="revealAddressWithKeyboard"
-                @keyup="hideAddressWithKeyboard"
-                @lostpointercapture="hideAddress"
-                @mousedown.stop
-                @pointerdown="revealAddressWhilePressed"
-              >
-                <span
-                  aria-hidden="true"
-                  class="size-4"
-                  :class="addressRevealed ? 'i-lucide:eye' : 'i-lucide:eye-off'"
-                />
-              </button>
-            </template>
-          </Input>
-          <Button
-            class="broadcast-copy"
-            :disabled="!state?.url"
-            @click="copyAddress"
-          >
-            {{ t(copied ? 'pages.preference.broadcast.copied' : 'pages.preference.broadcast.copy') }}
-          </Button>
-        </Flex>
-        <span
-          v-if="copyError"
-          class="text-xs text-red-5"
-          role="alert"
-        >{{ t('pages.preference.broadcast.copyError') }}</span>
-      </ProListItem>
-      <ProListItem
-        class="broadcast-row"
-        :description="t('pages.preference.broadcast.statusHint')"
-        :title="t('pages.preference.broadcast.statusTitle')"
-      >
-        <Flex
-          align="end"
-          gap="small"
+      <OptionTransition>
+        <ProListItem
+          v-show="general.broadcast.enabled"
+          class="broadcast-row broadcast-connection"
+          :description="t('pages.preference.broadcast.setupHint')"
+          :title="t('pages.preference.broadcast.connection')"
           vertical
         >
+          <Flex
+            class="broadcast-address min-w-0"
+            gap="small"
+          >
+            <Input
+              :aria-label="t('pages.preference.broadcast.connection')"
+              class="broadcast-address-input"
+              :placeholder="t('pages.preference.broadcast.addressPlaceholder')"
+              readonly
+              :value="displayedAddress"
+            >
+              <template #suffix>
+                <button
+                  :aria-label="t('pages.preference.broadcast.holdToShowAddress')"
+                  :aria-pressed="addressRevealed"
+                  class="broadcast-reveal"
+                  :disabled="!state?.url"
+                  :title="t('pages.preference.broadcast.holdToShowAddress')"
+                  type="button"
+                  @blur="hideAddress"
+                  @keydown="revealAddressWithKeyboard"
+                  @keyup="hideAddressWithKeyboard"
+                  @lostpointercapture="hideAddress"
+                  @mousedown.stop
+                  @pointerdown="revealAddressWhilePressed"
+                >
+                  <span
+                    aria-hidden="true"
+                    class="size-4"
+                    :class="addressRevealed ? 'i-lucide:eye' : 'i-lucide:eye-off'"
+                  />
+                </button>
+              </template>
+            </Input>
+            <Button
+              class="broadcast-copy"
+              :disabled="!state?.url"
+              @click="copyAddress"
+            >
+              {{ t(copied ? 'pages.preference.broadcast.copied' : 'pages.preference.broadcast.copy') }}
+            </Button>
+          </Flex>
           <span
-            class="broadcast-status text-sm"
-            :class="{ 'text-red-5': !!state?.error }"
-            role="status"
+            v-if="copyError"
+            class="text-xs text-red-5"
+            role="alert"
+          >{{ t('pages.preference.broadcast.copyError') }}</span>
+        </ProListItem>
+      </OptionTransition>
+      <OptionTransition>
+        <ProListItem
+          v-show="general.broadcast.enabled"
+          class="broadcast-row"
+          :description="t('pages.preference.broadcast.statusHint')"
+          :title="t('pages.preference.broadcast.statusTitle')"
+        >
+          <Flex
+            align="end"
+            gap="small"
+            vertical
           >
             <span
-              aria-hidden="true"
-              class="broadcast-status-dot"
-              :class="`broadcast-status-${statusLabel}`"
-            />
-            {{ t(`pages.preference.broadcast.status.${statusLabel}`, { count: state?.clients ?? 0 }) }}
-          </span>
-          <Button
-            v-if="state?.error || state?.warning || controller?.recovery.value"
-            :disabled="controller?.pending.value || controller?.retryPending.value"
-            :loading="controller?.retryPending.value"
-            size="small"
-            @click="controller?.retry()"
-          >
-            {{ t('pages.preference.broadcast.retry') }}
-          </Button>
-        </Flex>
-      </ProListItem>
+              class="broadcast-status text-sm"
+              :class="{ 'text-red-5': !!state?.error }"
+              role="status"
+            >
+              <span
+                aria-hidden="true"
+                class="broadcast-status-dot"
+                :class="`broadcast-status-${statusLabel}`"
+              />
+              {{ t(`pages.preference.broadcast.status.${statusLabel}`, { count: state?.clients ?? 0 }) }}
+            </span>
+            <Button
+              v-if="state?.error || state?.warning || controller?.recovery.value"
+              :disabled="controller?.pending.value || controller?.retryPending.value"
+              :loading="controller?.retryPending.value"
+              size="small"
+              @click="controller?.retry()"
+            >
+              {{ t('pages.preference.broadcast.retry') }}
+            </Button>
+          </Flex>
+        </ProListItem>
+      </OptionTransition>
       <p
         v-if="state?.error"
         class="broadcast-notice m-0 text-xs text-red-5"

@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { appLogDir } from '@tauri-apps/api/path'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 import { openPath, openUrl } from '@tauri-apps/plugin-opener'
-import { Button, message, Modal, Switch } from 'ant-design-vue'
+import { Button, Flex, message, Modal, Switch } from 'ant-design-vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -13,7 +13,6 @@ import type { ProgramSettingsResetOptions } from '@/utils/programSettingsReset'
 import PreferenceSections from '@/components/preference-sections/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
-import RecoveryFeedback from '@/components/recovery-feedback/index.vue'
 import { useAppLanguage } from '@/composables/useAppLanguage'
 import { useProgramSettingsReset } from '@/composables/useProgramSettingsReset'
 import externalLinks from '@/config/externalLinks.json'
@@ -24,6 +23,7 @@ import { DEFAULT_PROGRAM_SETTINGS_RESET_OPTIONS, ProgramSettingsResetError } fro
 import AutomaticUpdates from './AutomaticUpdates.vue'
 import MicrosoftStoreIcon from './MicrosoftStoreIcon.vue'
 import NotionIcon from './NotionIcon.vue'
+import SupportMe from './SupportMe.vue'
 import { createSupportRecovery } from './supportRecovery'
 
 const copyingInfo = ref(false)
@@ -46,15 +46,15 @@ const developerEmail = 'dmeloper@gmail.com'
 const resourceLinks = computed(() => select(externalLinks.korean, externalLinks.global))
 const { resetProgramSettings } = useProgramSettingsReset()
 const supportRecovery = createSupportRecovery()
-const { report: supportReport, busy: supportBusy } = supportRecovery
+const { busy: supportBusy } = supportRecovery
 let disposed = false
 onBeforeUnmount(() => {
   disposed = true
   supportRecovery.dispose()
 })
 
-function runSupport(action: 'open' | 'copy' | 'notice', operation: string, errorKey: string, work: (current: () => boolean) => Promise<void>) {
-  return supportRecovery.run(action, work, (error) => {
+function runSupport(operation: string, errorKey: string, work: (current: () => boolean) => Promise<void>) {
+  return supportRecovery.run(work, (error) => {
     reportDiagnostic('error', operation, error)
     message.error(t(`pages.preference.about.errors.${errorKey}`))
   })
@@ -70,13 +70,13 @@ onMounted(async () => {
 })
 
 async function openAboutLink(url: string) {
-  await runSupport('open', 'about.open_link', 'openLink', async () => {
+  await runSupport('about.open_link', 'openLink', async () => {
     await openUrl(url)
   })
 }
 
 async function openLogs() {
-  await runSupport('open', 'about.open_logs', 'openLog', async (current) => {
+  await runSupport('about.open_logs', 'openLog', async (current) => {
     const directory = await invoke<string>('prepare_log_directory')
     if (!current()) return
     logDir.value = directory
@@ -85,13 +85,13 @@ async function openLogs() {
 }
 
 async function openDeveloperLink() {
-  await runSupport('open', 'about.open_developer_link', 'openDeveloperLink', async () => {
+  await runSupport('about.open_developer_link', 'openDeveloperLink', async () => {
     await openUrl(resourceLinks.value.developer)
   })
 }
 
 async function copyDeveloperEmail() {
-  const copied = await runSupport('copy', 'about.copy_email', 'copyEmail', async () => {
+  const copied = await runSupport('about.copy_email', 'copyEmail', async () => {
     await writeText(developerEmail)
   })
   if (copied && !disposed) message.success(t('pages.preference.about.hints.copySuccess'))
@@ -101,7 +101,7 @@ async function copyInfo() {
   if (disposed || copyingInfo.value || supportBusy.value) return
   copyingInfo.value = true
   try {
-    const copied = await runSupport('copy', 'about.copy_info', 'copyInfo', async (current) => {
+    const copied = await runSupport('about.copy_info', 'copyInfo', async (current) => {
       const info = await collectEnvironmentInfo()
       if (!current()) return
       await writeText(JSON.stringify(info, null, 2))
@@ -116,7 +116,7 @@ async function showLegalNotices() {
   if (disposed || legalLoading.value || supportBusy.value) return
   legalLoading.value = true
   try {
-    await runSupport('notice', 'about.legal_notices', 'legalNotices', async (current) => {
+    await runSupport('about.legal_notices', 'legalNotices', async (current) => {
       const content = legalNotices.value || (await import('@/legal/notices.txt?raw')).default
       if (!current()) return
       legalNotices.value = content
@@ -131,7 +131,7 @@ async function showDataNotice() {
   if (disposed || dataNoticeLoading.value || supportBusy.value) return
   dataNoticeLoading.value = true
   try {
-    await runSupport('notice', 'about.data_notice', 'legalNotices', async (current) => {
+    await runSupport('about.data_notice', 'legalNotices', async (current) => {
       const load = select(
         () => import('@/legal/data-permissions.ko-KR.txt?raw'),
         () => import('@/legal/data-permissions.en-US.txt?raw'),
@@ -323,8 +323,12 @@ async function submitProgramReset() {
     </ProList>
 
     <ProList :title="$t('pages.preference.about.labels.troubleshootingSupport')">
-      <RecoveryFeedback :report="supportReport" />
-      <div class="about-support-content">
+      <Flex
+        class="about-support-content"
+        gap="middle"
+        vertical
+      >
+        <SupportMe />
         <div class="about-support-grid">
           <ProListItem
             class="about-support-item"
@@ -411,7 +415,7 @@ async function submitProgramReset() {
             {{ $t('pages.preference.about.labels.resetAll') }}
           </Button>
         </div>
-      </div>
+      </Flex>
     </ProList>
   </PreferenceSections>
 
@@ -599,13 +603,10 @@ async function submitProgramReset() {
 }
 
 .about-support-content {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  margin-top: 12px;
 }
 
 .about-support-grid {
-  margin-top: 12px;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -641,7 +642,7 @@ async function submitProgramReset() {
   word-break: normal;
 }
 
-.about-contact-link {
+:deep(.about-contact-link) {
   display: inline-flex;
   align-items: center;
   gap: 7px;

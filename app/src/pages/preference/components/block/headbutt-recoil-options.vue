@@ -7,6 +7,7 @@ import type { HeadbuttRecoilSettings } from '@/config/headbuttRecoil'
 import { toSliderDisplayValue } from '@/components/default-snap-slider/displayValue'
 import DefaultSnapSlider from '@/components/default-snap-slider/index.vue'
 import OptionTransition from '@/components/option-transition/index.vue'
+import { vDetailHeightOption } from '@/components/preference-detail-tabs/height'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import { DEFAULT_HEADBUTT_RECOIL_SETTINGS, HEADBUTT_RECOIL_LIMITS, normalizeHeadbuttRecoilSettings } from '@/config/headbuttRecoil'
 
@@ -80,7 +81,7 @@ function finishAdjustment(key: typeof controls[number]['key']) {
     <OptionTransition>
       <Flex
         v-show="settings.petHeadbuttRecoilEnabled"
-        data-detail-height-option
+        v-detail-height-option
         :gap="32"
         vertical
       >
@@ -90,8 +91,8 @@ function finishAdjustment(key: typeof controls[number]['key']) {
         >
           <ProListItem
             v-show="control.key === 'petHeadbuttRecoilStrengthPercent' || showWobble"
+            v-detail-height-option
             class="headbutt-recoil-row"
-            data-detail-height-option
             :description="$t(`pages.preference.block.hints.${control.label}`)"
             :title="$t(`pages.preference.block.labels.${control.label}`)"
             vertical

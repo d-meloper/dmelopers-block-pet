@@ -32,9 +32,6 @@
       "preserveSettings": "Settings could not be confirmed as saved. Preserve current settings and original data, then check again after saving finishes.",
       "manualUpdate": "Preserve settings and user data, and use the official download link in About to check the update method for your distribution.",
       "confirmUpdate": "Confirm that the installer completed, reopen the app, and check its version in About. Do not launch another installer just because the app has not responded.",
-      "checkWindowsOpener": "Check that Windows can open folders and web links and that default browser and file associations work, then try again.",
-      "copySupportManually": "Try copying again. If it still fails, manually copy the displayed support information and error logs.",
-      "retrySupport": "Check internet connectivity and load the notice again. If it still fails, use Support in About.",
       "checkPresetFile": "Preserve the original preset and check that its file and version are supported. Select it again and review the import result and each item error.",
       "preserveData": "Keep original presets, skins, and app data. Review failed items without deleting or resetting data to troubleshoot.",
       "retryDataRead": "After current save or import work finishes, retry the list or preview and check its result.",
@@ -77,10 +74,6 @@
       "updateFailed": "The update operation could not complete.",
       "updateHandoffUnknown": "The installer launch request was acknowledged. Confirm installation completion and the new app version.",
       "updateCheckComplete": "The update check returned a result.",
-      "supportWaitUnknown": "The open or copy request has not responded.",
-      "supportFailed": "The requested open, copy, or notice operation could not complete.",
-      "supportOpened": "The open request was acknowledged. Confirm that the window or webpage appeared.",
-      "supportCopied": "The copy request was acknowledged. Paste the content to confirm it.",
       "dataRecoveryFailed": "The data operation still has a problem after checking again.",
       "dataWaitUnknown": "The data operation has not responded. Wait for the existing work to finish.",
       "presetsReady": "The preset operation result and current error state were checked.",
@@ -98,9 +91,6 @@
       "verifyUpdate": "Verify update integrity and signature",
       "saveUpdate": "Confirm saved settings before installation",
       "handoffUpdate": "Request installer launch",
-      "openSupport": "Request opening the log folder or webpage",
-      "copySupport": "Request copying support information",
-      "loadNotice": "Load the notice",
       "restorePresets": "Check preset state again",
       "createPreset": "Retry preset creation",
       "retryPresetImport": "Retry preset import",
@@ -763,7 +753,8 @@
         },
         "options": {
           "keyboardKorean": "Korean",
-          "keyboardEnglish": "English"
+          "keyboardEnglish": "English",
+          "keyboardSystem": "System"
         },
         "hints": {
           "deskTransparent": "Display the desk transparently.",
@@ -771,7 +762,7 @@
           "deskColor": "Set the desk color.",
           "windowSize": "Adjust the size of the scene.",
           "mirrorMode": "Mirror the entire scene horizontally.",
-          "keyboardLanguage": "Change character keycaps between Korean and English.",
+          "keyboardLanguage": "Change character keycaps between Korean and English. System follows the Korean/English input mode of the app in use.",
           "sceneRotation": "Rotate the camera up to 360 degrees in either direction.",
           "cameraHorizontal": "Move the scene left or right in the viewport.",
           "cameraVertical": "Move the scene up or down in the viewport.",
@@ -822,7 +813,7 @@
         },
         "options": {
           "auto": "System",
-          "systemLanguage": "System settings",
+          "systemLanguage": "System",
           "lightMode": "Light",
           "darkMode": "Dark"
         },
@@ -939,6 +930,12 @@
         }
       },
       "about": {
+        "encouragement": {
+          "button": "Support the developer",
+          "store": "This program will always be free. Please support my work by leaving a review.",
+          "github": "This program will always be free. Please support my work.",
+          "error": "Could not complete the support request. Please try again."
+        },
         "title": "About",
         "labels": {
           "aboutApp": "About App",

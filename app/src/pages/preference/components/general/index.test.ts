@@ -290,7 +290,7 @@ it('offers System settings, Korean and English in order and persists the selecte
         : []
     return [node, ...children.flatMap(child => Vue.isVNode(child) ? flatten(child) : [])]
   }
-  for (const [locale, systemLabel] of [['ko-KR', '시스템 설정'], ['en-US', 'System settings']]) {
+  for (const [locale, systemLabel] of [['ko-KR', '시스템'], ['en-US', 'System']]) {
     const messages = JSON.parse(readFileSync(new URL(`../../../../locales/${locale}.json`, import.meta.url), 'utf8'))
     const t = (key: string) => key.split('.').reduce((value, part) => value?.[part], messages) ?? key
     const nodes = flatten(render({ $t: t }, []))

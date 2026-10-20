@@ -38,7 +38,8 @@ function parseModelValue() {
   }
 
   pressedKeys.value = split(modelValue.value, '+').map((tauriKey) => {
-    return find(keys, { tauriKey })!
+    // Display saved tokens outside the recorder's supported key set unchanged.
+    return find(keys, { tauriKey }) ?? { eventKey: tauriKey, tauriKey, symbol: tauriKey }
   })
 }
 
@@ -99,6 +100,7 @@ function handleBlur() {
 }
 
 function handleKeyDown(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
   if (event.key === 'Escape' || event.code === 'Escape') {
     event.preventDefault()
     event.stopPropagation()

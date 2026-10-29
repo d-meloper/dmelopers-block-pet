@@ -7,7 +7,7 @@ import ts from 'typescript'
 import { shallowRef } from 'vue'
 
 import { LANGUAGE } from '@/constants'
-import { isLanguage } from '@/locales/languageBranch'
+import { FALLBACK_LOCALE, resolveSystemLocale } from '@/locales/registry'
 
 function harness(read: () => Promise<unknown>) {
   const calls: string[] = []
@@ -27,7 +27,7 @@ function harness(read: () => Promise<unknown>) {
       }
       if (id === 'vue') return { shallowRef }
       if (id === '@/constants') return { LANGUAGE }
-      if (id === '@/locales/languageBranch') return { isLanguage }
+      if (id === '@/locales/registry') return { FALLBACK_LOCALE, resolveSystemLocale }
       if (id === './diagnostics') return { reportDiagnostic: (level: string, operation: string, error: unknown) => diagnostics.push({ level, operation, error }) }
       throw new Error(`Unexpected import: ${id}`)
     },
@@ -48,26 +48,28 @@ it('waits for the native observation, coalesces startup callers and retains the 
   await first
   assert.equal(h.getSystemLanguage(), 'ko-KR')
   await h.initializeSystemLanguage()
-  assert.deepEqual(h.calls, ['get_system_ui_language'])
+  assert.deepEqual(h.calls, ['get_system_ui_locale'])
   assert.deepEqual(h.diagnostics, [])
 })
 
-it('accepts a native English result without diagnostics', async () => {
-  const h = harness(async () => 'en-US')
-  await h.initializeSystemLanguage()
-  assert.equal(h.getSystemLanguage(), 'en-US')
-  assert.deepEqual(h.diagnostics, [])
+it('matches registered OS aliases and accepts valid unsupported languages without diagnostics', async () => {
+  for (const [observed, expected] of [['en-GB', 'en-US'], ['KO-kp', 'ko-KR'], ['ja-JP', 'ja-JP'], ['ja', 'ja-JP'], ['JA-jp', 'ja-JP'], ['fr-FR', 'en-US']]) {
+    const h = harness(async () => observed)
+    await h.initializeSystemLanguage()
+    assert.equal(h.getSystemLanguage(), expected)
+    assert.deepEqual(h.diagnostics, [])
+  }
 })
 
 it('falls back to English and logs one warning for rejected or invalid native observations', async () => {
   const failure = new Error('SYSTEM_UI_LANGUAGE_UNAVAILABLE')
   for (const read of [async () => {
     throw failure
-  }, async () => 'ja-JP', async () => null]) {
+  }, async () => 'ko_kr', async () => null]) {
     const h = harness(read)
     await Promise.all([h.initializeSystemLanguage(), h.initializeSystemLanguage()])
     assert.equal(h.getSystemLanguage(), 'en-US')
-    assert.deepEqual(h.calls, ['get_system_ui_language'])
+    assert.deepEqual(h.calls, ['get_system_ui_locale'])
     assert.equal(h.diagnostics.length, 1)
     assert.equal(h.diagnostics[0].level, 'warn')
     assert.equal(h.diagnostics[0].operation, 'language.system_ui')

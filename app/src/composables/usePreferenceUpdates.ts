@@ -41,7 +41,7 @@ export function providePreferenceUpdates() {
     accept: updates.setVisible,
     report: (error) => {
       reportDiagnostic('warn', 'updates.window_visibility', error)
-      updates.recordVisibilityFailure(error)
+      updates.recordVisibilityFailure()
     },
   })
   const check = updates.check

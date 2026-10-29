@@ -22,6 +22,7 @@ const rgb = computed(() => hexToRgb(color.value))
 const hsv = ref(hexToHsv(color.value))
 const hexDraft = ref(color.value)
 const open = ref(false)
+const placement = ref<'bottomLeft' | 'bottomRight'>('bottomRight')
 const opening = ref(false)
 const trigger = ref<HTMLButtonElement>()
 const panel = ref<HTMLDivElement>()
@@ -73,6 +74,7 @@ async function changeOpen(value: boolean) {
     return
   }
   if (requested || disposed || blocked.value || screenColorPicking.value) return
+  placement.value = document.documentElement?.dir === 'rtl' ? 'bottomLeft' : 'bottomRight'
   activeColorPicker.close?.()
   activeColorPicker.close = close
   requested = true
@@ -194,7 +196,7 @@ onBeforeUnmount(() => {
 <template>
   <Popover
     :open="open"
-    placement="bottomRight"
+    :placement="placement"
     trigger="click"
     @open-change="changeOpen"
   >
@@ -230,6 +232,7 @@ onBeforeUnmount(() => {
           :aria-valuenow="Math.round(hsv.s)"
           :aria-valuetext="t('pages.preference.colorPicker.saturationValueText', { s: Math.round(hsv.s), v: Math.round(hsv.v) })"
           class="color-picker__area"
+          dir="ltr"
           role="slider"
           :style="{ backgroundColor: `hsl(${hsv.h}, 100%, 50%)` }"
           tabindex="0"
@@ -245,6 +248,7 @@ onBeforeUnmount(() => {
         <input
           :aria-label="t('pages.preference.colorPicker.hue')"
           class="color-picker__hue"
+          dir="ltr"
           max="360"
           min="0"
           step="1"
@@ -258,6 +262,7 @@ onBeforeUnmount(() => {
               v-model="hexDraft"
               :aria-invalid="!normalizeHex(hexDraft)"
               class="color-picker__input"
+              dir="ltr"
               maxlength="7"
               spellcheck="false"
               type="text"
@@ -288,6 +293,7 @@ onBeforeUnmount(() => {
           >{{ channel }}
             <input
               class="color-picker__input"
+              dir="ltr"
               max="255"
               min="0"
               step="1"

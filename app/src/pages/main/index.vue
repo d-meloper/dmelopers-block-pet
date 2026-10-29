@@ -2002,6 +2002,10 @@ useTauriListen<MainViewportResetRequest>(
     void (async () => {
       let success = false
       try {
+        // Store reset alone cannot replace the input session's confirmed option.
+        // Drain older commands before acknowledging reset or preference readback
+        // would restore the pre-reset mouse value.
+        if (typeof payload.mouseEnabled === 'boolean') await device.requestMouseSetting(payload.mouseEnabled)
         success = await settleAndCenterResetViewport()
       } catch (error) {
         console.error('Failed to reset the main viewport geometry.', error)

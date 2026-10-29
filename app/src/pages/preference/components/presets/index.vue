@@ -569,7 +569,9 @@ function updateDropTarget(x: number, y: number) {
     const entry = entries.value.find(candidate => candidate.id === card.dataset.presetId)
     if (!entry || entry.id === draggedId.value || !canDrop(entry)) return setDropTarget()
     const rect = card.getBoundingClientRect()
-    setDropTarget({ id: entry.id, after: x >= rect.left + rect.width / 2 })
+    const physicalEnd = x >= rect.left + rect.width / 2
+    const after = getComputedStyle(card).direction === 'rtl' ? !physicalEnd : physicalEnd
+    setDropTarget({ id: entry.id, after })
     return
   }
   const groupEnd = hit?.closest<HTMLElement>('[data-preset-group-end]')
@@ -668,7 +670,7 @@ function cancelPointerDrag(event: PointerEvent) {
           <template #icon>
             <span
               aria-hidden="true"
-              class="i-lucide:folder-open mr-1.5 size-4"
+              class="i-lucide:folder-open me-1.5 size-4"
             />
           </template>
           {{ $t('pages.preference.presets.transfer.buttons.import') }}
@@ -682,7 +684,7 @@ function cancelPointerDrag(event: PointerEvent) {
           <template #icon>
             <span
               aria-hidden="true"
-              class="i-lucide:plus mr-1.5 size-4"
+              class="i-lucide:plus me-1.5 size-4"
             />
           </template>
           {{ $t('pages.preference.presets.buttons.new') }}
@@ -733,7 +735,7 @@ function cancelPointerDrag(event: PointerEvent) {
       <p class="m-0 text-color-2">
         {{ importSummary }}
       </p>
-      <ul class="mb-2 mt-2 max-h-40 overflow-y-auto pl-5">
+      <ul class="mb-2 mt-2 max-h-40 overflow-y-auto ps-5">
         <li
           v-for="result in visibleImportResults"
           :key="result.key"
@@ -969,7 +971,7 @@ function cancelPointerDrag(event: PointerEvent) {
             >
               <span>{{ $t('pages.preference.presets.errors.preview') }}</span>
               <Button
-                class="ml-1"
+                class="ms-1"
                 :disabled="isEntryDisabled(entry)"
                 size="small"
                 type="link"
@@ -1222,11 +1224,16 @@ function cancelPointerDrag(event: PointerEvent) {
 }
 
 .preset-card-drop-before {
-  box-shadow: -3px 0 0 var(--ant-color-primary, #3aa76d);
+  box-shadow: var(--preset-inline-before, -3px) 0 0 var(--ant-color-primary, #3aa76d);
 }
 
 .preset-card-drop-after {
-  box-shadow: 3px 0 0 var(--ant-color-primary, #3aa76d);
+  box-shadow: var(--preset-inline-after, 3px) 0 0 var(--ant-color-primary, #3aa76d);
+}
+
+:global(html[dir='rtl']) .preset-card {
+  --preset-inline-before: 3px;
+  --preset-inline-after: -3px;
 }
 
 .preset-group-drop-active {
@@ -1246,7 +1253,7 @@ function cancelPointerDrag(event: PointerEvent) {
   border: 0;
   background: transparent;
   color: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 

@@ -4,7 +4,7 @@ import { shallowRef } from 'vue'
 import type { Language } from '@/locales/languageBranch'
 
 import { LANGUAGE } from '@/constants'
-import { isLanguage } from '@/locales/languageBranch'
+import { FALLBACK_LOCALE, resolveSystemLocale } from '@/locales/registry'
 
 import { reportDiagnostic } from './diagnostics'
 
@@ -16,15 +16,15 @@ export function getSystemLanguage(): Language {
   return systemLanguage.value
 }
 
-/** Await after native startup/safety and before creating stores or mounting the UI. */
+/** Normal startup awaits safety first; failure UI may read this without a store. */
 export function initializeSystemLanguage(): Promise<void> {
   initialization ??= (async () => {
     try {
-      const language = await invoke<unknown>('get_system_ui_language')
-      if (!isLanguage(language)) throw new Error('SYSTEM_UI_LANGUAGE_INVALID')
-      systemLanguage.value = language
+      const language = await invoke<unknown>('get_system_ui_locale')
+      if (typeof language !== 'string' || language.length > 85 || !/^[a-z]{2,8}(?:-[a-z0-9]{1,8})*$/i.test(language)) throw new Error('SYSTEM_UI_LANGUAGE_INVALID')
+      systemLanguage.value = resolveSystemLocale(language) as Language
     } catch (error) {
-      systemLanguage.value = LANGUAGE.EN_US
+      systemLanguage.value = FALLBACK_LOCALE
       reportDiagnostic('warn', 'language.system_ui', error)
     }
   })()

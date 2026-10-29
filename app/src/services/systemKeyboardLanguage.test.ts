@@ -18,6 +18,9 @@ it('resolves only system selections; manual languages and input-free previews st
   assert.equal(resolveKeyboardLanguage('system', 'ko'), 'ko')
   assert.equal(resolveKeyboardLanguage('en', 'ko'), 'en')
   assert.equal(resolveKeyboardLanguage('ko', 'en'), 'ko')
+  assert.equal(resolveKeyboardLanguage('system', 'ja'), 'ja')
+  assert.equal(resolveKeyboardLanguage('ja', 'en'), 'ja')
+  assert.equal(resolveKeyboardLanguage('en', 'ja'), 'en')
   assert.equal(resolveKeyboardLanguage('system'), 'ko')
 })
 
@@ -47,7 +50,7 @@ it('subscribes before enabling, ignores stale snapshots and serializes final dis
   registration.resolve(() => released++)
   await flush()
   assert.deepEqual(calls, [true])
-  accept({ revision: 3, language: 'en' })
+  accept({ revision: 3, language: 'ja' })
   accept({ revision: 2, language: 'ko' })
   accept({ revision: 4, language: 'system' })
   const disposed = observer.dispose()
@@ -55,7 +58,7 @@ it('subscribes before enabling, ignores stale snapshots and serializes final dis
   await Promise.all([started, disposed])
   accept({ revision: 5, language: 'ko' })
   assert.deepEqual(calls, [true, false])
-  assert.deepEqual(changes, ['en'])
+  assert.deepEqual(changes, ['ja'])
   assert.equal(released, 1)
 })
 

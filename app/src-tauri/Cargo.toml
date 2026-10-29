@@ -1,6 +1,6 @@
 [package]
 name = "dmelopers-block-pet"
-version = "1.1.4"
+version = "1.1.5"
 description = "DMeloper's Block Pet desktop companion"
 license = "MIT"
 authors = [ "DMeloper" ]
@@ -41,6 +41,7 @@ path = "src/device_input_tests.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+serde_json.workspace = true
 
 [dependencies]
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws"] }

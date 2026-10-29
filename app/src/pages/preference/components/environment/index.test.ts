@@ -109,9 +109,9 @@ describe('object color preference controls', () => {
     h.selectTab('keyboard')
     const language = () => h.nodes().find(node => node.props?.title === 'pages.preference.environment.labels.keyboardLanguage')!
     const select = () => h.flatten(language()).find(node => node.props?.['onUpdate:value'])!
-    const choices = h.flatten(select()).filter(node => !node.props?.['onUpdate:value'] && ['ko', 'en', 'system'].includes(node.props?.value))
-    assert.deepEqual(choices.map(node => node.props!.value), ['ko', 'en', 'system'])
-    for (const value of ['system', 'en', 'ko'] as const) {
+    const choices = h.flatten(select()).filter(node => !node.props?.['onUpdate:value'] && ['ko', 'en', 'ja', 'system'].includes(node.props?.value))
+    assert.deepEqual(choices.map(node => node.props!.value), ['ko', 'en', 'ja', 'system'])
+    for (const value of ['system', 'en', 'ja', 'ko'] as const) {
       select().props!['onUpdate:value'](value)
       assert.equal(h.store.activePet3dPreset.keyboardLegendLanguage, value)
     }

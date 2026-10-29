@@ -651,7 +651,7 @@ export const useBlockStore = defineStore(BLOCK_STORE_ID, () => {
     }
 
     preset.keyboardLegendLanguage
-      = source.keyboardLegendLanguage === 'ko' || source.keyboardLegendLanguage === 'en' || source.keyboardLegendLanguage === 'system'
+      = source.keyboardLegendLanguage === 'ko' || source.keyboardLegendLanguage === 'en' || source.keyboardLegendLanguage === 'ja' || source.keyboardLegendLanguage === 'system'
         ? source.keyboardLegendLanguage
         : defaults.keyboardLegendLanguage
 

@@ -145,14 +145,17 @@ function handleKeyUp(event: KeyboardEvent) {
         {{ isFocusing ? $t('components.shortcut.hints.pressRecordShortcut') : $t('components.shortcut.hints.clickRecordShortcut') }}
       </span>
 
-      <span class="text-primary font-bold">
+      <span
+        class="text-primary font-bold"
+        dir="ltr"
+      >
         {{ map(pressedKeys, 'symbol').join(' ') }}
       </span>
 
       <button
         v-if="pressedKeys.length > 0"
         :aria-label="$t('components.shortcut.buttons.clear')"
-        class="i-lucide:circle-x absolute right-2 cursor-pointer text-4 transition focus-visible:text-primary hover:text-primary"
+        class="i-lucide:circle-x absolute end-2 cursor-pointer text-4 transition focus-visible:text-primary hover:text-primary"
         type="button"
         @click.stop="modelValue = ''"
         @keydown.stop

@@ -22,6 +22,7 @@ mod session_end;
 mod settings_defaults;
 mod preset_compatibility;
 mod system_language;
+mod locale_catalog;
 mod store_review;
 #[cfg(test)]
 mod settings_float_roundtrip_tests;
@@ -183,6 +184,7 @@ pub fn run() {
             state_safety::release_state_quiescence,
             await_native_startup,
             system_language::get_system_ui_language,
+            system_language::get_system_ui_locale,
             keyboard_language::configure_system_keyboard_language,
             foreground_hiding::get_foreground_hiding_status,
             foreground_hiding::configure_foreground_hiding,

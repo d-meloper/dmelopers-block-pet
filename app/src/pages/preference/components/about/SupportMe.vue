@@ -101,7 +101,7 @@ async function support() {
       {{ t('pages.preference.about.encouragement.button') }}
       <span
         aria-hidden="true"
-        class="i-lucide:arrow-up-right size-4"
+        class="locale-navigation-icon i-lucide:arrow-up-right size-4"
       />
     </Button>
     <p>{{ t(`pages.preference.about.encouragement.${isStore ? 'store' : 'github'}`) }}</p>

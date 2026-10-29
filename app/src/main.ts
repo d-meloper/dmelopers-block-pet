@@ -5,11 +5,11 @@ import { createApp, watch } from 'vue'
 import App from './App.vue'
 import { RecoveryWaitError, waitForRecovery } from './features/recovery/wait'
 import { editorsLocked, filterBackendSync, initializeStateSafety } from './features/stateSafety'
-import { i18n } from './locales'
+import { getRuntimeLocaleDirection, i18n } from './locales'
 import { createSettingsStorePlugin } from './plugins/settingsStore'
 import router from './router'
 import { installDiagnostics, reportDiagnostic } from './services/diagnostics'
-import { initializeSystemLanguage } from './services/systemLanguage'
+import { getSystemLanguage, initializeSystemLanguage } from './services/systemLanguage'
 
 import 'virtual:uno.css'
 
@@ -19,6 +19,7 @@ installDiagnostics()
 
 watch(i18n.global.locale, (locale) => {
   document.documentElement.lang = locale
+  document.documentElement.dir = getRuntimeLocaleDirection(locale)
 }, { immediate: true })
 
 async function bootstrap() {
@@ -50,16 +51,27 @@ function showStartupFailure(error: unknown) {
   const title = document.createElement('h1')
   title.id = 'block-pet-startup-failure-title'
   const timedOut = error instanceof RecoveryWaitError && error.reason === 'timeout'
-  title.textContent = timedOut ? 'Startup not confirmed / 앱 시작을 확인하지 못했습니다' : 'Unable to start / 앱을 시작하지 못했습니다'
   const text = document.createElement('p')
-  text.textContent = timedOut
-    ? 'Startup may still be running. Wait for its response before restarting. 앱 시작 요청이 계속 진행 중일 수 있습니다. 응답을 기다린 뒤 재실행하세요.'
-    : 'Close and restart the app, keeping your existing settings and user data. 기존 설정과 사용자 데이터를 유지하고 앱을 종료한 뒤 다시 실행하세요.'
   const guidance = document.createElement('p')
-  guidance.textContent = 'If the cause remains unknown, try rebooting your computer and reinstalling the app. Preserve existing settings and user data. 문제 원인을 찾을 수 없다면 컴퓨터 재부팅, 프로그램 재설치를 시도해 주세요. 기존 설정과 사용자 데이터를 유지하세요.'
+  const renderText = () => {
+    const { t } = i18n.global
+    title.textContent = t(`startup.web.${timedOut ? 'unconfirmedTitle' : 'failedTitle'}`)
+    text.textContent = t(`startup.web.${timedOut ? 'unconfirmedMessage' : 'failedMessage'}`)
+    guidance.textContent = t('startup.web.guidance')
+  }
+  renderText()
   panel.append(title, text, guidance)
   root.replaceChildren(panel)
   panel.focus()
+  // A timed-out native barrier must never be retried or create a settings writer.
+  // Locale IPC is read-only; retain immediate English guidance if unavailable.
+  void initializeSystemLanguage().then(() => {
+    if (!panel.isConnected) return
+    i18n.global.locale.value = getSystemLanguage()
+    panel.lang = getSystemLanguage()
+    panel.dir = getRuntimeLocaleDirection(panel.lang)
+    renderText()
+  })
 }
 const startup = bootstrap()
 // Bound observation only: never repeat barrier/store initialization on timeout.

@@ -512,6 +512,7 @@ function confirmPetDetailReset() {
   if (petDetailResetDisabled.value) return
   const tab = activePetDetailTab.value
   Modal.confirm({
+    direction: typeof document !== 'undefined' && document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr',
     title: t(`pages.preference.block.detailResetConfirm.${tab}`),
     okType: 'danger',
     onOk: () => {
@@ -604,7 +605,7 @@ function confirmPetDetailReset() {
               allow-clear
               :aria-label="$t('pages.preference.block.labels.minecraftSkinUsername')"
               autocomplete="off"
-              class="min-w-0 flex-1"
+              class="locale-ltr-input min-w-0 flex-1"
               :disabled="minecraftSkinLoading"
               :enter-button="$t('pages.preference.block.labels.applyMinecraftSkin')"
               :loading="minecraftSkinLoading"

@@ -11,6 +11,7 @@ use tauri::{Emitter, Manager};
 pub(crate) enum Language {
     Ko,
     En,
+    Ja,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -182,15 +183,21 @@ trait Probe {
 
 fn sample(probe: &impl Probe) -> Option<Language> {
     let target = probe.target()?;
-    let language = if target.layout & 0xffff != 0x0412 {
-        Language::En
-    } else {
-        let (open, conversion) = probe.ime(target)?;
-        if open && conversion & 1 != 0 {
-            Language::Ko
-        } else {
-            Language::En
+    let language = match target.layout & 0xffff {
+        layout @ (0x0411 | 0x0412) => {
+            let (open, conversion) = probe.ime(target)?;
+            if open && conversion & 1 != 0 {
+                // IME_CMODE_NATIVE, independent of ROMAN/KATAKANA/FULLSHAPE.
+                if layout == 0x0411 {
+                    Language::Ja
+                } else {
+                    Language::Ko
+                }
+            } else {
+                Language::En
+            }
         }
+        _ => Language::En,
     };
     // Activation/focus/layout may change during the cross-thread queries.
     (probe.target() == Some(target)).then_some(language)
@@ -202,9 +209,9 @@ mod platform {
     use windows_sys::Win32::UI::{
         Input::{Ime::ImmGetDefaultIMEWnd, KeyboardAndMouse::GetKeyboardLayout},
         WindowsAndMessaging::{
-            GUITHREADINFO, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo,
-            GetWindowThreadProcessId, SMTO_ABORTIFHUNG, SMTO_BLOCK, SMTO_ERRORONEXIT,
-            SendMessageTimeoutW, WM_IME_CONTROL,
+            GetClassNameW, GetForegroundWindow, GetGUIThreadInfo, GetWindowThreadProcessId,
+            SendMessageTimeoutW, GUITHREADINFO, SMTO_ABORTIFHUNG, SMTO_BLOCK, SMTO_ERRORONEXIT,
+            WM_IME_CONTROL,
         },
     };
 
@@ -354,6 +361,48 @@ mod tests {
         assert_eq!(sample(&probe(0x0412, None, false)), None);
         assert_eq!(sample(&probe(0x0412, Some((true, 1)), true)), None);
     }
+    #[test]
+    fn japanese_native_modes_are_distinct_from_latin_and_preserve_raced_or_failed_queries() {
+        for layout in [0x0411, 0xe0010411] {
+            for conversion in [0, 1, 3, 8, 9, 0x10, 0x11, 0x19] {
+                for open in [false, true] {
+                    let expected = if open && conversion & 1 != 0 {
+                        Language::Ja
+                    } else {
+                        Language::En
+                    };
+                    assert_eq!(
+                        sample(&probe(layout, Some((open, conversion)), false)),
+                        Some(expected)
+                    );
+                }
+            }
+            assert_eq!(sample(&probe(layout, None, false)), None);
+            assert_eq!(sample(&probe(layout, Some((true, 1)), true)), None);
+            for change_focus in [false, true] {
+                let mut raced = probe(layout, Some((true, 1)), false);
+                if change_focus {
+                    raced.next.as_mut().unwrap().focus += 1;
+                } else {
+                    raced.next.as_mut().unwrap().layout = 0x0412;
+                }
+                assert_eq!(sample(&raced), None);
+            }
+        }
+        let mut model = Model::default();
+        model.broadcast = true;
+        let status = model.observe(Some(Language::Ja)).unwrap();
+        assert_eq!(
+            serde_json::to_value(status).unwrap(),
+            serde_json::json!({"revision":1,"language":"ja"})
+        );
+        assert!(model.observe(None).is_none());
+        assert_eq!(model.status.language, Language::Ja);
+        assert_eq!(model.status.revision, 1);
+        assert!(model.observe(Some(Language::Ja)).is_none());
+        assert_eq!(model.observe(Some(Language::Ko)).unwrap().revision, 2);
+    }
+
     #[test]
     fn demand_and_unknown_samples_preserve_last_valid_revision() {
         let mut model = Model::default();

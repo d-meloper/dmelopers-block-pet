@@ -28,6 +28,7 @@ export function usePetRuntimeRecovery(t: (key: string) => string): void {
   }
   const prompt = createPetRuntimeRecoveryPrompt({
     open: restart => Modal.confirm({
+      direction: typeof document !== 'undefined' && document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr',
       title: t('pages.preference.petRuntimeRecovery.title'),
       content: h('div', [
         h('p', t('pages.preference.petRuntimeRecovery.body')),

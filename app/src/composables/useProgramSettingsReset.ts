@@ -60,7 +60,7 @@ export function useProgramSettingsReset() {
           LISTEN_KEY.MAIN_VIEWPORT_RESET_COMPLETE,
           ({ payload }) => handler(payload),
         ),
-      }))
+      }, { mouseEnabled: blockStore.activePet3dPreset.mouseEnabled }))
     }
     await Promise.all(resets)
   }

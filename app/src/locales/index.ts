@@ -1,16 +1,10 @@
-import { createI18n } from 'vue-i18n'
+import { messages, previewLocales } from 'virtual:block-pet-locales'
 
-import { LANGUAGE } from '@/constants'
+import { getLocaleDirection } from './registry'
+import { createLocaleRuntime } from './runtime'
 
-import enUS from './en-US.json'
-import koKR from './ko-KR.json'
+export const i18n = createLocaleRuntime(messages)
 
-export const i18n = createI18n({
-  legacy: false,
-  locale: LANGUAGE.EN_US,
-  fallbackLocale: LANGUAGE.EN_US,
-  messages: {
-    [LANGUAGE.KO_KR]: koKR,
-    [LANGUAGE.EN_US]: enUS,
-  },
-})
+export function getRuntimeLocaleDirection(locale: string) {
+  return previewLocales.find(preview => preview.value === locale)?.direction ?? getLocaleDirection(locale)
+}

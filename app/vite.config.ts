@@ -1,3 +1,5 @@
+import type { UserConfig } from 'vite'
+
 import vue from '@vitejs/plugin-vue'
 import { lstatSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -5,14 +7,16 @@ import { env } from 'node:process'
 import UnoCSS from 'unocss/vite'
 import { defineConfig } from 'vite'
 
+import { localePlugin } from './scripts/locales/vitePlugin'
+
 const host = env.TAURI_DEV_HOST
 
 // https://vitejs.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig(async (): Promise<UserConfig> => ({
   // No application feature consumes arbitrary local VITE_* configuration.
   envDir: false,
   envPrefix: [],
-  plugins: [vue(), UnoCSS(), {
+  plugins: [localePlugin(__dirname), vue(), UnoCSS(), {
     name: 'reviewed-public-assets',
     apply: 'build',
     generateBundle() {

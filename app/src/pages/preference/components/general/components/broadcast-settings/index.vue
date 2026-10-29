@@ -139,6 +139,7 @@ async function copyAddress() {
       <ProListItem
         class="broadcast-row"
         :description="t('pages.preference.broadcast.enabledHint')"
+        :style="{ borderBottom: general.broadcast.enabled ? undefined : '0' }"
         :title="t('pages.preference.broadcast.enabled')"
       >
         <Switch
@@ -174,7 +175,7 @@ async function copyAddress() {
           >
             <Input
               :aria-label="t('pages.preference.broadcast.connection')"
-              class="broadcast-address-input"
+              class="broadcast-address-input locale-ltr-input"
               :placeholder="t('pages.preference.broadcast.addressPlaceholder')"
               readonly
               :value="displayedAddress"
@@ -376,7 +377,7 @@ async function copyAddress() {
   justify-content: flex-end;
   gap: 8px;
   max-width: 220px;
-  text-align: right;
+  text-align: end;
   line-height: 1.5;
 }
 

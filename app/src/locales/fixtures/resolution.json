@@ -1,0 +1,166 @@
+{
+  "registry": {
+    "version": 1,
+    "sourceLocale": "ko-KR",
+    "fallbackLocale": "en-US",
+    "locales": {
+      "ko-KR": {
+        "nativeName": "한국어",
+        "direction": "ltr",
+        "status": "ready",
+        "matches": [
+          "ko",
+          "ko-*"
+        ],
+        "antdLocale": "ko_KR",
+        "pluralCategories": [
+          "other"
+        ]
+      },
+      "en-US": {
+        "nativeName": "English",
+        "direction": "ltr",
+        "status": "ready",
+        "matches": [
+          "en",
+          "en-*"
+        ],
+        "antdLocale": "en_US",
+        "pluralCategories": [
+          "one",
+          "other"
+        ]
+      },
+      "en-GB": {
+        "nativeName": "English (UK)",
+        "direction": "ltr",
+        "status": "ready",
+        "matches": [],
+        "antdLocale": "en_GB",
+        "pluralCategories": [
+          "one",
+          "other"
+        ]
+      },
+      "ja-JP": {
+        "nativeName": "日本語",
+        "direction": "ltr",
+        "status": "draft",
+        "matches": [
+          "ja",
+          "ja-*"
+        ],
+        "antdLocale": "ja_JP",
+        "pluralCategories": [
+          "other"
+        ]
+      },
+      "zh-Hans": {
+        "nativeName": "简体中文",
+        "direction": "ltr",
+        "status": "ready",
+        "matches": [
+          "zh-CN",
+          "zh-SG",
+          "zh-Hans-*"
+        ],
+        "antdLocale": "zh_CN",
+        "pluralCategories": [
+          "other"
+        ]
+      },
+      "zh-Hant": {
+        "nativeName": "繁體中文",
+        "direction": "ltr",
+        "status": "ready",
+        "matches": [
+          "zh-TW",
+          "zh-HK",
+          "zh-Hant-*"
+        ],
+        "antdLocale": "zh_TW",
+        "pluralCategories": [
+          "other"
+        ]
+      }
+    }
+  },
+  "cases": [
+    {
+      "input": "ko-KR",
+      "expected": "ko-KR"
+    },
+    {
+      "input": "KO-kp",
+      "expected": "ko-KR"
+    },
+    {
+      "input": "ko",
+      "expected": "ko-KR"
+    },
+    {
+      "input": "en-GB",
+      "expected": "en-GB"
+    },
+    {
+      "input": "en-AU",
+      "expected": "en-US"
+    },
+    {
+      "input": "ja-JP",
+      "expected": "en-US"
+    },
+    {
+      "input": "zh-CN",
+      "expected": "zh-Hans"
+    },
+    {
+      "input": "zh-Hans-CN",
+      "expected": "zh-Hans"
+    },
+    {
+      "input": "zh-TW",
+      "expected": "zh-Hant"
+    },
+    {
+      "input": "zh-Hant-HK",
+      "expected": "zh-Hant"
+    },
+    {
+      "input": "zh",
+      "expected": "en-US"
+    },
+    {
+      "input": "zh-MO",
+      "expected": "en-US"
+    },
+    {
+      "input": "zh-Hans",
+      "expected": "zh-Hans"
+    },
+    {
+      "input": "ar-SA",
+      "expected": "en-US"
+    },
+    {
+      "input": "en_US",
+      "expected": "en-US"
+    },
+    {
+      "input": "ko_kr",
+      "expected": "en-US"
+    },
+    {
+      "input": "",
+      "expected": "en-US"
+    },
+    {
+      "input": null,
+      "expected": "en-US"
+    },
+    {
+      "input": true,
+      "expected": "en-US"
+    }
+  ]
+}

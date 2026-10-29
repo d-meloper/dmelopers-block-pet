@@ -15,7 +15,6 @@
     },
     "nextSteps": "다음 해결 방법을 순서대로 확인해 주세요.",
     "guidance": {
-      "checkAppWindow": "환경 설정 창을 다시 열어 응답을 확인하세요. 저장 중인 작업이 끝난 뒤 앱을 재실행하고, 계속 실패하면 정보 탭에서 로그를 확인하세요.",
       "logs": "환경 설정 → 정보 → 로그 열기에서 발생 시각의 오류 기록을 확인하세요.",
       "support": "문제가 계속되면 정보 탭의 문의 항목으로 앱 버전, 발생 시각, 이번 시도 결과를 전달하세요.",
       "restart": "저장 중인 작업이 끝난 뒤 설정을 저장하고 앱을 종료·재실행하세요. 재실행 후 같은 작업을 다시 확인하세요.",
@@ -23,15 +22,8 @@
       "timeout": "기존 요청이 계속 처리 중일 수 있습니다. 중복 작업을 시작하지 말고 잠시 기다린 뒤 상태를 확인하세요.",
       "changed": "진행 중 설정이나 대상이 변경됐습니다. 현재 상태가 안정된 뒤 다시 시도해 주세요.",
       "lastResort": "앞선 방법을 확인해도 문제 원인을 찾을 수 없다면 컴퓨터 재부팅, 프로그램 재설치를 시도해 주세요. 재설치 시 기존 설정과 사용자 데이터를 유지하세요.",
-      "retryUpdateCheck": "진행 중인 작업이 끝난 뒤 업데이트 확인을 다시 눌러 최신 결과를 확인하세요. 설치를 중복 실행하지 마세요.",
-      "contactSupport": "정보 탭의 문의 항목으로 앱 버전, 발생 시각, 실패한 단계와 로그를 전달하세요.",
-      "checkNetwork": "인터넷 연결, VPN·프록시 설정과 업데이트 서버 접근을 확인한 뒤 업데이트 확인을 다시 누르세요.",
-      "verifyUpdate": "업데이트 검증에 실패했습니다. 파일을 임의로 실행하거나 검증을 건너뛰지 말고, 업데이트를 다시 확인하세요. 계속되면 로그를 첨부해 문의하세요.",
       "checkStorage": "디스크 여유 공간과 앱 데이터의 읽기·쓰기 권한을 확인하세요. 다른 작업이 해당 파일을 사용 중이라면 끝난 뒤 다시 시도하세요.",
       "waitForOperation": "기존 요청이 계속 처리 중일 수 있습니다. 진행 중인 작업의 종료를 확인한 뒤 다시 시도하세요.",
-      "preserveSettings": "설정 저장을 확인하지 못했습니다. 현재 설정과 원본 데이터를 보존하고 저장 작업이 끝난 뒤 다시 확인하세요.",
-      "manualUpdate": "설정과 사용자 데이터를 보존하고 정보 탭의 공식 다운로드 경로에서 현재 배포 방식에 맞는 업데이트 방법을 확인하세요.",
-      "confirmUpdate": "설치 프로그램의 완료 여부를 확인하고 앱을 다시 열어 정보 탭의 버전을 확인하세요. 응답이 없다고 설치를 중복 실행하지 마세요.",
       "checkPresetFile": "프리셋 원본을 보존하고 지원되는 파일과 버전인지 확인하세요. 파일을 다시 선택해 가져오기 결과와 각 항목의 오류를 확인하세요.",
       "preserveData": "문제 해결을 위해 기존 프리셋·스킨·앱 데이터를 삭제하거나 초기화하지 마세요. 원본을 보존한 채 실패한 항목을 확인하세요.",
       "retryDataRead": "현재 저장·가져오기 작업이 끝난 뒤 목록 또는 미리보기의 다시 시도를 눌러 결과를 확인하세요.",
@@ -69,11 +61,6 @@
       }
     },
     "summary": {
-      "updateWindowUnknown": "환경 설정 창의 상태를 확인하지 못했습니다. 이번 업데이트 확인 결과도 확정할 수 없습니다.",
-      "updateWaitUnknown": "업데이트 요청의 응답을 확인하지 못했습니다. 기존 작업이 계속 진행 중일 수 있습니다.",
-      "updateFailed": "업데이트 작업을 완료하지 못했습니다.",
-      "updateHandoffUnknown": "설치 프로그램 실행 요청이 처리됐습니다. 설치 완료와 새 앱 버전은 직접 확인해 주세요.",
-      "updateCheckComplete": "업데이트 확인 결과를 받았습니다.",
       "dataRecoveryFailed": "다시 확인했지만 데이터 작업에 문제가 남아 있습니다.",
       "dataWaitUnknown": "데이터 작업의 응답을 확인하지 못했습니다. 기존 작업이 끝날 때까지 기다려 주세요.",
       "presetsReady": "프리셋 작업 결과와 현재 오류 상태를 확인했습니다.",
@@ -85,12 +72,6 @@
       "skinImportFailed": "스킨 가져오기를 완료하지 못했습니다."
     },
     "steps": {
-      "observeUpdateWindow": "환경 설정 창 상태 다시 확인",
-      "checkUpdates": "업데이트 정보 다시 확인",
-      "downloadUpdate": "업데이트 다운로드",
-      "verifyUpdate": "업데이트 무결성과 서명 확인",
-      "saveUpdate": "설치 전 현재 설정 저장 확인",
-      "handoffUpdate": "설치 프로그램 실행 요청",
       "restorePresets": "프리셋 상태 다시 확인",
       "createPreset": "프리셋 생성 다시 시도",
       "retryPresetImport": "프리셋 가져오기 다시 시도",
@@ -505,7 +486,7 @@
           "petRightArmSpread": "오른쪽 팔을 수평 방향으로 회전합니다.",
           "petLeftArmBend": "왼쪽 팔꿈치의 구부림을 조절합니다.",
           "petLeftArmSpread": "왼쪽 팔을 수평 방향으로 회전합니다.",
-          "keyboardLanguage": "문자 키만 한글 또는 영문으로 바꾸며 특수 키와 방향키 표기는 유지합니다.",
+          "keyboardLanguage": "키캡 각인을 한글·영문·일문으로 바꾸며 특수 키와 방향키 표기는 유지합니다.",
           "petRotation": "펫 자체를 Y축 기준으로 회전합니다.",
           "deskDistance": "값을 높이면 책상에서 멀어지고, 낮추면 가까워집니다.",
           "keyboardX": "키보드 크기와 회전을 유지한 채 기준 위치를 좌우로 옮깁니다.",
@@ -754,6 +735,7 @@
         "options": {
           "keyboardKorean": "한글",
           "keyboardEnglish": "영문",
+          "keyboardJapanese": "일문",
           "keyboardSystem": "시스템"
         },
         "hints": {
@@ -762,7 +744,7 @@
           "deskColor": "책상의 색상을 설정합니다.",
           "windowSize": "장면 크기를 조절합니다.",
           "mirrorMode": "전체 장면을 좌우로 반전합니다.",
-          "keyboardLanguage": "문자 키를 한글 또는 영문으로 변경합니다. 시스템을 선택하면 현재 사용 중인 앱의 한/영 입력 상태를 따릅니다.",
+          "keyboardLanguage": "키캡 문자를 변경합니다. 시스템을 선택하면 현재 시스템의 입력 언어 상태와 연동됩니다.",
           "sceneRotation": "카메라를 좌우로 360도 회전합니다.",
           "cameraHorizontal": "장면을 화면에서 좌우로 이동합니다.",
           "cameraVertical": "장면을 화면에서 위아래로 이동합니다.",
@@ -1169,5 +1151,32 @@
     "enabledByPolicy": "Windows 정책에 의해 켜져 있습니다.",
     "unknown": "Windows의 자동 시작 상태를 확인하지 못했습니다.",
     "failed": "자동 시작을 변경하지 못했습니다. Windows 시작 앱 설정을 확인해 주세요."
+  },
+  "startup": {
+    "web": {
+      "unconfirmedTitle": "앱 시작을 확인하지 못했습니다",
+      "unconfirmedMessage": "앱 시작 요청이 계속 진행 중일 수 있습니다. 응답을 기다린 뒤 재실행하세요.",
+      "failedTitle": "앱을 시작하지 못했습니다",
+      "failedMessage": "기존 설정과 사용자 데이터를 유지하고 앱을 종료한 뒤 다시 실행하세요.",
+      "guidance": "문제 원인을 찾을 수 없다면 컴퓨터 재부팅, 프로그램 재설치를 시도해 주세요. 기존 설정과 사용자 데이터를 유지하세요."
+    },
+    "native": {
+      "installationInProgress": "설치가 진행 중입니다. 설치를 완료하거나 설치 프로그램을 닫은 다음 앱을 다시 실행하세요.",
+      "couldNotStart": "앱을 안전하게 시작할 수 없습니다.",
+      "recheck": "다시 확인",
+      "exit": "종료",
+      "startupDialogUnavailable": "시작 안내 창을 열 수 없습니다. Windows와 WebView2 설치 상태를 확인하세요.",
+      "webviewRequiredTitle": "WebView2 Runtime 설치가 필요합니다",
+      "webviewRequiredMessage": "3D 렌더링을 위해 Microsoft WebView2 Runtime 프로그램이 필요합니다. 다음 링크에서 수동으로 설치한 뒤 다시 실행해 주세요.",
+      "openInstallationGuide": "설치 안내 열기",
+      "windowsMinimumWarning": "최소 사양은 Windows 10 22H2(빌드 19045.3448) 또는 Windows 11 22H2(빌드 22621.2283) 이상의 x64 환경입니다. 2023년 9월 또는 이후 누적 업데이트가 필요합니다. 현재 Windows가 최소 사양에 미달하거나 업데이트 상태를 확인할 수 없습니다. 계속 실행할 수 있지만 일부 기능이 올바르게 작동하지 않을 수 있습니다.",
+      "installationInterrupted": "설치가 중단되었습니다. 앱을 닫고 동일한 설치 프로그램을 다시 실행해 설치를 복구하세요. 공유 펫 데이터는 유지됩니다.",
+      "updateRequiredTitle": "업데이트가 필요합니다",
+      "updateRequiredMessage": "공유 펫 데이터에 더 최신 버전이 필요합니다. 설정은 변경되지 않았습니다. 이 설치본의 공식 업데이트 페이지를 여세요.",
+      "dataCompatibilityTitle": "공유 데이터 호환성을 확인할 수 없습니다",
+      "dataCompatibilityMessage": "공유 데이터의 호환성 정보를 해석할 수 없습니다. 기존 파일은 그대로 유지됩니다. 이 설치본의 공식 페이지에서 업데이트 또는 도움말을 확인하세요.",
+      "openOfficialPage": "공식 페이지 열기",
+      "dataUnavailable": "공유 펫 데이터를 열 수 없습니다. 대체 데이터 폴더는 생성하지 않았습니다."
+    }
   }
 }

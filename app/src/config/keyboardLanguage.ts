@@ -1,5 +1,5 @@
-export type KeyboardLanguageSelection = 'ko' | 'en' | 'system'
-export type ResolvedKeyboardLanguage = 'ko' | 'en'
+export type KeyboardLanguageSelection = 'ko' | 'en' | 'ja' | 'system'
+export type ResolvedKeyboardLanguage = 'ko' | 'en' | 'ja'
 
 export interface SystemKeyboardLanguageStatus {
   revision: number
@@ -14,5 +14,5 @@ export function isSystemKeyboardLanguageStatus(value: unknown): value is SystemK
   if (!value || typeof value !== 'object') return false
   const status = value as SystemKeyboardLanguageStatus
   return Number.isSafeInteger(status.revision) && status.revision >= 0
-    && (status.language === 'ko' || status.language === 'en')
+    && (status.language === 'ko' || status.language === 'en' || status.language === 'ja')
 }

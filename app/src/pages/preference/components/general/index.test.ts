@@ -9,6 +9,8 @@ import { compileScript, parse } from 'vue/compiler-sfc'
 
 import type { AutostartStatus } from '@/services/autostart'
 
+import { getPublicLanguageOptions } from '@/locales/registry'
+
 function resetHarness(native: {
   read: () => Promise<AutostartStatus>
   disable: () => Promise<void>
@@ -26,6 +28,7 @@ function resetHarness(native: {
   }
   const module = { exports: {} as { default: { setup: (props: object, context: object) => Actions } } }
   const mocks: Record<string, unknown> = {
+    '@/locales/registry': { getPublicLanguageOptions },
     'vue': { ...Vue, withDirectives: (node: Vue.VNode) => node, onMounted: () => {}, onBeforeUnmount: () => {} },
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
     'ant-design-vue': {
@@ -175,6 +178,7 @@ it('reads per-installation Windows state without applying a shared autostart pre
   interface Actions { changeAutostart: (value: boolean) => Promise<void>, refreshAutostart: () => Promise<void>, autostart: Vue.Ref<{ enabled: boolean }> }
   const module = { exports: {} as { default: { setup: (props: object, context: object) => Actions } } }
   const mocks: Record<string, unknown> = {
+    '@/locales/registry': { getPublicLanguageOptions },
     'vue': { ...Vue, onMounted: (fn: () => void) => {
       mounted = fn
     }, onBeforeUnmount: () => {} },
@@ -217,6 +221,7 @@ it('keeps startup state accessible without hover, focus or native title tooltips
   const exports = {} as { default: { setup: (props: object, context: object) => Render } }
   const translate = (key: string) => key
   const mocks: Record<string, unknown> = {
+    '@/locales/registry': { getPublicLanguageOptions },
     'vue': { ...Vue, withDirectives: (node: Vue.VNode) => node, onMounted: () => {}, onBeforeUnmount: () => {} },
     'vue-i18n': { useI18n: () => ({ t: translate }) },
     'ant-design-vue': { Button: 'button', Divider: 'divider', Flex: 'flex', InputNumber: 'input', Select: { Option: 'option' }, Switch: 'switch', Tooltip: 'tooltip' },
@@ -260,12 +265,13 @@ it('keeps startup state accessible without hover, focus or native title tooltips
   }
 })
 
-it('offers System settings, Korean and English in order and persists the selected preference', () => {
+it('offers System settings, Korean, English and Japanese in order and persists the selected preference', () => {
   const general = Vue.reactive({ app: {}, appearance: { language: 'system' } })
   const { descriptor } = parse(readFileSync(new URL('./index.vue', import.meta.url), 'utf8'))
   const script = compileScript(descriptor, { id: 'language-selector', inlineTemplate: true })
   const module = { exports: {} as { default: { setup: (props: object, context: object) => (context: object, cache: unknown[]) => Vue.VNode } } }
   const mocks: Record<string, unknown> = {
+    '@/locales/registry': { getPublicLanguageOptions },
     'vue': { ...Vue, withDirectives: (node: Vue.VNode) => node, onMounted: () => {}, onBeforeUnmount: () => {} },
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
     'ant-design-vue': { Select: { Option: 'select-option' }, Modal: {}, message: {}, Button: 'button', Flex: 'flex', Divider: 'divider', InputNumber: 'input-number', Switch: 'switch' },
@@ -290,18 +296,20 @@ it('offers System settings, Korean and English in order and persists the selecte
         : []
     return [node, ...children.flatMap(child => Vue.isVNode(child) ? flatten(child) : [])]
   }
-  for (const [locale, systemLabel] of [['ko-KR', '시스템'], ['en-US', 'System']]) {
+  for (const [locale, systemLabel] of [['ko-KR', '시스템'], ['en-US', 'System'], ['ja-JP', 'システム']]) {
     const messages = JSON.parse(readFileSync(new URL(`../../../../locales/${locale}.json`, import.meta.url), 'utf8'))
     const t = (key: string) => key.split('.').reduce((value, part) => value?.[part], messages) ?? key
     const nodes = flatten(render({ $t: t }, []))
     const select = nodes.find(node => node.type === (mocks['ant-design-vue'] as { Select: object }).Select)!
     assert.ok(select)
     const options = nodes.filter(node => node.type === 'select-option')
-    assert.deepEqual(options.map(option => option.props?.value), ['system', 'ko-KR', 'en-US'])
+    assert.deepEqual(options.map(option => option.props?.value), ['system', 'ko-KR', 'en-US', 'ja-JP'])
     assert.equal(flatten(options[0]).filter(node => node.type === Vue.Text).map(node => node.children).join(''), systemLabel)
     assert.equal(select.props?.value, 'system')
     select.props!['onUpdate:value']('en-US')
     assert.equal(general.appearance.language, 'en-US')
+    select.props!['onUpdate:value']('ja-JP')
+    assert.equal(general.appearance.language, 'ja-JP')
     select.props!['onUpdate:value']('system')
     assert.equal(general.appearance.language, 'system')
   }

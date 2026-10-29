@@ -89,6 +89,7 @@ function updateDeskDimension(key: DeskDimensionKey, value: number) {
 function confirmObjectReset(object: ObjectTab) {
   if (editorsLocked.value) return
   Modal.confirm({
+    direction: typeof document !== 'undefined' && document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr',
     title: t(`pages.preference.environment.confirm.reset${object[0].toUpperCase()}${object.slice(1)}`),
     okType: 'danger',
     onOk: async () => {
@@ -259,6 +260,9 @@ function confirmObjectReset(object: ObjectTab) {
                 </Select.Option>
                 <Select.Option value="en">
                   {{ $t('pages.preference.environment.options.keyboardEnglish') }}
+                </Select.Option>
+                <Select.Option value="ja">
+                  {{ $t('pages.preference.environment.options.keyboardJapanese') }}
                 </Select.Option>
                 <Select.Option value="system">
                   {{ $t('pages.preference.environment.options.keyboardSystem') }}

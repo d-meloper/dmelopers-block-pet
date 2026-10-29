@@ -111,7 +111,7 @@ fn validate_preset(preset: &Value) -> Result<(), String> {
             | "mouseColor"
             | "mousePressedColor"
             | "dmeloperPalmColor" => color(value),
-            "keyboardLegendLanguage" => matches!(value.as_str(), Some("ko" | "en" | "system")),
+            "keyboardLegendLanguage" => matches!(value.as_str(), Some("ko" | "en" | "ja" | "system")),
             "windowScalePercent"
             | "mouseScalePercent"
             | "keyboardScalePercent"

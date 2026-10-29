@@ -1367,3 +1367,46 @@ describe('actual useDevice pointer dispatch', () => {
     assert.equal(h.dispatched.length, 1)
   })
 })
+
+it('full reset drains an outstanding OFF before native ON, geometry completion and preference readback', async () => {
+  const h = createSession(false)
+  await h.session.setActive(true)
+  await h.session.start()
+  // Reproduction: resetting the store alone leaves the confirmed query OFF.
+  assert.equal((await h.session.request()).mouseEnabled, false)
+  const off = deferred<DeviceInputState>()
+  h.setConfigure(async enabled => enabled ? { mouseEnabled: true, mouseGeneration: 3 } : off.promise)
+  const previous = h.session.request(false)
+  await flush()
+  const main = readFileSync(new URL('../pages/main/index.vue', import.meta.url), 'utf8')
+  const start = main.indexOf('useTauriListen<MainViewportResetRequest>(')
+  const handler = main.slice(start, main.indexOf('async function handleMouseDown(', start))
+  let receive!: (event: { payload: { requestId: string, mouseEnabled?: boolean } }) => void
+  const completion = deferred<{ success: boolean }>()
+  const calls: string[] = []
+  runInNewContext(ts.transpileModule(handler, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
+    useTauriListen: (_event: string, callback: typeof receive) => {
+      receive = callback
+    },
+    LISTEN_KEY: constants.LISTEN_KEY,
+    WINDOW_LABEL: constants.WINDOW_LABEL,
+    device: { requestMouseSetting: h.session.request },
+    settleAndCenterResetViewport: async () => {
+      assert.equal(h.session.status().mouseEnabled, true)
+      calls.push('geometry')
+      return true
+    },
+    emitTo: async (_label: string, _event: string, payload: { success: boolean }) => completion.resolve(payload),
+    console,
+  })
+  receive({ payload: { requestId: 'reset', mouseEnabled: true } })
+  await flush()
+  assert.deepEqual(calls, [])
+  off.resolve({ mouseEnabled: false, mouseGeneration: 2 })
+  await previous
+  assert.equal((await completion.promise).success, true)
+  assert.deepEqual(calls, ['geometry'])
+  assert.equal((await h.session.request()).mouseEnabled, true)
+  assert.equal(h.saves.at(-1), true)
+  assert.equal(h.gates.at(-1), true)
+})

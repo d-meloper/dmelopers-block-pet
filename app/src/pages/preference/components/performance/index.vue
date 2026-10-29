@@ -122,6 +122,7 @@ function emptyMetricValue() {
 
 function confirmPerformanceReset() {
   Modal.confirm({
+    direction: typeof document !== 'undefined' && document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr',
     title: t('pages.preference.performance.confirm.reset'),
     okType: 'danger',
     onOk: () => {
@@ -176,7 +177,7 @@ function confirmPerformanceReset() {
             {{ metric.value }}
             <span
               v-if="metric.average !== undefined"
-              class="ml-1 whitespace-nowrap"
+              class="ms-1 whitespace-nowrap"
             >({{ metric.average }})</span>
           </div>
         </div>

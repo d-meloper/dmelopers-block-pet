@@ -1,7 +1,7 @@
 {
   "name": "dmelopers-block-pet",
   "type": "module",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "private": true,
   "author": "DMeloper",
   "license": "MIT",
@@ -9,7 +9,12 @@
     "dev": "run-s dev:icon dev:broadcast dev:vite",
     "dev:icon": "tsx scripts/buildIcon.ts --cached",
     "dev:broadcast": "tsx scripts/buildBroadcast.ts --cached",
-    "build": "run-s build:*",
+    "build": "run-s locale:check build:*",
+    "locale": "tsx scripts/locales.ts",
+    "locale:check": "tsx scripts/locales.ts check --release",
+    "locale:ship-check": "tsx scripts/locales.ts check --release --committed",
+    "translation": "tsx tools/translation.ts",
+    "translation:typecheck": "tsx tools/translation.ts typecheck",
     "dev:vite": "vite",
     "build:vite": "vite build",
     "build:icon": "tsx scripts/buildIcon.ts",
@@ -37,7 +42,7 @@
     "tauri-plugin-locale-api": "^2.0.1",
     "three": "0.185.1",
     "vue": "^3.5.42",
-    "vue-i18n": "^11.3.2",
+    "vue-i18n": "^11.4.14",
     "vue-router": "^4.6.4"
   },
   "devDependencies": {
@@ -60,7 +65,7 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "unocss": "^66.6.8",
-    "vite": "^6.4.3"
+    "vite": "^6.4.5"
   },
   "lint-staged": {
     "src/**/*.{ts,vue}": "node node_modules/eslint/bin/eslint.js --fix",

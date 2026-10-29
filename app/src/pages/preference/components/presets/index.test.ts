@@ -166,6 +166,7 @@ function renderList(manager: PresetManager): vue.VNode[] {
 }
 
 interface UiTestRuntime {
+  direction?: 'ltr' | 'rtl'
   recoveryTimeoutMs?: number
   timers?: ReturnType<typeof warningClock>
   general?: { app: { applyPresetSkin: boolean } }
@@ -203,6 +204,7 @@ function loadSetup<T>(filename: string, props: object, exposed: string, emitted:
       removeEventListener: (_event: string, callback: () => void) => runtime.resizeListeners?.delete(callback),
     },
     getComputedStyle: (element: Element) => ({
+      direction: runtime.direction ?? 'ltr',
       overflowY: runtime.overflowY?.(element) ?? 'visible',
       rowGap: runtime.rowGap ?? '12px',
       gridTemplateColumns: runtime.gridTemplateColumns?.(element) ?? '309px 309px',
@@ -835,6 +837,19 @@ describe('preset list interactions', () => {
     assert.deepEqual(surface.releases, [1, 1, 1])
     assert.equal(control.draggedId.value, undefined)
     assert.equal(control.dropTarget.value, undefined)
+  })
+
+  it('maps RTL pointer halves to logical preset order without changing stored reorder identities', async () => {
+    for (const [x, after, beforeId] of [[20, true, undefined], [80, false, 'last']] as const) {
+      const { value, calls } = manager()
+      const { control, surface } = pointerControls(value, undefined, { direction: 'rtl' })
+      control.startPointerDrag(surface.event().event, value.entries.value[1])
+      surface.hitCard('last')
+      control.movePointerDrag(surface.event(x).event)
+      assert.equal(control.dropTarget.value?.after, after)
+      await control.finishPointerDrag(surface.event(x).event)
+      assert.deepEqual(calls, [{ action: 'reorder', args: ['first', beforeId] }])
+    }
   })
 
   it('retains the drag target across repeated moves while honoring side changes and the final reorder', async () => {

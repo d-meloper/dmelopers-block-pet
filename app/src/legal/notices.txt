@@ -2202,10 +2202,10 @@ Author metadata: ["Daniel Abramov <dabramov@snapview.de>", "Alexey Galakhov <aga
 Source: https://crates.io/api/v1/crates/tokio-tungstenite/0.29.0/download
 Notice fdd55e2b2da854b0fbdc1e607df7c2ba1e1ebf91ecb77c515511ebeef972bc8f — LICENSE
 
-cargo:tokio@1.52.0
+cargo:tokio@1.53.3
 License: MIT
 Author metadata: ["Tokio Contributors <team@tokio.rs>"]
-Source: https://crates.io/api/v1/crates/tokio/1.52.0/download
+Source: https://crates.io/api/v1/crates/tokio/1.53.3/download
 Notice 253cd04c6714889df2d32f3f64d669179a1c95c76ac43c40882c52eb06bc3552 — LICENSE
 
 cargo:toml@0.9.12+spec-1.1.0
@@ -2617,6 +2617,13 @@ Source: https://crates.io/api/v1/crates/windows-strings/0.5.1/download
 Notice c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b — license-apache-2.0
 Notice c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383 — license-mit
 
+cargo:windows-sys@0.48.0
+License: MIT OR Apache-2.0
+Author metadata: ["Microsoft"]
+Source: https://crates.io/api/v1/crates/windows-sys/0.48.0/download
+Notice c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b — license-apache-2.0
+Notice c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383 — license-mit
+
 cargo:windows-sys@0.59.0
 License: MIT OR Apache-2.0
 Author metadata: ["Microsoft"]
@@ -2635,6 +2642,13 @@ cargo:windows-sys@0.61.2
 License: MIT OR Apache-2.0
 Author metadata: []
 Source: https://crates.io/api/v1/crates/windows-sys/0.61.2/download
+Notice c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b — license-apache-2.0
+Notice c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383 — license-mit
+
+cargo:windows-targets@0.48.5
+License: MIT OR Apache-2.0
+Author metadata: ["Microsoft"]
+Source: https://crates.io/api/v1/crates/windows-targets/0.48.5/download
 Notice c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b — license-apache-2.0
 Notice c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383 — license-mit
 
@@ -2684,6 +2698,13 @@ cargo:windows@0.62.2
 License: MIT OR Apache-2.0
 Author metadata: []
 Source: https://crates.io/api/v1/crates/windows/0.62.2/download
+Notice c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b — license-apache-2.0
+Notice c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383 — license-mit
+
+cargo:windows_x86_64_msvc@0.48.5
+License: MIT OR Apache-2.0
+Author metadata: ["Microsoft"]
+Source: https://crates.io/api/v1/crates/windows_x86_64_msvc/0.48.5/download
 Notice c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b — license-apache-2.0
 Notice c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383 — license-mit
 
@@ -2874,28 +2895,28 @@ Author metadata: 480 Design
 Source: https://www.npmjs.com/package/@iconify-json/solar/v/1.2.5
 Notice 9e5f1b3c610b9c2da5c313bf81d577a7d1acec686bdb0384edefa6df0f90cd94 — https://creativecommons.org/licenses/by/4.0/legalcode.txt
 
-npm:@intlify/core-base@11.3.2
+npm:@intlify/core-base@11.4.14
 License: MIT
 Author metadata: {"name": "kazuya kawaguchi", "email": "kawakazu80@gmail.com"}
-Source: https://registry.npmjs.org/%40intlify%2Fcore-base/11.3.2
+Source: https://registry.npmjs.org/%40intlify%2Fcore-base/11.4.14
 Notice 403a4d6f9815ae33bd7a613202529f0805045c642f92a169fa673d7fa07dd568 — LICENSE
 
-npm:@intlify/devtools-types@11.3.2
+npm:@intlify/devtools-types@11.4.14
 License: MIT
 Author metadata: {"name": "kazuya kawaguchi", "email": "kawakazu80@gmail.com"}
-Source: https://registry.npmjs.org/%40intlify%2Fdevtools-types/11.3.2
+Source: https://registry.npmjs.org/%40intlify%2Fdevtools-types/11.4.14
 Notice 8f431e584baf8dc943c4188a9e3c27cf4b6a5b540b2d0801468023db86345e7d — LICENSE
 
-npm:@intlify/message-compiler@11.3.2
+npm:@intlify/message-compiler@11.4.14
 License: MIT
 Author metadata: {"name": "kazuya kawaguchi", "email": "kawakazu80@gmail.com"}
-Source: https://registry.npmjs.org/%40intlify%2Fmessage-compiler/11.3.2
+Source: https://registry.npmjs.org/%40intlify%2Fmessage-compiler/11.4.14
 Notice 403a4d6f9815ae33bd7a613202529f0805045c642f92a169fa673d7fa07dd568 — LICENSE
 
-npm:@intlify/shared@11.3.2
+npm:@intlify/shared@11.4.14
 License: MIT
 Author metadata: {"name": "kazuya kawaguchi", "email": "kawakazu80@gmail.com"}
-Source: https://registry.npmjs.org/%40intlify%2Fshared/11.3.2
+Source: https://registry.npmjs.org/%40intlify%2Fshared/11.4.14
 Notice 403a4d6f9815ae33bd7a613202529f0805045c642f92a169fa673d7fa07dd568 — LICENSE
 
 npm:@jridgewell/sourcemap-codec@1.5.5
@@ -3322,10 +3343,10 @@ Author metadata: Microsoft Corp.
 Source: https://registry.npmjs.org/typescript/5.9.3
 Notice 527adf9d4c760f7367c2aeffed6a89afba8ba40ea1b0efbc8f56496ad30ea9cf — LICENSE.txt
 
-npm:vue-i18n@11.3.2
+npm:vue-i18n@11.4.14
 License: MIT
 Author metadata: {"name": "kazuya kawaguchi", "email": "kawakazu80@gmail.com"}
-Source: https://registry.npmjs.org/vue-i18n/11.3.2
+Source: https://registry.npmjs.org/vue-i18n/11.4.14
 Notice 403a4d6f9815ae33bd7a613202529f0805045c642f92a169fa673d7fa07dd568 — LICENSE
 
 npm:vue-router@4.6.4

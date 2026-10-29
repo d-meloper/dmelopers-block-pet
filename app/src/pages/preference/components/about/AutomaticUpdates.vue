@@ -3,7 +3,6 @@ import { Button, Flex, message, Progress } from 'ant-design-vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import RecoveryFeedback from '@/components/recovery-feedback/index.vue'
 import { usePreferenceUpdates } from '@/composables/usePreferenceUpdates'
 import { APP_DISPLAY_NAME } from '@/constants/branding'
 import { reportDiagnostic } from '@/services/diagnostics'
@@ -16,7 +15,7 @@ import { createSupportRecovery } from './supportRecovery'
 
 const { t } = useI18n()
 const app = useAppStore()
-const { channel, appInfo: info, checking, phase, percent, failed, busy, canCancel, cancelling, cancel, check, update: install, recovery, handoffUnconfirmed } = usePreferenceUpdates()
+const { channel, appInfo: info, checking, phase, percent, failed, busy, canCancel, cancelling, cancel, check, update: install, handoffUnconfirmed } = usePreferenceUpdates()
 const openingStore = ref(false)
 const storeRecovery = createSupportRecovery()
 const { busy: storeBusy } = storeRecovery
@@ -129,7 +128,6 @@ async function runUpdateAction() {
       </Button>
     </Flex>
   </AppIdentity>
-  <RecoveryFeedback :report="recovery" />
 </template>
 
 <style scoped>

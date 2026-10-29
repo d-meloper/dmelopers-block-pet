@@ -5,19 +5,22 @@ import { it } from 'node:test'
 import { isKoreanLanguage, isLanguage, isLanguagePreference, resolveLanguage, selectByLanguage } from './languageBranch'
 
 it('keeps system as a preference and resolves it without treating it as a display language', () => {
-  for (const system of ['ko-KR', 'en-US'] as const) {
+  for (const system of ['ko-KR', 'en-US', 'ja-JP'] as const) {
     assert.equal(resolveLanguage('system', system), system)
     assert.equal(resolveLanguage(undefined, system), system)
     assert.equal(resolveLanguage('ko-KR', system), 'ko-KR')
     assert.equal(resolveLanguage('en-US', system), 'en-US')
+    assert.equal(resolveLanguage('ja-JP', system), 'ja-JP')
   }
   assert.equal(isLanguagePreference('system'), true)
   assert.equal(isLanguage('system'), false)
-  for (const invalid of ['', null, undefined, 'ja-JP', 'ko', true]) {
+  for (const invalid of ['', null, undefined, 'fr-FR', 'ko', 'ja', true]) {
     assert.equal(isLanguagePreference(invalid), false)
   }
   assert.equal(isLanguagePreference('ko-KR'), true)
   assert.equal(isLanguagePreference('en-US'), true)
+  assert.equal(isLanguagePreference('ja-JP'), true)
+  assert.equal(isLanguage('ja-JP'), true)
 })
 
 it('preserves the existing Korean/global helper interfaces', () => {

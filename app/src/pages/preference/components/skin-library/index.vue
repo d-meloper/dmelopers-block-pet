@@ -571,6 +571,7 @@ function confirmSkinLibraryOverwrites(
       resolve(confirmed)
     }
     Modal.confirm({
+      direction: typeof document !== 'undefined' && document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr',
       title: plan.collisionCount === 1
         ? t('pages.preference.skinLibrary.confirm.overwriteOne', {
             filename: singleFilename,
@@ -797,6 +798,7 @@ function requestDelete() {
   if (entryIds.length === 0) return
   const generation = applyRequestGate.begin()
   Modal.confirm({
+    direction: typeof document !== 'undefined' && document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr',
     title: entryIds.length === 1
       ? t('pages.preference.skinLibrary.confirm.deleteOne')
       : t('pages.preference.skinLibrary.confirm.deleteMany', { count: entryIds.length }),
@@ -1002,7 +1004,7 @@ onBeforeUnmount(() => {
           <template #icon>
             <span
               aria-hidden="true"
-              class="skin-library-header-icon i-lucide:arrow-left size-4"
+              class="locale-navigation-icon skin-library-header-icon i-lucide:arrow-left size-4"
             />
           </template>
           {{ $t('pages.preference.skinLibrary.buttons.back') }}
@@ -1089,7 +1091,7 @@ onBeforeUnmount(() => {
           >
             <Tag
               v-if="defaultActive"
-              class="absolute right-2 top-2 m-0!"
+              class="absolute end-2 top-2 m-0!"
               color="blue"
             >
               {{ $t('pages.preference.skinLibrary.status.current') }}
@@ -1151,7 +1153,7 @@ onBeforeUnmount(() => {
             <button
               :aria-checked="selected.has(entry.id)"
               :aria-label="$t('pages.preference.skinLibrary.buttons.toggleSelection', { name: entry.displayName })"
-              class="bg-color-1/90 absolute left-2 top-2 z-1 size-7 flex cursor-pointer items-center justify-center b-0 rounded-md p-0 text-color-3"
+              class="bg-color-1/90 absolute start-2 top-2 z-1 size-7 flex cursor-pointer items-center justify-center b-0 rounded-md p-0 text-color-3"
               role="checkbox"
               type="button"
               @click.stop="toggleCheckbox(entry.id)"
@@ -1165,7 +1167,7 @@ onBeforeUnmount(() => {
             </button>
             <Tag
               v-if="activeEntryId === entry.id"
-              class="absolute right-2 top-2 m-0!"
+              class="absolute end-2 top-2 m-0!"
               color="blue"
             >
               {{ $t('pages.preference.skinLibrary.status.current') }}
@@ -1180,7 +1182,7 @@ onBeforeUnmount(() => {
               <button
                 v-if="editingEntryId !== entry.id"
                 :aria-label="$t('pages.preference.skinLibrary.labels.rename', { name: entry.displayName })"
-                class="w-full cursor-text truncate b-0 bg-transparent p-0 text-left text-color-1 font-medium"
+                class="w-full cursor-text truncate b-0 bg-transparent p-0 text-start text-color-1 font-medium"
                 :disabled="busy || applying"
                 :title="entry.displayName"
                 type="button"

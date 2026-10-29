@@ -81,15 +81,15 @@ const outcome = computed(() => props.report?.status ?? 'running')
 .recovery-steps,
 .recovery-guidance {
   margin: 8px 0 0;
-  padding-left: 18px;
+  padding-inline-start: 18px;
 }
 
 .recovery-steps li {
-  padding-right: 2px;
+  padding-inline-end: 2px;
 }
 
 .recovery-step-state {
-  margin-left: 8px;
+  margin-inline-start: 8px;
   color: var(--ant-color-text-tertiary);
 }
 

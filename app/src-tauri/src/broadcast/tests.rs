@@ -43,8 +43,8 @@ async fn system_keyboard_language_is_latest_state_independent_of_scene_and_input
     let revision = packet["revision"].clone();
     assert_eq!(next_type(&mut first, "keyboard_language").await, json!({"type":"keyboard_language", "revision":7, "language":"en"}));
     // Mode delivery does not require ready/input demand or send another scene.
-    service.keyboard_language.send_replace(crate::keyboard_language::Status { revision: 8, language: crate::keyboard_language::Language::Ko });
-    assert_eq!(next_type(&mut first, "keyboard_language").await["language"], "ko");
+    service.keyboard_language.send_replace(crate::keyboard_language::Status { revision: 8, language: crate::keyboard_language::Language::Ja });
+    assert_eq!(next_type(&mut first, "keyboard_language").await["language"], "ja");
     assert_eq!(service.status().scene_revision, revision.as_u64());
     let mut second = connect(&service).await;
     next_type(&mut second, "scene").await;
@@ -1150,5 +1150,19 @@ fn desk_broadcast_settings_accept_legacy_and_partial_scenes_but_reject_malformed
             invalid.preset[key] = value;
             assert!(invalid.validate(None).is_err(), "{key}");
         }
+    }
+}
+
+
+#[test]
+fn japanese_manual_scene_round_trips_without_enabling_system_observation() {
+    for language in ["ko", "en", "ja", "system"] {
+        let mut value = scene();
+        value.preset["keyboardLegendLanguage"] = json!(language);
+        value.validate(None).unwrap();
+        let restored: BroadcastScene = serde_json::from_slice(&serde_json::to_vec(&value).unwrap()).unwrap();
+        restored.validate(None).unwrap();
+        assert_eq!(restored.preset["keyboardLegendLanguage"], language);
+        assert_eq!(restored.system_keyboard_language(), language == "system");
     }
 }

@@ -6,7 +6,7 @@
     "component": {
       "type": "application",
       "name": "DMeloper's Block Pet",
-      "version": "1.1.4"
+      "version": "1.1.5"
     },
     "properties": [
       {
@@ -15,11 +15,11 @@
       },
       {
         "name": "dmeloper:lf-sha256:Cargo.lock",
-        "value": "9a23a9d847c926c8ff34dfffa51f04ad4bf0a297162957e8a1a7c52ec9050c7d"
+        "value": "84f405e92cc2e15e7a1f4781cfbc967ae85cda8b17f297102363e2c5cda972c7"
       },
       {
         "name": "dmeloper:lf-sha256:pnpm-lock.yaml",
-        "value": "dd93cc30d31607d7b8cfe348d5247ecd3389038365af223ed9f42b1fdefcc8fa"
+        "value": "bd1eff5ec6b038074e3712d1dd64aee130a7ac36b8fe51dbf46bf57cd88964f7"
       }
     ]
   },
@@ -8588,10 +8588,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:cargo/tokio@1.52.0",
+      "bom-ref": "pkg:cargo/tokio@1.53.3",
       "name": "tokio",
-      "version": "1.52.0",
-      "purl": "pkg:cargo/tokio@1.52.0",
+      "version": "1.53.3",
+      "purl": "pkg:cargo/tokio@1.53.3",
       "licenses": [
         {
           "expression": "MIT"
@@ -8610,7 +8610,7 @@
       "externalReferences": [
         {
           "type": "distribution",
-          "url": "https://crates.io/api/v1/crates/tokio/1.52.0/download"
+          "url": "https://crates.io/api/v1/crates/tokio/1.53.3/download"
         }
       ]
     },
@@ -10268,6 +10268,34 @@
     },
     {
       "type": "library",
+      "bom-ref": "pkg:cargo/windows-sys@0.48.0",
+      "name": "windows-sys",
+      "version": "0.48.0",
+      "purl": "pkg:cargo/windows-sys@0.48.0",
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "dmeloper:notice-method",
+          "value": "published-package-license-files"
+        },
+        {
+          "name": "dmeloper:build-consumers",
+          "value": "application,store-application,test-application"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://crates.io/api/v1/crates/windows-sys/0.48.0/download"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "pkg:cargo/windows-sys@0.59.0",
       "name": "windows-sys",
       "version": "0.59.0",
@@ -10347,6 +10375,34 @@
         {
           "type": "distribution",
           "url": "https://crates.io/api/v1/crates/windows-sys/0.61.2/download"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cargo/windows-targets@0.48.5",
+      "name": "windows-targets",
+      "version": "0.48.5",
+      "purl": "pkg:cargo/windows-targets@0.48.5",
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "dmeloper:notice-method",
+          "value": "published-package-license-files"
+        },
+        {
+          "name": "dmeloper:build-consumers",
+          "value": "application,store-application,test-application"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://crates.io/api/v1/crates/windows-targets/0.48.5/download"
         }
       ]
     },
@@ -10543,6 +10599,34 @@
         {
           "type": "distribution",
           "url": "https://crates.io/api/v1/crates/windows/0.62.2/download"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:cargo/windows_x86_64_msvc@0.48.5",
+      "name": "windows_x86_64_msvc",
+      "version": "0.48.5",
+      "purl": "pkg:cargo/windows_x86_64_msvc@0.48.5",
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "dmeloper:notice-method",
+          "value": "published-package-license-files"
+        },
+        {
+          "name": "dmeloper:build-consumers",
+          "value": "application,store-application,test-application"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://crates.io/api/v1/crates/windows_x86_64_msvc/0.48.5/download"
         }
       ]
     },
@@ -11336,10 +11420,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/%40intlify/core-base@11.3.2",
+      "bom-ref": "pkg:npm/%40intlify/core-base@11.4.14",
       "name": "@intlify/core-base",
-      "version": "11.3.2",
-      "purl": "pkg:npm/%40intlify/core-base@11.3.2",
+      "version": "11.4.14",
+      "purl": "pkg:npm/%40intlify/core-base@11.4.14",
       "licenses": [
         {
           "expression": "MIT"
@@ -11354,16 +11438,16 @@
       "externalReferences": [
         {
           "type": "distribution",
-          "url": "https://registry.npmjs.org/%40intlify%2Fcore-base/11.3.2"
+          "url": "https://registry.npmjs.org/%40intlify%2Fcore-base/11.4.14"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/%40intlify/devtools-types@11.3.2",
+      "bom-ref": "pkg:npm/%40intlify/devtools-types@11.4.14",
       "name": "@intlify/devtools-types",
-      "version": "11.3.2",
-      "purl": "pkg:npm/%40intlify/devtools-types@11.3.2",
+      "version": "11.4.14",
+      "purl": "pkg:npm/%40intlify/devtools-types@11.4.14",
       "licenses": [
         {
           "expression": "MIT"
@@ -11378,16 +11462,16 @@
       "externalReferences": [
         {
           "type": "distribution",
-          "url": "https://registry.npmjs.org/%40intlify%2Fdevtools-types/11.3.2"
+          "url": "https://registry.npmjs.org/%40intlify%2Fdevtools-types/11.4.14"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/%40intlify/message-compiler@11.3.2",
+      "bom-ref": "pkg:npm/%40intlify/message-compiler@11.4.14",
       "name": "@intlify/message-compiler",
-      "version": "11.3.2",
-      "purl": "pkg:npm/%40intlify/message-compiler@11.3.2",
+      "version": "11.4.14",
+      "purl": "pkg:npm/%40intlify/message-compiler@11.4.14",
       "licenses": [
         {
           "expression": "MIT"
@@ -11402,16 +11486,16 @@
       "externalReferences": [
         {
           "type": "distribution",
-          "url": "https://registry.npmjs.org/%40intlify%2Fmessage-compiler/11.3.2"
+          "url": "https://registry.npmjs.org/%40intlify%2Fmessage-compiler/11.4.14"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/%40intlify/shared@11.3.2",
+      "bom-ref": "pkg:npm/%40intlify/shared@11.4.14",
       "name": "@intlify/shared",
-      "version": "11.3.2",
-      "purl": "pkg:npm/%40intlify/shared@11.3.2",
+      "version": "11.4.14",
+      "purl": "pkg:npm/%40intlify/shared@11.4.14",
       "licenses": [
         {
           "expression": "MIT"
@@ -11426,7 +11510,7 @@
       "externalReferences": [
         {
           "type": "distribution",
-          "url": "https://registry.npmjs.org/%40intlify%2Fshared/11.3.2"
+          "url": "https://registry.npmjs.org/%40intlify%2Fshared/11.4.14"
         }
       ]
     },
@@ -13112,10 +13196,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/vue-i18n@11.3.2",
+      "bom-ref": "pkg:npm/vue-i18n@11.4.14",
       "name": "vue-i18n",
-      "version": "11.3.2",
-      "purl": "pkg:npm/vue-i18n@11.3.2",
+      "version": "11.4.14",
+      "purl": "pkg:npm/vue-i18n@11.4.14",
       "licenses": [
         {
           "expression": "MIT"
@@ -13130,7 +13214,7 @@
       "externalReferences": [
         {
           "type": "distribution",
-          "url": "https://registry.npmjs.org/vue-i18n/11.3.2"
+          "url": "https://registry.npmjs.org/vue-i18n/11.4.14"
         }
       ]
     },

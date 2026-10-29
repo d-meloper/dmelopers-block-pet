@@ -23,15 +23,19 @@ const hasDescription = computed(() => {
     :gap="vertical ? 'middle' : 'large'"
     justify="space-between"
     :vertical="vertical"
+    :wrap="vertical ? undefined : 'wrap'"
   >
     <Flex
       align="center"
-      class="flex-1"
+      class="min-w-0 flex-1"
       :gap="slots.leading ? 12 : undefined"
     >
       <slot name="leading" />
-      <Flex vertical>
-        <div class="text-sm font-medium">
+      <Flex
+        class="min-w-0"
+        vertical
+      >
+        <div class="min-w-0 break-words text-sm font-medium">
           <slot name="title">
             {{ title }}
           </slot>

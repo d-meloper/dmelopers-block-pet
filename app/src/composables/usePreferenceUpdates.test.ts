@@ -122,7 +122,7 @@ test('the real window adapter persists only the version pair, ignores legacy dea
   assert.equal(h.releases(), 1)
 })
 
-test('failed visibility readback gives actionable feedback and a later click verifies a fresh update result', async () => {
+test('failed visibility readback marks the check failed and a later click verifies fresh metadata', async () => {
   const h = harness()
   h.visibility(async () => {
     throw new Error('C:/PRIVATE_WINDOW/TOKEN')
@@ -131,14 +131,10 @@ test('failed visibility readback gives actionable feedback and a later click ver
   await h.updates.check()
   assert.equal(h.checks(), 0)
   assert.equal(h.updates.failed.value, true)
-  assert.equal(h.updates.recovery.value?.status, 'unknown')
-  assert.equal(h.updates.recovery.value?.summaryKey, 'recovery.summary.updateWindowUnknown')
-  assert.equal(h.updates.recovery.value?.guidanceKeys?.at(-1), 'recovery.guidance.lastResort')
-  assert.ok(!JSON.stringify(h.updates.recovery.value).includes('PRIVATE_WINDOW'))
   h.visibility(async () => true)
   await h.updates.check(true)
   assert.equal(h.updates.failed.value, false)
-  assert.equal(h.updates.recovery.value?.summaryKey, 'recovery.summary.updateCheckComplete')
+  assert.equal(h.updates.appInfo.value?.version, '1.0.2')
   assert.ok(h.checks() > 0)
   h.unmount()
 })

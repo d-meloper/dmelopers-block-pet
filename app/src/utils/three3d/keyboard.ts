@@ -13,6 +13,7 @@ import {
 } from 'three'
 
 import type { DeviceColorSettings } from '@/config/deviceColors'
+import type { ResolvedKeyboardLanguage } from '@/config/keyboardLanguage'
 
 import { normalizeDeviceColors } from '@/config/deviceColors'
 import { MODEL_3D_CONFIG } from '@/config/model3d'
@@ -25,7 +26,7 @@ interface KeyDefinition {
   units?: number
 }
 
-export type KeyboardLegendLanguage = 'ko' | 'en'
+export type KeyboardLegendLanguage = ResolvedKeyboardLanguage
 
 export interface KeyboardContactAddress {
   row: number
@@ -114,6 +115,57 @@ const ENGLISH_LEGENDS_BY_INPUT: Readonly<Record<string, string>> = {
   KeyB: 'B',
   KeyN: 'N',
   KeyM: 'M',
+}
+
+// These are the app's VK/rdev input identities, not a physical-position overlay.
+// BackQuote has no cap; IntlBackslash retains its existing BackSlash contact alias.
+const JAPANESE_LEGENDS_BY_INPUT: Readonly<Record<string, string>> = {
+  Num1: 'ぬ',
+  Num2: 'ふ',
+  Num3: 'あ',
+  Num4: 'う',
+  Num5: 'え',
+  Num6: 'お',
+  Num7: 'や',
+  Num8: 'ゆ',
+  Num9: 'よ',
+  Num0: 'わ',
+  Minus: 'ほ',
+  Equal: 'れ',
+  KeyQ: 'た',
+  KeyW: 'て',
+  KeyE: 'い',
+  KeyR: 'す',
+  KeyT: 'か',
+  KeyY: 'ん',
+  KeyU: 'な',
+  KeyI: 'に',
+  KeyO: 'ら',
+  KeyP: 'せ',
+  LeftBracket: '゜',
+  RightBracket: 'む',
+  BackSlash: 'ー',
+  KeyA: 'ち',
+  KeyS: 'と',
+  KeyD: 'し',
+  KeyF: 'は',
+  KeyG: 'き',
+  KeyH: 'く',
+  KeyJ: 'ま',
+  KeyK: 'の',
+  KeyL: 'り',
+  SemiColon: 'け',
+  Quote: 'へ',
+  KeyZ: 'つ',
+  KeyX: 'さ',
+  KeyC: 'そ',
+  KeyV: 'ひ',
+  KeyB: 'こ',
+  KeyN: 'み',
+  KeyM: 'も',
+  Comma: 'ね',
+  Dot: 'る',
+  Slash: 'め',
 }
 
 const KEYBOARD_ROWS: readonly (readonly KeyDefinition[])[] = [
@@ -224,10 +276,13 @@ function createLegendCanvas(
   const isKoreanLegend = legend.length === 1
     && legendCodePoint >= 0x3131
     && legendCodePoint <= 0x3163
+  const isJapaneseLegend = legend.length === 1 && legendCodePoint >= 0x3040 && legendCodePoint <= 0x30FF
   do {
     const fontFamily = isKoreanLegend
       ? '"Malgun Gothic", "Segoe UI", sans-serif'
-      : '"Arial Black", "Segoe UI", sans-serif'
+      : isJapaneseLegend
+        ? '"Yu Gothic", Meiryo, sans-serif'
+        : '"Arial Black", "Segoe UI", sans-serif'
     context.font = `900 ${fontSize}px ${fontFamily}`
     if (context.measureText(legend).width <= maximumTextWidth) break
     fontSize -= 4
@@ -259,6 +314,7 @@ export function createKeyboardGroup(): KeyboardGroupResult {
     instanceIndex: number
     korean: string
     english: string
+    japanese: string
   }> = []
   const keyAnimations: KeyAnimationState[] = []
   const keyAnimationsByContact = new Map<string, KeyAnimationState>()
@@ -374,12 +430,14 @@ export function createKeyboardGroup(): KeyboardGroupResult {
       const englishLegend = key.inputKeys
         .map(inputKey => ENGLISH_LEGENDS_BY_INPUT[inputKey])
         .find(Boolean)
-      if (englishLegend) {
+      const japaneseLegend = key.inputKeys.map(inputKey => JAPANESE_LEGENDS_BY_INPUT[inputKey]).find(Boolean)
+      if (japaneseLegend) {
         switchableLegends.push({
           batch: legend,
           instanceIndex,
           korean: key.legend,
-          english: englishLegend,
+          english: englishLegend ?? key.legend,
+          japanese: japaneseLegend,
         })
       }
 
@@ -477,7 +535,7 @@ export function createKeyboardGroup(): KeyboardGroupResult {
     if (disposed) return
 
     switchableLegends.forEach((legend) => {
-      const text = language === 'en' ? legend.english : legend.korean
+      const text = language === 'ja' ? legend.japanese : language === 'en' ? legend.english : legend.korean
       legend.batch.setText(legend.instanceIndex, text)
     })
     legendBatches.forEach(batch => batch.flush())

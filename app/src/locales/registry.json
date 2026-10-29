@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sourceLocale": "ko-KR",
+  "fallbackLocale": "en-US",
+  "locales": {
+    "ko-KR": {
+      "nativeName": "한국어",
+      "direction": "ltr",
+      "status": "ready",
+      "matches": ["ko", "ko-*"],
+      "antdLocale": "ko_KR",
+      "pluralCategories": ["other"]
+    },
+    "en-US": {
+      "nativeName": "English",
+      "direction": "ltr",
+      "status": "ready",
+      "matches": ["en", "en-*"],
+      "antdLocale": "en_US",
+      "pluralCategories": ["one", "other"]
+    },
+    "ja-JP": {
+      "nativeName": "日本語",
+      "direction": "ltr",
+      "status": "ready",
+      "matches": ["ja", "ja-*"],
+      "antdLocale": "ja_JP",
+      "pluralCategories": ["other"]
+    }
+  }
+}

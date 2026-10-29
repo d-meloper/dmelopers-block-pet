@@ -123,3 +123,19 @@ html .preference-sections {
     transition-timing-function: ease;
   }
 }
+
+// Mirror navigation affordances; scene coordinates and color gradients stay physical.
+html[dir='rtl'] .locale-navigation-icon {
+  transform: scaleX(-1);
+}
+
+// Machine-readable fields keep their parsing and visual order in every locale.
+html {
+  .ant-input-number .ant-input-number-input,
+  input[type='number'],
+  input.locale-ltr-input,
+  .locale-ltr-input input {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+}

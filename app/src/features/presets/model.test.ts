@@ -10,7 +10,7 @@ import { LEGACY_SKIN_APPEARANCE_KEYS } from '@/stores/petSettingsMigration'
 
 import type { PresetCollection, PresetSnapshot } from './types'
 
-import { inspectPresetCompatibility, isPresetSourceSettings, presetSettings, presetSource } from './compatibility'
+import { inspectPresetCompatibility, isPresetSourceSettings, presetSettings, presetSource, projectPresetSettings } from './compatibility'
 import {
   applyPresetSnapshot,
   capturePresetSnapshot,
@@ -569,4 +569,25 @@ it('additively migrates old catalogs to default animation and preserves explicit
       assert.equal(capturePresetSnapshot(target).preset.petAnimationMode, entry.snapshot.preset.petAnimationMode)
     }
   }
+})
+
+it('keeps Japanese catalog snapshots and restores archived Japanese from an older partial import', () => {
+  const current = store()
+  current.activePet3dPreset.keyboardLegendLanguage = 'ja'
+  const snapshot = capturePresetSnapshot(current)
+  const catalog = savedCatalog(snapshot, 'Japanese')
+  const restored = migratePresetCollection(JSON.parse(JSON.stringify(catalog))) as PresetCollection
+  validatePresetCollection(restored)
+  assert.equal(restored.schemaVersion, 4)
+  assert.equal(restored.activeId, 'initial')
+  assert.equal(restored.entries[1].snapshot.preset.keyboardLegendLanguage, 'ja')
+  applyPresetSnapshot(current, restored.entries[1].snapshot)
+  assert.equal(current.activePet3dPreset.keyboardLegendLanguage, 'ja')
+  const partial = clonePreset(restored.entries[1])
+  partial.sourceSettings = presetSettings(snapshot)
+  partial.snapshot.preset.keyboardLegendLanguage = 'en'
+  assert.equal(presetSource(partial).preset && (presetSource(partial).preset as Record<string, unknown>).keyboardLegendLanguage, 'ja')
+  applyPresetSnapshot(current, { ...partial.snapshot, ...projectPresetSettings(presetSource(partial)) })
+  assert.equal(current.activePet3dPreset.keyboardLegendLanguage, 'ja')
+  assert.equal(partial.snapshot.preset.keyboardLegendLanguage, 'en')
 })

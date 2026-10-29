@@ -6,6 +6,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { runInNewContext } from 'node:vm'
 import { createPinia } from 'pinia'
 import ts from 'typescript'
 import { createSSRApp, nextTick } from 'vue'
@@ -17,8 +18,11 @@ import type { SettingsPersistenceSteps } from '@/utils/settingsPersistence'
 
 import { DEFAULT_GENERAL_SETTINGS } from '@/config/defaultSettings'
 import { serializeSettingsState } from '@/config/persistedNames'
+import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
 import { isForegroundHidingSettings } from '@/features/foregroundHiding/settings'
+import { isDeviceInputState } from '@/features/input/types'
 import { reconcileAppWindowState } from '@/stores/app'
+import { requestMainViewportReset } from '@/utils/mainViewportReset'
 
 type State = Record<string, any>
 interface SettingsStore {
@@ -163,6 +167,8 @@ function harness(systemLanguage: Language = 'ko-KR') {
     })
     return {
       stores,
+      load,
+      overrides,
       reminder: (version: string, currentVersion = '1.1.2', time = 1_800_000_000_000): PreferenceUpdates => {
         const general = stores.find(store => store.$id === 'general')!.$state
         return load('@/features/updates/preferenceUpdates').createPreferenceUpdates({
@@ -242,7 +248,7 @@ async function seededHarness(systemLanguage: Language = 'ko-KR') {
 }
 
 describe('general defaults and real two-window Pinia persistence', () => {
-  for (const systemLanguage of ['ko-KR', 'en-US'] as const) {
+  for (const systemLanguage of ['ko-KR', 'en-US', 'ja-JP'] as const) {
     it(`retains raw language choices across both windows, save, restart and reset on ${systemLanguage}`, async () => {
       const h = await seededHarness(systemLanguage)
       const main = h.window('main')
@@ -253,7 +259,7 @@ describe('general defaults and real two-window Pinia persistence', () => {
         await preference.initialize()
         assert.equal(preference.general.appearance.language, 'system')
         assert.equal(generalStore(preference).resolvedLanguage, systemLanguage)
-        for (const choice of ['ko-KR', 'en-US', 'system'] as const) {
+        for (const choice of ['ko-KR', 'en-US', 'ja-JP', 'system'] as const) {
           preference.general.appearance.language = choice
           await settle()
           await preference.save()
@@ -294,7 +300,8 @@ describe('general defaults and real two-window Pinia persistence', () => {
       ['ko-KR', 'ko-KR'],
       ['en-US', 'en-US'],
       ['system', 'system'],
-      ['ja-JP', 'system'],
+      ['ja-JP', 'ja-JP'],
+      ['fr-FR', 'system'],
       [null, 'system'],
     ] as const) {
       const h = await seededHarness()
@@ -917,5 +924,186 @@ it('synchronizes legacy and explicit animation choices through the installed two
       main.dispose()
       preference.dispose()
     }
+  }
+})
+
+// Exercise the full-reset entrypoint and actual main acknowledgement, rather
+// than equating a store assignment or geometry completion with native input.
+it('full reset restores every authored field through both real Pinia windows and native mouse acknowledgement', async () => {
+  const defaults = JSON.parse(readFileSync(new URL('../config/defaultSettings.json', import.meta.url), 'utf8')) as State
+  const changed = (value: any): any => {
+    if (typeof value === 'boolean') return !value
+    if (typeof value === 'number') return value + 7
+    if (typeof value === 'string') return `changed:${value}`
+    if (Array.isArray(value)) return ['changed']
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, changed(item)]))
+  }
+  const mainSource = readFileSync(new URL('../pages/main/index.vue', import.meta.url), 'utf8')
+  const start = mainSource.indexOf('useTauriListen<MainViewportResetRequest>(')
+  const handlerSource = mainSource.slice(start, mainSource.indexOf('async function handleMouseDown(', start))
+  for (const resetPresets of [false, true]) {
+    const h = await seededHarness()
+    const main = h.window('main')
+    const preference = h.window('preference')
+    const block = preference.stores.find(store => store.$id === 'cat')!
+    const mainBlock = main.stores.find(store => store.$id === 'cat')!
+    const shortcut = preference.stores.find(store => store.$id === 'shortcut')!
+    const app = preference.stores.find(store => store.$id === 'app')!
+    const events = new Map<string, (event: { payload: any }) => void>()
+    const native = { mouseEnabled: false, mouseGeneration: 0 }
+    const gates: boolean[] = []
+    let clearCalls = 0
+    let centered = 0
+    try {
+      await main.initialize()
+      await preference.initialize()
+      Object.assign(block.$state.model, changed(defaults.model))
+      Object.assign(block.$state.window, changed(defaults.window))
+      Object.assign(block.$state.customization3d, changed(defaults.skinAppearance))
+      Object.assign(block.$state.customization3d.preset, changed(defaults.preset), { viewportModeRevision: 40 })
+      Object.assign(preference.general.app, changed(defaults.general.app), { foregroundHiding: { enabled: true, applications: ['C:\\Apps\\keep.exe'], future: 'kept' } })
+      Object.assign(preference.general.broadcast, changed(defaults.general.broadcast))
+      Object.assign(preference.general.appearance, changed(defaults.general.appearance), { isDark: true })
+      shortcut.$state = changed(shortcut.$state)
+      app.$state.windowState.main = { x: 99, y: 88 }
+      block.$state.customization3d.dmeloperSkinDataUrl = 'data:image/png;base64,retained-library-is-separate'
+      const { createPresetCollection, createDefaultPresetSnapshot } = preference.load('@/features/presets/model')
+      const catalog = createPresetCollection()
+      block.$state.presetCollection = catalog
+      catalog.entries.push({ id: 'retained-catalog', name: 'Keep', favorite: false, snapshot: createDefaultPresetSnapshot() })
+      catalog.activeId = 'retained-catalog'
+      const beforeCatalog = clone(catalog)
+      await settle()
+      await preference.save()
+      assert.equal(mainBlock.$state.customization3d.preset.mouseEnabled, false)
+      // Load the actual session with only its native/renderer boundaries replaced.
+      const deviceExports: State = {}
+      runInNewContext(ts.transpileModule(readFileSync(new URL('../composables/useDevice.ts', import.meta.url), 'utf8'), {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      }).outputText, { exports: deviceExports, require: (id: string) => id === '@/features/input/types' ? { isDeviceInputState } : {} })
+      const session = deviceExports.createDeviceInputSession({
+        readSetting: () => mainBlock.$state.customization3d.preset.mouseEnabled,
+        activity: async (active: boolean, enabled: boolean) => ({ ...Object.assign(native, { mouseEnabled: active && enabled, mouseGeneration: native.mouseGeneration + 1 }) }),
+        stop: async () => {},
+        onConfirmed: (enabled: boolean) => {
+          mainBlock.$state.customization3d.preset.mouseEnabled = enabled
+        },
+        onGate: (enabled: boolean) => gates.push(enabled),
+      })
+      await session.setActive(true)
+      await session.start()
+      assert.equal((await session.request()).mouseEnabled, false)
+      runInNewContext(ts.transpileModule(handlerSource, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
+        useTauriListen: (event: string, callback: (event: { payload: unknown }) => void) => events.set(event, callback),
+        LISTEN_KEY,
+        WINDOW_LABEL,
+        device: { requestMouseSetting: session.request },
+        settleAndCenterResetViewport: async () => {
+          assert.equal(native.mouseEnabled, true, 'geometry success must follow native mouse reset')
+          centered++
+          return true
+        },
+        emitTo: async (_label: string, event: string, payload: unknown) => events.get(event)?.({ payload }),
+        console,
+      })
+      Object.assign(preference.overrides, {
+        '@tauri-apps/api/dpi': { LogicalSize: class {} },
+        '@tauri-apps/api/webviewWindow': { getAllWebviewWindows: async () => [{ label: 'main' }] },
+        '@tauri-apps/api/event': {
+          emitTo: async (_label: string, event: string, payload: unknown) => events.get(event)?.({ payload }),
+          listen: async (event: string, callback: (event: { payload: unknown }) => void) => {
+            events.set(event, callback)
+            return () => events.delete(event)
+          },
+        },
+        '@/services/autostart': { getAutostartStatus: async () => ({ enabled: false }), setAutostartEnabled: async () => {} },
+        '@/services/presetTransfer': { readPresetImport: async () => undefined },
+        '@/services/skinLibrary': { clearSkinLibrary: async () => {
+          clearCalls++
+        } },
+        '@/stores/performance': { usePerformanceStore: () => ({ stop: async () => {}, reset: async () => {} }) },
+        '@/utils/mainViewportReset': { requestMainViewportReset },
+      })
+      const reset = preference.load('@/composables/useProgramSettingsReset').useProgramSettingsReset()
+      await reset.resetProgramSettings({ deleteSkins: false, resetPresets })
+      // The real preference unblock/focus readback used to overwrite true with false.
+      block.$state.customization3d.preset.mouseEnabled = (await session.request()).mouseEnabled
+      await settle()
+      await preference.save()
+      assert.equal(native.mouseEnabled, true)
+      assert.equal(gates.at(-1), true, 'effective mouse input resumes')
+      assert.equal(centered, 1)
+      assert.equal(clearCalls, 0, 'the skin library is preserved by default')
+      for (const state of [block.$state, mainBlock.$state, h.backend.get('cat')!]) {
+        assert.deepEqual(clone(state.model), defaults.model)
+        assert.deepEqual(clone(state.window), defaults.window)
+        assert.deepEqual(clone(state.customization3d.preset), { ...defaults.preset, viewportModeRevision: 41 })
+        for (const [key, value] of Object.entries(defaults.skinAppearance)) assert.deepEqual(state.customization3d[key], value)
+        assert.equal(state.customization3d.dmeloperSkinDataUrl, undefined)
+        assert.deepEqual(clone(state.presetCollection), resetPresets ? { ...beforeCatalog, activeId: null, entries: [] } : beforeCatalog)
+      }
+      for (const state of [preference.general, main.general, h.backend.get('general')!]) {
+        assert.deepEqual(clone(state.app), { ...defaults.general.app, foregroundHiding: { ...defaults.general.app.foregroundHiding, future: 'kept' } })
+        assert.deepEqual(clone(state.broadcast), defaults.general.broadcast)
+        assert.deepEqual(clone(state.appearance), { ...defaults.general.appearance, isDark: true })
+      }
+      for (const state of [shortcut.$state, main.stores.find(store => store.$id === 'shortcut')!.$state, h.backend.get('shortcut')!]) {
+        assert.deepEqual(clone(serializeSettingsState('shortcut', state)), defaults.shortcuts)
+      }
+      for (const state of [app.$state, main.stores.find(store => store.$id === 'app')!.$state, h.backend.get('app')!]) {
+        assert.deepEqual(clone(state.windowState), {})
+      }
+      const reloaded = h.window('reload')
+      try {
+        await reloaded.initialize()
+        assert.equal(reloaded.stores.find(store => store.$id === 'cat')!.$state.customization3d.preset.mouseEnabled, true)
+      } finally {
+        reloaded.dispose()
+      }
+      await session.dispose()
+    } finally {
+      main.dispose()
+      preference.dispose()
+    }
+  }
+})
+
+it('preserves ko/en/ja/system keycaps through real two-window sync, save/reload and category/full reset', async () => {
+  const h = await seededHarness()
+  const preference = h.window('preference')
+  const main = h.window('main')
+  const block = preference.stores.find(store => store.$id === 'cat')! as SettingsStore & { resetKeyboard3d: () => void, resetAllSettings: () => void }
+  const mainBlock = main.stores.find(store => store.$id === 'cat')!
+  try {
+    await preference.initialize()
+    await main.initialize()
+    for (const choice of ['ko', 'en', 'ja', 'system'] as const) {
+      block.$state.customization3d.preset.keyboardLegendLanguage = choice
+      await settle()
+      await preference.save()
+      assert.equal(mainBlock.$state.customization3d.preset.keyboardLegendLanguage, choice)
+      assert.equal(h.backend.get('cat')!.customization3d.preset.keyboardLegendLanguage, choice)
+      const reloaded = h.window('reloaded')
+      try {
+        await reloaded.initialize()
+        assert.equal(reloaded.stores.find(store => store.$id === 'cat')!.$state.customization3d.preset.keyboardLegendLanguage, choice)
+      } finally {
+        reloaded.dispose()
+      }
+    }
+    for (const reset of [block.resetKeyboard3d, block.resetAllSettings]) {
+      block.$state.customization3d.preset.keyboardLegendLanguage = 'ja'
+      await settle()
+      await preference.save()
+      reset()
+      await settle()
+      await preference.save()
+      assert.equal(block.$state.customization3d.preset.keyboardLegendLanguage, 'ko')
+      assert.equal(mainBlock.$state.customization3d.preset.keyboardLegendLanguage, 'ko')
+      assert.equal(h.backend.get('cat')!.customization3d.preset.keyboardLegendLanguage, 'ko')
+    }
+  } finally {
+    main.dispose()
+    preference.dispose()
   }
 })

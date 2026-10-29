@@ -1,6 +1,12 @@
 // GitHub and Store share the core but have mutually exclusive native delivery.
 // Historical update helper sources and retained bytes remain outside this graph.
+mod build_locales;
 fn main() {
+    println!("cargo:rerun-if-changed=build_locales.rs");
+    build_locales::generate(
+        std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()),
+        std::path::Path::new(&std::env::var("OUT_DIR").unwrap()),
+    );
     println!("cargo:rerun-if-env-changed=DMELOPER_WIX_BA_SHA256");
     if std::env::var_os("CARGO_FEATURE_WIX_LOCAL_TEST").is_some() || std::env::var_os("CARGO_FEATURE_WIX_GITHUB").is_some() {
         if std::env::var("PROFILE").as_deref() == Ok("release") {

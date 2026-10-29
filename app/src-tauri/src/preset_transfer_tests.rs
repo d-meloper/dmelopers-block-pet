@@ -828,3 +828,33 @@ fn malformed_explicit_desk_fields_are_not_replaced_by_defaults() {
         }
     }
 }
+
+
+#[test]
+fn japanese_keyboard_selection_survives_native_portable_disk_without_conversion() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("日本語 keyboard.petpreset");
+    for language in ["ko", "en", "ja", "system"] {
+        let mut document = fixture();
+        document["settings"]["preset"]["keyboardLegendLanguage"] = json!(language);
+        let bytes = serde_json::to_vec(&document).unwrap();
+        let parsed = validate_document(&bytes).unwrap();
+        assert!(crate::preset_compatibility::valid_executable(&parsed.settings));
+        write_preset_file(&path, &bytes).unwrap();
+        let reread = read_preset_file(&path).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&reread).unwrap(), document);
+        assert_eq!(parsed.settings["preset"]["keyboardLegendLanguage"], language);
+        if language == "ja" {
+            for values in [json!(["ko","en"]), json!(["ko","en","system"])] {
+                let mut old = crate::preset_compatibility::contract().clone();
+                old["fields"].as_array_mut().unwrap().iter_mut()
+                    .find(|field| field["path"] == json!(["preset","keyboardLegendLanguage"])).unwrap()["values"] = values;
+                let issues = crate::preset_compatibility::inspect_with(&parsed.settings, &old);
+                assert_eq!(issues.len(), 1);
+                assert_eq!(issues[0].path, ["preset","keyboardLegendLanguage"]);
+                assert_eq!(issues[0].reason, "choice");
+                assert_eq!(validate_document(&bytes).unwrap().settings, parsed.settings);
+            }
+        }
+    }
+}

@@ -7,7 +7,6 @@ import ts from 'typescript'
 import * as Vue from 'vue'
 import { compileScript, parse } from 'vue/compiler-sfc'
 
-import type { RecoveryReport } from '@/features/recovery/types'
 import type { PreferenceUpdates } from '@/features/updates/preferenceUpdates'
 import type { DistributionChannel, DistributionInfo } from '@/services/distribution'
 import type { AppUpdateInfo, UpdatePhase } from '@/services/inAppUpdates'
@@ -303,24 +302,14 @@ it('opens only Microsoft Store with a duplicate guard and reports an open failur
   assert.ok(h.nodes().some(node => node.type === 'microsoft-store-icon'))
 })
 
-it('keeps Store opening silent while preserving genuine update recovery feedback', async () => {
+it('does not mount a notification box before or after opening Store', async () => {
   const h = harness('store')
-  const recovery = Vue.shallowRef<RecoveryReport>()
-  const nodes = renderComponent('AutomaticUpdates.vue', h.updates, {
-    '@/composables/usePreferenceUpdates': { usePreferenceUpdates: () => ({ ...h.updates, recovery }) },
-    '@/services/distribution': { openStore: async () => {} },
-  })
-  const click = () => (nodes().find(node => node.props?.class === 'update-action')!.props!.onClick as () => Promise<void>)()
+  const assertNoFeedback = () => assert.equal(h.nodes().some(node => node.type === 'recovery-feedback'), false)
   try {
+    assertNoFeedback()
     await h.updates.setVisible(true)
-    await click()
-    const feedback = () => nodes().find(node => node.type === 'recovery-feedback')!
-    assert.equal(feedback().props!.report, undefined)
-    const report = { status: 'unresolved' as const, steps: [] }
-    recovery.value = report
-    assert.deepEqual(feedback().props!.report, report)
-    await click()
-    assert.deepEqual(feedback().props!.report, report)
+    await h.click()
+    assertNoFeedback()
   } finally {
     h.updates.dispose()
   }

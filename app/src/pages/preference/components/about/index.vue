@@ -194,7 +194,7 @@ async function submitProgramReset() {
             {{ $t('pages.preference.about.labels.developerName') }}
             <span
               aria-hidden="true"
-              class="i-lucide:arrow-up-right size-3"
+              class="locale-navigation-icon i-lucide:arrow-up-right size-3"
             />
           </Button>
         </template>
@@ -344,16 +344,18 @@ async function submitProgramReset() {
                 {{ $t('pages.preference.about.labels.contactUs') }}
                 <span
                   aria-hidden="true"
-                  class="i-lucide:arrow-up-right size-4"
+                  class="locale-navigation-icon i-lucide:arrow-up-right size-4"
                 />
               </Button>
             </template>
           </ProListItem>
           <ProListItem
             class="about-support-item"
-            :description="developerEmail"
             :title="$t('pages.preference.about.labels.developerEmail')"
           >
+            <template #description>
+              <bdi dir="ltr">{{ developerEmail }}</bdi>
+            </template>
             <Button
               class="about-support-action"
               :disabled="supportBusy"
@@ -388,9 +390,11 @@ async function submitProgramReset() {
           </ProListItem>
           <ProListItem
             class="about-support-item"
-            :description="logDir"
             :title="$t('pages.preference.about.labels.appLog')"
           >
+            <template #description>
+              <bdi dir="ltr">{{ logDir }}</bdi>
+            </template>
             <Button
               class="about-support-action"
               :disabled="supportBusy"
@@ -463,6 +467,7 @@ async function submitProgramReset() {
     </p>
     <pre
       class="legal-notices"
+      dir="ltr"
       tabindex="0"
     >{{ legalNotices }}</pre>
   </Modal>
@@ -475,6 +480,7 @@ async function submitProgramReset() {
   >
     <pre
       class="legal-notices"
+      dir="ltr"
       tabindex="0"
     >{{ dataNotice }}</pre>
   </Modal>
@@ -547,7 +553,7 @@ async function submitProgramReset() {
 }
 
 .about-resource-group + .about-resource-group {
-  border-left: 1px solid var(--ant-color-border-secondary);
+  border-inline-start: 1px solid var(--ant-color-border-secondary);
 }
 
 .about-resource-group h2 {
@@ -647,7 +653,7 @@ async function submitProgramReset() {
   align-items: center;
   gap: 7px;
   padding: 4px 8px;
-  margin-left: -8px;
+  margin-inline-start: -8px;
   color: var(--ant-color-text);
   font-size: 14px;
   font-weight: 500;

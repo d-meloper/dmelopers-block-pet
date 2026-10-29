@@ -38,7 +38,7 @@ function harness() {
       setAutostartEnabled: async () => record('reset-autostart')(),
     },
     '@/services/skinLibrary': { clearSkinLibrary: async () => record('clear-library')() },
-    '@/stores/block': { useBlockStore: () => ({ resetAllSettings: (options: ProgramSettingsResetOptions) => {
+    '@/stores/block': { useBlockStore: () => ({ activePet3dPreset: { mouseEnabled: true }, resetAllSettings: (options: ProgramSettingsResetOptions) => {
       calls.push('reset-block')
       selections.push({ ...options })
     } }) },
@@ -46,7 +46,10 @@ function harness() {
     '@/stores/performance': { usePerformanceStore: () => ({ stop: async () => record('stop-performance')(), reset: async () => record('reset-metrics')() }) },
     '@/stores/shortcut': { useShortcutStore: () => ({ reset: record('reset-shortcuts') }) },
     '@/stores/app': { useAppStore: () => ({ resetWindowState: record('reset-window-state') }) },
-    '@/utils/mainViewportReset': { requestMainViewportReset: async () => record('reset-main-viewport')() },
+    '@/utils/mainViewportReset': { requestMainViewportReset: async (_transport: unknown, options: { mouseEnabled: boolean }) => {
+      assert.equal(options.mouseEnabled, true)
+      record('reset-main-viewport')()
+    } },
     '@/utils/programSettingsReset': { DEFAULT_PROGRAM_SETTINGS_RESET_OPTIONS, runProgramSettingsReset },
   }
   runInNewContext(ts.transpileModule(readFileSync(new URL('./useProgramSettingsReset.ts', import.meta.url), 'utf8'), {

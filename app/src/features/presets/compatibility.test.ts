@@ -39,12 +39,12 @@ it('judges actual values against the current reader, including the 16 to 30 rang
   }
 })
 
-it('preserves system language in new presets and skips only that choice for older readers', () => {
+it('preserves system/Japanese choices and partially applies only supported values for older readers', () => {
   const previous = clonePreset(PRESET_SUPPORT_CONTRACT)
   previous.fields.find(field => field.path.join('.') === 'preset.keyboardLegendLanguage')!.values = ['ko', 'en']
   setActivePinia(createPinia())
   const store = useBlockStore()
-  for (const language of ['ko', 'en', 'system'] as const) {
+  for (const language of ['ko', 'en', 'ja', 'system'] as const) {
     const snapshot = createDefaultPresetSnapshot()
     snapshot.preset.keyboardLegendLanguage = language
     snapshot.preset.keyboardScalePercent = 125
@@ -56,11 +56,11 @@ it('preserves system language in new presets and skips only that choice for olde
     const fallback = defaultPresetSettings()
     fallback.preset.keyboardLegendLanguage = 'en'
     const issues = inspectPresetCompatibility(presetSettings(snapshot), previous)
-    assert.deepEqual(sorted(issues), language === 'system' ? [{ path: ['preset', 'keyboardLegendLanguage'], reason: 'choice' }] : [])
+    assert.deepEqual(sorted(issues), !['ko', 'en'].includes(language) ? [{ path: ['preset', 'keyboardLegendLanguage'], reason: 'choice' }] : [])
     const partial = projectPresetSettings(presetSettings(snapshot), fallback, previous)
-    assert.equal(partial.preset.keyboardLegendLanguage, language === 'system' ? 'en' : language)
+    assert.equal(partial.preset.keyboardLegendLanguage, !['ko', 'en'].includes(language) ? 'en' : language)
     assert.equal(partial.preset.keyboardScalePercent, 125)
-    assert.equal(JSON.stringify(snapshot), retained, 'partial apply must preserve the source system choice')
+    assert.equal(JSON.stringify(snapshot), retained, 'partial apply must preserve the source system/Japanese choice')
     assert.equal(JSON.parse(JSON.stringify(presetSettings(snapshot))).preset.keyboardLegendLanguage, language)
   }
 })

@@ -1122,7 +1122,7 @@ export class Three3DRenderer {
   }
 
   setKeyboardLegendLanguage(language: KeyboardLegendLanguage): void {
-    if (language !== 'ko' && language !== 'en') return
+    if (language !== 'ko' && language !== 'en' && language !== 'ja') return
     if (this.keyboardLegendLanguage !== language) this.noteActivity()
     this.keyboardLegendLanguage = language
     this.keyboard?.setLegendLanguage(language)

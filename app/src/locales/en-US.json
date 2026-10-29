@@ -15,7 +15,6 @@
     },
     "nextSteps": "Try these next steps in order.",
     "guidance": {
-      "checkAppWindow": "Reopen Preferences and check that it responds. After saving finishes, restart the app. If it still fails, review logs in About.",
       "logs": "Open Preferences → About → Open Logs and inspect the error recorded at the time of the problem.",
       "support": "If the problem persists, use Contact in About and include the app version, time of the failure, and these recovery results.",
       "restart": "Wait for current writes to finish, save your settings, then quit and reopen the app. Check the same operation again.",
@@ -23,15 +22,8 @@
       "timeout": "The original request may still be running. Avoid starting duplicate work; wait briefly and check its status.",
       "changed": "The settings or target changed during this attempt. Wait for the current state to settle, then try again.",
       "lastResort": "If the cause remains unknown after following these steps, try rebooting your computer and reinstalling the app. Preserve existing settings and user data when reinstalling.",
-      "retryUpdateCheck": "After current work finishes, check for updates again for a fresh result. Do not launch installation twice.",
-      "contactSupport": "Use Support in the About tab to share the app version, incident time, failed step, and logs.",
-      "checkNetwork": "Check internet connectivity, VPN or proxy settings, and update server access, then check for updates again.",
-      "verifyUpdate": "Update verification failed. Check for updates again without manually running the file or bypassing verification. If it persists, contact support with logs.",
       "checkStorage": "Check free disk space and read/write access to app data. If another operation is using the files, wait for it to finish before retrying.",
       "waitForOperation": "The existing request may still be running. Confirm that it has finished before retrying.",
-      "preserveSettings": "Settings could not be confirmed as saved. Preserve current settings and original data, then check again after saving finishes.",
-      "manualUpdate": "Preserve settings and user data, and use the official download link in About to check the update method for your distribution.",
-      "confirmUpdate": "Confirm that the installer completed, reopen the app, and check its version in About. Do not launch another installer just because the app has not responded.",
       "checkPresetFile": "Preserve the original preset and check that its file and version are supported. Select it again and review the import result and each item error.",
       "preserveData": "Keep original presets, skins, and app data. Review failed items without deleting or resetting data to troubleshoot.",
       "retryDataRead": "After current save or import work finishes, retry the list or preview and check its result.",
@@ -69,11 +61,6 @@
       }
     },
     "summary": {
-      "updateWindowUnknown": "The Preferences window state could not be confirmed. This update check result is also unconfirmed.",
-      "updateWaitUnknown": "The update request has not responded. Existing work may still be running.",
-      "updateFailed": "The update operation could not complete.",
-      "updateHandoffUnknown": "The installer launch request was acknowledged. Confirm installation completion and the new app version.",
-      "updateCheckComplete": "The update check returned a result.",
       "dataRecoveryFailed": "The data operation still has a problem after checking again.",
       "dataWaitUnknown": "The data operation has not responded. Wait for the existing work to finish.",
       "presetsReady": "The preset operation result and current error state were checked.",
@@ -85,12 +72,6 @@
       "skinImportFailed": "Skin import could not complete."
     },
     "steps": {
-      "observeUpdateWindow": "Check the Preferences window state again",
-      "checkUpdates": "Check update information again",
-      "downloadUpdate": "Download the update",
-      "verifyUpdate": "Verify update integrity and signature",
-      "saveUpdate": "Confirm saved settings before installation",
-      "handoffUpdate": "Request installer launch",
       "restorePresets": "Check preset state again",
       "createPreset": "Retry preset creation",
       "retryPresetImport": "Retry preset import",
@@ -505,7 +486,7 @@
           "petRightArmSpread": "Rotate the right arm horizontally.",
           "petLeftArmBend": "Adjust the left elbow bend.",
           "petLeftArmSpread": "Rotate the left arm horizontally.",
-          "keyboardLanguage": "Change only character key labels between Korean and English; special and arrow keys stay the same.",
+          "keyboardLanguage": "Choose Korean, English or Japanese keycap legends; special and arrow keys stay the same.",
           "petRotation": "Rotate the pet around its own Y axis.",
           "deskDistance": "Higher values move the pet farther from the desk; lower values move it closer.",
           "keyboardX": "Move the keyboard reference position left or right without changing its size or rotation.",
@@ -754,6 +735,7 @@
         "options": {
           "keyboardKorean": "Korean",
           "keyboardEnglish": "English",
+          "keyboardJapanese": "Japanese",
           "keyboardSystem": "System"
         },
         "hints": {
@@ -762,7 +744,7 @@
           "deskColor": "Set the desk color.",
           "windowSize": "Adjust the size of the scene.",
           "mirrorMode": "Mirror the entire scene horizontally.",
-          "keyboardLanguage": "Change character keycaps between Korean and English. System follows the Korean/English input mode of the app in use.",
+          "keyboardLanguage": "Changes the keycap legends. Selecting System links them to the current system input language state.",
           "sceneRotation": "Rotate the camera up to 360 degrees in either direction.",
           "cameraHorizontal": "Move the scene left or right in the viewport.",
           "cameraVertical": "Move the scene up or down in the viewport.",
@@ -1169,5 +1151,32 @@
     "enabledByPolicy": "Enabled by Windows policy.",
     "unknown": "Could not read the Windows startup state.",
     "failed": "Could not change automatic startup. Check Windows Startup apps settings."
+  },
+  "startup": {
+    "web": {
+      "unconfirmedTitle": "Startup not confirmed",
+      "unconfirmedMessage": "Startup may still be running. Wait for its response before restarting.",
+      "failedTitle": "Unable to start",
+      "failedMessage": "Close and restart the app, keeping your existing settings and user data.",
+      "guidance": "If the cause remains unknown, try rebooting your computer and reinstalling the app. Preserve existing settings and user data."
+    },
+    "native": {
+      "installationInProgress": "An installation is in progress. Finish or close the installer, then open the app again.",
+      "couldNotStart": "The app could not start safely.",
+      "recheck": "Recheck",
+      "exit": "Exit",
+      "startupDialogUnavailable": "The startup dialog could not be displayed. Check Windows and WebView2 installation.",
+      "webviewRequiredTitle": "WebView2 Runtime required",
+      "webviewRequiredMessage": "Microsoft WebView2 Runtime is needed for 3D rendering. Follow this link to install it manually, then try again.",
+      "openInstallationGuide": "Open installation guide",
+      "windowsMinimumWarning": "The minimum is Windows 10 22H2 (build 19045.3448) or Windows 11 22H2 (build 22621.2283) or later, x64, with the September 2023 or a later cumulative update. This Windows version is below the minimum or its update revision could not be checked. You can continue, but some features may not work correctly.",
+      "installationInterrupted": "Installation was interrupted. Close this app and run the same installer again to repair this installation. Your shared pet data will be preserved.",
+      "updateRequiredTitle": "Update required",
+      "updateRequiredMessage": "This shared pet data requires a newer version. No settings have been changed. Open the official update page for this installation.",
+      "dataCompatibilityTitle": "Shared data compatibility is unknown",
+      "dataCompatibilityMessage": "The shared data compatibility information cannot be interpreted. Existing files are preserved. Open this installation's official page for updates or help.",
+      "openOfficialPage": "Open official page",
+      "dataUnavailable": "Shared pet data could not be opened. No fallback data folder was created."
+    }
   }
 }

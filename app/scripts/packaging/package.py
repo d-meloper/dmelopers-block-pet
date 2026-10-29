@@ -16,9 +16,12 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import struct
+import tempfile
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = 'x86_64-pc-windows-msvc'
@@ -27,6 +30,9 @@ MAIN = 'dmelopers-block-pet.exe'
 STORE_DISPLAY_NAME = "DMeloper's Block Pet"
 MINIMUM_WINDOWS_VERSION = '10.0.19045.3448'
 MAXIMUM_WINDOWS_VERSION_TESTED = '10.0.26100.0'
+STORE_BUILD_SCHEMA = 2
+STORE_TARGET_SIZES = (16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 80, 96, 256)
+STORE_BASE_ASSETS = {'StoreLogo.png': 50, 'Square150x150Logo.png': 150, 'Square44x44Logo.png': 44}
 SYNTHETIC = {'name': 'Dmeloper.BlockPet.BuildValidation',
              'publisher': 'CN=BuildValidationOnly', 'publisherDisplayName': 'DMeloper',
              'storeProductId': '9SYNTHETIC00'}
@@ -237,6 +243,157 @@ def makeappx_tool():
     return path
 
 
+def makepri_tool(makeappx):
+    """Use the same selected SDK/architecture; no independent tool fallback."""
+    path = Path(makeappx).with_name('makepri.exe')
+    require(path.is_file(), 'Selected Windows SDK MakePri x64 is required')
+    return path.resolve(strict=True)
+
+
+def store_asset_sizes():
+    assets = dict(STORE_BASE_ASSETS)
+    for size in STORE_TARGET_SIZES:
+        for suffix in ('', '_altform-unplated', '_altform-lightunplated'):
+            assets[f'Square44x44Logo.targetsize-{size}{suffix}.png'] = size
+    return assets
+
+
+def verify_store_png(data, size):
+    """Validate the generator's RGBA8 PNG contract and actual transparent pixels."""
+    require(data[:8] == b'\x89PNG\r\n\x1a\n', 'Invalid Store icon PNG')
+    offset, compressed, header, ended = 8, bytearray(), None, False
+    while offset + 12 <= len(data):
+        length = struct.unpack_from('>I', data, offset)[0]
+        require(offset + length + 12 <= len(data), 'Truncated Store icon PNG')
+        tag = data[offset + 4:offset + 8]
+        chunk = data[offset + 8:offset + 8 + length]
+        crc = struct.unpack_from('>I', data, offset + 8 + length)[0]
+        require(zlib.crc32(tag + chunk) == crc, 'Store icon PNG checksum differs')
+        if tag == b'IHDR':
+            require(header is None and offset == 8, 'Invalid Store icon PNG header')
+            header = chunk
+        elif tag == b'IDAT':
+            compressed.extend(chunk)
+        elif tag == b'IEND':
+            ended = length == 0
+            offset += length + 12
+            break
+        offset += length + 12
+    require(ended and offset == len(data) and header == struct.pack('>IIBBBBB', size, size, 8, 6, 0, 0, 0),
+            'Store icon must have its exact dimensions and RGBA8 format')
+    expected = size * (size * 4 + 1)
+    decoder = zlib.decompressobj()
+    try:
+        raw = decoder.decompress(compressed, expected + 1)
+    except zlib.error as error:
+        raise ValueError('Invalid Store icon PNG compression') from error
+    require(len(raw) == expected and decoder.eof and not decoder.unused_data,
+            'Invalid Store icon PNG pixels')
+    previous = bytearray(size * 4)
+    alpha = set()
+    for row in range(size):
+        start = row * (size * 4 + 1)
+        filter_type = raw[start]
+        require(filter_type <= 4, 'Invalid Store icon PNG filter')
+        current = bytearray(raw[start + 1:start + 1 + size * 4])
+        for i in range(len(current)):
+            left, up, upper_left = (current[i - 4] if i >= 4 else 0), previous[i], (previous[i - 4] if i >= 4 else 0)
+            if filter_type == 1: prediction = left
+            elif filter_type == 2: prediction = up
+            elif filter_type == 3: prediction = (left + up) // 2
+            elif filter_type == 4:
+                estimate = left + up - upper_left
+                prediction = min((left, up, upper_left), key=lambda x: abs(estimate - x))
+            else: prediction = 0
+            current[i] = (current[i] + prediction) & 255
+        alpha.update(current[3::4])
+        previous = current
+    require(0 in alpha and max(alpha) > 0, 'Store icon must retain transparent exterior and visible artwork')
+
+
+def verify_store_pri_dump(data, store):
+    root = ET.fromstring(data)
+    maps = root.findall('ResourceMap')
+    require(len(maps) == 1 and maps[0].get('name') == store['name']
+            and maps[0].get('primary') == 'true', 'Store PRI identity differs')
+    resources = maps[0].findall('.//NamedResource')
+    expected = {f'ms-resource://{store["name"]}/Files/StoreAssets/{name}': name for name in STORE_BASE_ASSETS}
+    require(len(resources) == len(expected) and {item.get('uri') for item in resources} == set(expected),
+            'Store PRI logical resources differ')
+    for resource in resources:
+        name = expected[resource.get('uri')]
+        wanted = {('StoreAssets/' + name, ())}
+        if name == 'Square44x44Logo.png':
+            for size in STORE_TARGET_SIZES:
+                for suffix, form in (('', None), ('_altform-unplated', 'UNPLATED'), ('_altform-lightunplated', 'LIGHTUNPLATED')):
+                    qualifiers = [('TargetSize', str(size))]
+                    if form: qualifiers.append(('AlternateForm', form))
+                    wanted.add((f'StoreAssets/Square44x44Logo.targetsize-{size}{suffix}.png', tuple(sorted(qualifiers))))
+        actual = []
+        for candidate in resource.findall('Candidate'):
+            require(candidate.get('type') == 'Path', 'Store PRI candidate is not a path')
+            qualifiers = tuple(sorted((q.get('name'), q.get('value')) for q in candidate.findall('QualifierSet/Qualifier')))
+            actual.append(((candidate.findtext('Value') or '').replace('\\', '/'), qualifiers))
+        require(len(actual) == len(wanted) and set(actual) == wanted, 'Missing, invalid or duplicate Store PRI candidate')
+
+
+def verify_store_resources(stage, store, makepri, environment, log, dump):
+    assets = stage / 'StoreAssets'
+    require(assets.is_dir() and {x.name for x in assets.iterdir()} == set(store_asset_sizes()),
+            'Missing or unexpected Store icon assets')
+    for name, size in store_asset_sizes().items():
+        verify_store_png((assets / name).read_bytes(), size)
+    require((stage / 'resources.pri').is_file(), 'Store resources.pri is missing')
+    run([str(makepri), 'dump', '/if', str(stage / 'resources.pri'), '/of', str(dump), '/dt', 'detailed'], environment, log)
+    verify_store_pri_dump(dump.read_bytes(), store)
+    return {'logoSha256': digest(ROOT / 'public/logo.png'), 'makepri': record(makepri),
+            'pri': record(stage / 'resources.pri'), 'dump': record(dump),
+            'assets': [record(assets / name) for name in sorted(store_asset_sizes())]}
+
+
+def generate_store_resources(stage, output, store, node, cli, makepri, environment):
+    icons, targets = output / 'store-icons', output / 'store-target-icons'
+    logo = ROOT / 'public/logo.png'
+    run([node, str(cli), 'icon', str(logo), '--output', str(icons)], environment, output / 'store-icons.log')
+    custom = [node, str(cli), 'icon', str(logo), '--output', str(targets)]
+    for size in STORE_TARGET_SIZES: custom.extend(['--png', str(size)])
+    run(custom, environment, output / 'store-target-icons.log')
+    # Resource-only root keeps executable/manifest/config/log files out of the PRI.
+    resources = output / 'store-resource-stage'
+    assets = resources / 'StoreAssets'
+    assets.mkdir(parents=True)
+    for name, size in store_asset_sizes().items():
+        shutil.copyfile(icons / name if name in STORE_BASE_ASSETS else targets / f'{size}x{size}.png', assets / name)
+    config = output / 'priconfig.xml'
+    run([str(makepri), 'createconfig', '/cf', str(config), '/dq', 'en-US'], environment, output / 'makepri-config.log')
+    tree = ET.parse(config)
+    # All target/alternate-form assets belong to the single main package.
+    tree.getroot().remove(tree.getroot().find('packaging'))
+    tree.write(config, encoding='utf-8', xml_declaration=True)
+    run([str(makepri), 'new', '/pr', str(resources), '/cf', str(config),
+         '/mn', str(stage / 'AppxManifest.xml'), '/of', str(resources / 'resources.pri')], environment, output / 'makepri.log')
+    evidence = verify_store_resources(resources, store, makepri, environment,
+                                      output / 'makepri-dump.log', output / 'resources.pri.xml')
+    evidence['config'] = record(config)
+    shutil.copytree(assets, stage / 'StoreAssets')
+    shutil.copyfile(resources / 'resources.pri', stage / 'resources.pri')
+    return evidence
+
+
+def verify_msix_store_resources(path, store, makepri, environment, log, dump):
+    with tempfile.TemporaryDirectory(prefix='block-pet-store-resources-') as temporary:
+        stage = Path(temporary)
+        with zipfile.ZipFile(path) as archive:
+            expected = {'StoreAssets/' + name for name in store_asset_sizes()} | {'resources.pri'}
+            actual = {name for name in archive.namelist() if name.startswith('StoreAssets/') or name == 'resources.pri'}
+            require(actual == expected, 'Missing or unexpected packaged Store resources')
+            for name in expected:
+                destination = stage / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(archive.read(name))
+        return verify_store_resources(stage, store, makepri, environment, log, dump)
+
+
 def native_tool_inputs():
     """Bind the developer-shell compiler and selected CRT/SDK, without local paths."""
     vc = Path(os.environ.get('VCToolsInstallDir', ''))
@@ -377,6 +534,7 @@ def build_packages(args, cache):
     app_version = json.loads((ROOT / 'package.json').read_text())['version']
     version(app_version)
     sdk = makeappx_tool()
+    makepri = makepri_tool(sdk)
     native_inputs = native_tool_inputs()
     node = shutil.which('node.exe')
     require(node, 'Node.js is required')
@@ -399,7 +557,7 @@ def build_packages(args, cache):
                            'rustc': ['rustc', '-Vv'], 'tauri': [node, str(cli), '--version']}.items():
         tool_versions[label] = subprocess.check_output(command, text=True).strip()
     tool_versions['pnpm'] = subprocess.check_output(['cmd.exe', '/d', '/c', 'pnpm --version'], text=True).strip()
-    pinned_tools = {'versions': tool_versions, 'makeappxSha256': digest(sdk), 'nativeInputs': native_inputs,
+    pinned_tools = {'versions': tool_versions, 'makeappxSha256': digest(sdk), 'nativeInputs': native_inputs, 'makepriSha256': digest(makepri),
                     'executables': executable_tool_inputs(node, cli)}
     if not args.validation:
         require(args.tool_lock is not None, 'Reviewed exact tool-lock JSON is required for a local release build')
@@ -440,23 +598,23 @@ def build_packages(args, cache):
             destination = stage / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / 'src-tauri' / relative, destination)
-        icons = output / 'store-icons'
-        run([node, str(cli), 'icon', str(ROOT / 'public/logo.png'), '--output', str(icons)],
-            env, output / 'store-icons.log')
-        (stage / 'StoreAssets').mkdir()
-        for name in ('StoreLogo.png', 'Square150x150Logo.png', 'Square44x44Logo.png'):
-            shutil.copyfile(icons / name, stage / 'StoreAssets' / name)
         (stage / 'AppxManifest.xml').write_bytes(manifest(store, app_version))
+        store_resources = generate_store_resources(stage, output, store, node, cli, makepri, env)
         final = output / f'dmelopers-block-pet_{app_version}_x64.msix'
         run([str(sdk), 'pack', '/d', str(stage), '/p', str(final), '/o'], env, output / 'makeappx.log')
         payloads['msixMembers'] = verify_msix(final, app_version, store,
                 expected_minimum_windows=MINIMUM_WINDOWS_VERSION)
+        packaged_resources = verify_msix_store_resources(final, store, makepri, env,
+                output / 'makepri-package-dump.log', output / 'packaged-resources.pri.xml')
+        require(packaged_resources['pri'] == store_resources['pri']
+                and packaged_resources['assets'] == store_resources['assets'], 'Packaged Store resources differ')
         outputs['storeSubmittedPackage'] = record(final)
     assert_source_state(source['publicCommit'], 'after Store package')
-    receipt = {'schemaVersion': 1, 'kind': 'block-pet-store-build', **source,
+    receipt = {'schemaVersion': STORE_BUILD_SCHEMA, 'kind': 'block-pet-store-build', **source,
         'version': app_version, 'storeVersion': version(app_version), 'storeIdentity': store,
         'projection': projection, 'toolLock': record(output / 'observed-tool-lock.json'),
         'tools': tool_versions, 'makeappx': record(sdk), 'commands': commands,
+        'storeResources': store_resources,
         'rustFlags': rust_flags,
         'inputs': {name: digest(ROOT / name) for name in ('Cargo.lock', 'pnpm-lock.yaml',
                    'src-tauri/tauri.conf.json', 'src-tauri/tauri.github.conf.json',

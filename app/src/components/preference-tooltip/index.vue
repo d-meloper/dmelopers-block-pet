@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { CSSProperties } from 'vue'
 
-import { useEventListener, useResizeObserver } from '@vueuse/core'
+import { useEventListener, useMutationObserver, useResizeObserver } from '@vueuse/core'
 import { Tooltip } from 'ant-design-vue'
 import { nextTick, ref } from 'vue'
 
@@ -13,12 +13,16 @@ defineProps<{
 const anchor = ref<HTMLElement>()
 const tooltip = ref<{ forcePopupAlign: () => void }>()
 const maxWidth = ref(500)
+const placement = ref<'bottomLeft' | 'bottomRight'>('bottomLeft')
 const open = ref(false)
 let alignmentPending = false
 
 async function updateBounds() {
   if (!anchor.value) return
-  const availableWidth = document.documentElement.clientWidth - anchor.value.getBoundingClientRect().left - 16
+  const bounds = anchor.value.getBoundingClientRect()
+  const rtl = getComputedStyle(anchor.value).direction === 'rtl'
+  placement.value = rtl ? 'bottomRight' : 'bottomLeft'
+  const availableWidth = rtl ? bounds.right - 16 : document.documentElement.clientWidth - bounds.left - 16
   maxWidth.value = Math.max(1, Math.min(500, availableWidth))
   if (!open.value || alignmentPending) return
   alignmentPending = true
@@ -45,6 +49,7 @@ useResizeObserver(() => {
   }
   return elements
 }, updateOpenBounds)
+useMutationObserver(document.documentElement, updateOpenBounds, { attributes: true, attributeFilter: ['dir'] })
 useEventListener(window, 'resize', updateOpenBounds)
 useEventListener(window, 'scroll', updateOpenBounds, { capture: true, passive: true })
 </script>
@@ -61,7 +66,7 @@ useEventListener(window, 'scroll', updateOpenBounds, { capture: true, passive: t
       :auto-adjust-overflow="{ adjustX: 0, adjustY: 1 }"
       :overlay-inner-style="{ whiteSpace: 'pre-line', overflowWrap: 'anywhere', ...overlayInnerStyle }"
       :overlay-style="{ maxWidth: `${maxWidth}px` }"
-      placement="bottomLeft"
+      :placement="placement"
       :trigger="['hover', 'focus']"
       @open-change="onOpenChange"
     >

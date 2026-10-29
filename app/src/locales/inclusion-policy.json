@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "kind": "BlockPetMaintainerLocaleInclusions",
+  "inclusions": [
+    {
+      "locale": "ja-JP",
+      "reviewState": "AiOnly",
+      "sourceInputsSha256": "33d74a0ebb40c5df54b4b0e18bf072c4c0d3fc2602417633e9943be71a1477db",
+      "catalogSha256": "4e6a60bcd565327437615368b6feca74c19ec47b82ae933db603a6503914e08d",
+      "sourceRevision": "8a5792ddbbf4ad6cd7e2faac68bb71612a0cb7209e58124f02b93fbf35062d0c",
+      "translationContentSha256": "287854d82d81b4e38539b1e7f797d666c61cd4bda3004da57060a08b703178f2",
+      "provenanceSha256": "0aacfff5f3631a86644e03cb87bad879549dcae6128d8c72a19804eee7c0e014",
+      "decisionSha256": "c170e089ae208ca28d6da3f336dd9c340fa092c9d66a0702226ef2317a6cb221"
+    }
+  ]
+}

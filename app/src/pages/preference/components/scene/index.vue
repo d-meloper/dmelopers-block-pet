@@ -97,6 +97,7 @@ function updateCameraOffset(key: 'cameraHorizontalOffset' | 'cameraVerticalOffse
 function confirmSceneReset(scene: SceneTab) {
   if (editorsLocked.value || (scene === 'viewport' && props.viewportPending)) return
   Modal.confirm({
+    direction: typeof document !== 'undefined' && document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr',
     title: t(resetKeys[scene].confirm),
     okType: 'danger',
     onOk: () => {

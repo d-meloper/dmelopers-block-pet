@@ -16,3 +16,66 @@ fn settings_json_preserves_slider_number_bits() {
         assert_eq!(restored.to_bits(), expected.to_bits());
     }
 }
+
+#[test]
+fn full_reset_defaults_and_explicit_mouse_choices_survive_real_pinia_disk() {
+    use serde_json::{json, Value};
+    use std::fs;
+    use tauri::test::{mock_builder, mock_context, noop_assets};
+    use tauri_plugin_pinia::ManagerExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("초기화 😶 storage");
+    fs::create_dir(&root).unwrap();
+    let filename = if cfg!(debug_assertions) {
+        "cat.dev.json"
+    } else {
+        "cat.json"
+    };
+    let path = root.join(filename);
+    let defaults: Value = crate::settings_defaults::section("preset").unwrap();
+    let catalog =
+        json!({"schemaVersion":4,"activeId":"keep","entries":[{"id":"keep","unknown":false}]});
+    let original = json!({"customization3d":{"preset":{"mouseEnabled":false}},"presetCollection":catalog,"unknown":{"zero":0,"empty":""}});
+    fs::write(&path, serde_json::to_vec(&original).unwrap()).unwrap();
+    let mut context = mock_context(noop_assets());
+    context.config_mut().identifier = root.to_str().unwrap().to_owned();
+    let app = mock_builder()
+        .plugin(tauri_plugin_pinia::Builder::default().path(&root).build())
+        .build(context)
+        .unwrap();
+    assert_eq!(app.pinia().try_state::<Value>("cat").unwrap(), original);
+    for (enabled, language) in [
+        (false, "ko"),
+        (true, "ja"),
+        (false, "en"),
+        (true, "system"),
+        (true, "ko"),
+    ] {
+        let mut preset = defaults.clone();
+        preset["mouseEnabled"] = json!(enabled);
+        preset["keyboardLegendLanguage"] = json!(language);
+        let patch = json!({"customization3d":{"preset":preset},
+            "model":crate::settings_defaults::section::<Value>("model").unwrap(),
+            "window":crate::settings_defaults::section::<Value>("window").unwrap()});
+        app.pinia()
+            .with_store("cat", |store| {
+                store.patch(
+                    patch
+                        .as_object()
+                        .unwrap()
+                        .clone()
+                        .into_iter()
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .unwrap()
+            .unwrap();
+        app.pinia().save_all_now().unwrap();
+        let saved: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["customization3d"]["preset"], preset);
+        assert_eq!(saved["presetCollection"], catalog);
+        assert_eq!(saved["unknown"], original["unknown"]);
+        assert_eq!(app.pinia().try_state::<Value>("cat").unwrap(), saved);
+    }
+}

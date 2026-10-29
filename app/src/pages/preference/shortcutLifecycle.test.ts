@@ -6,7 +6,10 @@ import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
 import { Window } from '@tauri-apps/api/window'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { describe, it } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { runInNewContext } from 'node:vm'
 import { createPinia, setActivePinia } from 'pinia'
 import ts from 'typescript'
 import * as Vue from 'vue'
@@ -23,14 +26,50 @@ import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import * as sceneTypes from '@/features/scene/types'
 import * as viewportSettings from '@/features/scene/viewportSettings'
 import { createPreferenceUpdates } from '@/features/updates/preferenceUpdates'
-import { getAntdLocale } from '@/locales/antd'
 import en from '@/locales/en-US.json'
+import * as localeFormatting from '@/locales/formatting'
 import ko from '@/locales/ko-KR.json'
+import * as localeRegistry from '@/locales/registry'
+import { createLocaleRuntime } from '@/locales/runtime'
 import { useBlockStore } from '@/stores/block'
 import { useGeneralStore } from '@/stores/general'
 import { useShortcutStore } from '@/stores/shortcut'
 import { createLatestAsyncTaskQueue } from '@/utils/latestAsyncTask'
 import { shortcutIdentity } from '@/utils/shortcutIdentity'
+
+import { createLocaleModule } from '../../../scripts/locales/vitePlugin'
+
+// Evaluate the actual Vite locale output through the existing source-module fixture
+// pattern, so this Node entry exercises real catalogs and Ant locales without Vite.
+function localeSource<T>(source: string, resolve: (id: string) => unknown): T {
+  const exports = {} as T
+  runInNewContext(ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, { exports, require: resolve })
+  return exports
+}
+
+const virtualLocales = localeSource<typeof import('virtual:block-pet-locales')>(
+  createLocaleModule(fileURLToPath(new URL('../../../', import.meta.url)), true),
+  createRequire(import.meta.url),
+)
+const { getAntdLocale } = localeSource<typeof import('@/locales/antd')>(
+  readFileSync(new URL('../../locales/antd.ts', import.meta.url), 'utf8'),
+  (id) => {
+    if (id === 'virtual:block-pet-locales') return virtualLocales
+    if (id === './registry') return localeRegistry
+    throw new Error(`Unexpected Ant locale import: ${id}`)
+  },
+)
+const { getRuntimeLocaleDirection } = localeSource<typeof import('@/locales')>(
+  readFileSync(new URL('../../locales/index.ts', import.meta.url), 'utf8'),
+  (id) => {
+    if (id === 'virtual:block-pet-locales') return virtualLocales
+    if (id === './registry') return localeRegistry
+    if (id === './runtime') return { createLocaleRuntime }
+    throw new Error(`Unexpected runtime locale import: ${id}`)
+  },
+)
 
 interface TestElement {
   children: TestElement[]
@@ -180,7 +219,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     if (id === '@/services/foregroundHiding') return { foregroundHidingSuppressed: Vue.ref(false), foregroundHidingStatus: Vue.ref(), showForegroundHidingVisit: async () => {} }
     if (id === '@/utils/shortcutIdentity') return { shortcutIdentity }
     if (id === 'vue') return mockVue
-    if (id === 'vue-i18n') return { useI18n: () => languageIntegration ? i18n.global : { t: (key: string) => key } }
+    if (id === 'vue-i18n') return { useI18n: () => languageIntegration ? i18n.global : { t: (key: string) => key, locale: i18n.global.locale } }
     if (id === 'pinia') return { storeToRefs: (store: object) => Vue.toRefs(store) }
     if (id === '@tauri-apps/plugin-global-shortcut') {
       return {
@@ -270,6 +309,9 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     if (id === '@/stores/shortcut.ts' || id === '@/stores/shortcut') return { useShortcutStore: () => shortcutStore }
     if (id === '@/stores/general') return { useGeneralStore: () => generalStore }
     if (id === '@/composables/useAppLanguage' || id === './useAppLanguage') return { useAppLanguage }
+    if (id === '@/composables/useAppLocale') return load(readFileSync(new URL('../../composables/useAppLocale.ts', import.meta.url), 'utf8'))
+    if (id === '@/locales') return { getRuntimeLocaleDirection }
+    if (id === '@/locales/formatting') return localeFormatting
     if (id === '@/stores/performance') {
       return { usePerformanceStore: () => ({
         start: async () => {
@@ -350,7 +392,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     if (id === '@/features/performance/antialiasSetting') return { createAntialiasSettingOwner }
     if (id === '@/composables/usePetRuntimeRecovery') return { usePetRuntimeRecovery: () => {} }
     if (id === '@/config/theme') return {}
-    if (id === '@/locales/antd') return { getAntdLocale: languageIntegration ? getAntdLocale : () => ({}) }
+    if (id === '@/locales/antd') return { getAntdLocale }
     if (id === '@/utils/viewportInteraction') return { captureViewportPointer: () => {} }
     if (id === '@/features/input/types') return { isMouseSettingResponse }
     if (id === '@/features/presets/editIntent') {
@@ -419,7 +461,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
   const rootComponent = languageIntegration
     ? Vue.defineComponent({
         setup() {
-          // Run the actual App watcher before the preference child, matching mount order.
+          // App bridges the stored language before Preferences reads useAppLocale's effective locale.
           const appSource = parse(readFileSync(new URL('../../App.vue', import.meta.url), 'utf8')).descriptor.scriptSetup!.content
           const appSyntax = ts.createSourceFile('App.ts', appSource, ts.ScriptTarget.Latest, true)
           const languageWatch = appSyntax.statements.find(statement => ts.isExpressionStatement(statement)

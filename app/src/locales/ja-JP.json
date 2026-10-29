@@ -1,0 +1,1182 @@
+{
+  "recovery": {
+    "status": {
+      "running": "復旧手順を試し、結果を確認しています。",
+      "recovered": "再試行した操作の結果を確認しました。",
+      "unresolved": "復旧を試みましたが、問題が残っています。",
+      "unknown": "応答を確認できなかったため、復旧したかどうか判断できません。",
+      "cancelled": "設定または操作の状態が変わったため、今回の確認を中止しました。"
+    },
+    "step": {
+      "running": "実行中",
+      "passed": "確認済み",
+      "failed": "確認できませんでした",
+      "skipped": "未確認"
+    },
+    "nextSteps": "次の対処方法を順番に確認してください。",
+    "guidance": {
+      "logs": "設定 → 情報 → ログを開くから、問題が発生した時刻のエラー記録を確認してください。",
+      "support": "問題が続く場合は、情報の「お問い合わせ」から、アプリのバージョン、発生時刻、今回の復旧結果をお知らせください。",
+      "restart": "進行中の保存処理が終わったら設定を保存し、アプリを終了して再起動してください。再起動後に同じ操作を確認してください。",
+      "storage": "ディスクの空き容量とアプリデータの読み書き権限を確認してください。別の操作がファイルを使用している場合は、終了後に再試行してください。",
+      "timeout": "元のリクエストが処理中の可能性があります。重複する操作を開始せず、しばらく待ってから状態を確認してください。",
+      "changed": "処理中に設定または対象が変わりました。現在の状態が落ち着いてから再試行してください。",
+      "lastResort": "これらの方法でも原因が分からない場合は、コンピューターの再起動とアプリの再インストールを試してください。再インストール時は既存の設定とユーザーデータを保持してください。",
+      "checkStorage": "ディスクの空き容量とアプリデータの読み書き権限を確認してください。別の操作がファイルを使用している場合は、終了後に再試行してください。",
+      "waitForOperation": "元のリクエストが処理中の可能性があります。現在の操作が終了したことを確認してから再試行してください。",
+      "checkPresetFile": "元のプリセットを保持し、対応するファイルとバージョンか確認してください。ファイルを再選択し、インポート結果と各項目のエラーを確認してください。",
+      "preserveData": "問題を調べるために既存のプリセット、スキン、アプリデータを削除または初期化しないでください。元のデータを保持したまま、失敗した項目を確認してください。",
+      "retryDataRead": "現在の保存やインポートが終わってから、一覧またはプレビューを再試行し、結果を確認してください。",
+      "checkSkinFile": "元のスキンを保持し、対応する Minecraft PNG スキンか確認してください。失敗したファイルを再選択し、インポート結果を確認してください。"
+    },
+    "broadcast": {
+      "configurationFailed": "現在の配信設定を再適用しましたが、拒否されました。",
+      "backupWarning": "配信状態は確認しましたが、アドレスの復旧用情報を保存できませんでした。",
+      "off": "配信サーバーが OFF であることを確認しました。",
+      "connected": "配信サーバーの状態と、接続されたブラウザーソースの現在のシーンの準備状態を確認しました。",
+      "renderUnconfirmed": "配信サーバーは確認しましたが、現在のシーンの準備状態は確認できませんでした。",
+      "waiting": "配信サーバーの準備ができました。OBS ブラウザーソースの接続を待っています。",
+      "steps": {
+        "ready": "設定とシーンの準備状態を確認",
+        "subscribe": "配信状態の通知を再接続",
+        "configure": "現在の配信設定を再適用",
+        "verify": "アプリの実際の配信状態を再確認",
+        "render": "ブラウザーソースのシーン準備応答を確認"
+      },
+      "guidance": {
+        "port": "配信用ポートを使用できません。アプリが重複して起動していないか、別のプログラムがポートを使用していないか確認してください。競合を解消してから再試行してください。",
+        "address": "OBS ブラウザーソースの URL が、アプリからコピーした現在の配信アドレスと一致しているか確認してください。復旧時にアドレスは変更していません。",
+        "identity": "保存された配信アドレスの情報が一致しないか、破損しています。元のデータを保持してアプリを終了し、ログと復旧用情報の状態を確認してください。",
+        "noReset": "アプリデータや配信アドレスのファイルを削除または初期化しないでください。復旧する元のアドレスを確認できない場合は、ログを添えてお問い合わせください。",
+        "scene": "現在のシーン設定が拒否されました。設定を保存してアプリを再起動し、再試行してください。問題が続く場合は、アプリの更新とエラーログを確認してください。",
+        "skin": "現在のスキンを配信シーンに送信できませんでした。元のスキンを保持し、対応する Minecraft PNG スキンか確認してから再適用してください。",
+        "previousScene": "可能な場合は以前のシーンを維持します。元のスキンを変更または削除する前に、ログのエラーを確認してください。",
+        "refresh": "該当する OBS ブラウザーソースを更新してください。ソースが有効で、配信が ON になっているか確認してください。",
+        "acceleration": "OBS のブラウザーソースのハードウェアアクセラレーションを確認してください。変更した場合は OBS を再起動し、ソースを再確認してください。",
+        "input": "入力反応に必要な収集機能を準備できませんでした。アプリを再起動し、キーボードとマウスの反応を確認してください。問題が続く場合は、入力エラーの記録も添えてお問い合わせください。",
+        "server": "ローカル配信サーバーを開始または維持できませんでした。アプリとポートの状態を確認し、アプリを再起動してから再試行してください。",
+        "ready": "他の設定操作や読み込みが終わるまで待ってください。シーンの準備ができてから再試行してください。",
+        "disabled": "配信が OFF の場合、OBS への接続は開始しません。接続するには配信を ON にしてください。",
+        "bridge": "アプリの応答または設定の状態通知を確認できませんでした。現在の操作が終わってからアプリを再起動し、再試行してください。"
+      }
+    },
+    "summary": {
+      "dataRecoveryFailed": "再確認しましたが、データ操作に問題が残っています。",
+      "dataWaitUnknown": "データ操作の応答を確認できませんでした。現在の操作が終わるまでお待ちください。",
+      "presetsReady": "プリセット操作の結果と現在のエラー状態を確認しました。",
+      "presetImportComplete": "プリセットのインポート結果を確認しました。",
+      "skinLibraryReady": "スキン一覧を再読み込みし、結果を確認しました。",
+      "skinPreviewReady": "スキンプレビューの準備状態を確認しました。",
+      "skinCleanupPending": "スキンの整理はまだ完了していません。",
+      "skinCleanupComplete": "スキンの整理が完了した応答を確認しました。",
+      "skinImportFailed": "スキンをインポートできませんでした。"
+    },
+    "steps": {
+      "restorePresets": "プリセットの状態を再確認",
+      "createPreset": "プリセットの作成を再試行",
+      "retryPresetImport": "プリセットのインポートを再試行",
+      "loadSkins": "スキン一覧を再読み込み",
+      "skinPreview": "スキンプレビューを再準備",
+      "cleanupSkins": "保留中のスキン整理を再試行",
+      "importSkins": "スキンのインポート結果を確認"
+    }
+  },
+  "pages": {
+    "main": {
+      "loading": "読み込み中…",
+      "hints": {
+        "redrawing": "再描画中…",
+        "switching": "切り替え中…"
+      },
+      "errors": {
+        "modelLoad": "選択したモデルを読み込めませんでした。デスクの機器は引き続き使用できます。",
+        "rendererStart": "Block Pet のランタイムを起動できませんでした。"
+      }
+    },
+    "preference": {
+      "title": "設定",
+      "broadcastRestore": {
+        "title": "ペットを表示",
+        "body": "配信出力が有効なため、デスクトップにペットが表示されていません。今すぐ表示しますか？",
+        "enable": "今すぐ表示",
+        "cancel": "キャンセル",
+        "dismiss": "今後表示しない"
+      },
+      "petRuntimeRecovery": {
+        "title": "ペットを表示できませんでした",
+        "body": "自動復旧に失敗しました。アプリを再起動してください。再起動前に設定を保存します。",
+        "restart": "再起動",
+        "later": "後で"
+      },
+      "colorPicker": {
+        "close": "カラーピッカーを閉じる",
+        "hue": "色相",
+        "saturationValue": "彩度と明度：左右キーで彩度、上下キーで明度を調整",
+        "saturationValueText": "彩度 {s}%、明度 {v}%",
+        "screenPick": "画面から色を取得",
+        "screenInstruction": "クリック：選択 · Esc：キャンセル",
+        "screenError": "画面の色を取得できませんでした。再試行してください。",
+        "openError": "カラーピッカーを開けませんでした。再試行してください。"
+      },
+      "presets": {
+        "title": "プリセット",
+        "newName": "新しいプリセット",
+        "labels": {
+          "name": "プリセット名",
+          "favorites": "お気に入り",
+          "list": "プリセット一覧",
+          "apply": "{name} プリセットを適用",
+          "reorder": "{name} プリセットの順序を変更",
+          "favorite": "{name} プリセットをお気に入りに追加",
+          "unfavorite": "{name} プリセットをお気に入りから削除",
+          "more": "{name} プリセットを管理",
+          "userList": "ユーザープリセット",
+          "builtinList": "既定のプリセット"
+        },
+        "buttons": {
+          "new": "新しいプリセット",
+          "create": "作成",
+          "duplicate": "複製",
+          "rename": "名前を変更",
+          "delete": "削除",
+          "favorite": "お気に入りに追加",
+          "unfavorite": "お気に入りから削除",
+          "more": "その他",
+          "cancel": "キャンセル",
+          "apply": "適用",
+          "retry": "再試行"
+        },
+        "hints": {
+          "empty": "プリセットがまだありません。新しいプリセットを作成して、現在のスキンと設定を保存しましょう。",
+          "scope": "スキン、ペット、オブジェクト、シーンの設定をプリセットとして保存・読み込みできます。パフォーマンス、ショートカットキー、環境設定は保存されません。",
+          "reorder": "ハンドルをドラッグするか、ハンドルにフォーカスして Alt + ← / → (↑ / ↓) を押すと、同じグループ内で順序を変更できます。",
+          "moveToEnd": "このグループの末尾に移動"
+        },
+        "status": {
+          "loading": "プリセットを読み込み中…",
+          "saving": "保存中…",
+          "thumbnail": "プレビューを更新中…",
+          "moved": "{name}：{group} の {count} 件中 {position} 番目に移動しました。"
+        },
+        "dialog": {
+          "applyTitle": "「{name}」プリセットを適用しますか？",
+          "applySkin": "このペットスキンを使用",
+          "applySkinHint": "このオプションをオフにすると、現在のスキンを保持したままプリセットを適用します。",
+          "applyWarning": "注意：現在のペット、オブジェクト、シーンの設定がすべてこのプリセットで上書きされます。現在の状態を残すには、「+新しいプリセット」をクリックして保存してください。",
+          "newTitle": "新しいプリセット",
+          "renameTitle": "プリセット名を変更",
+          "newHint": "現在適用されているスキンと設定を新しいプリセットとして保存します。",
+          "renameHint": "一覧で分かりやすい名前を入力してください。",
+          "nameHint": "前後の空白を除いて1～255文字で、既存のプリセットと重複しない名前を入力してください。",
+          "deleteTitle": "「{name}」プリセットを削除しますか？",
+          "deleteHint": "このプリセットを削除します。この操作は元に戻せません。現在適用されているスキンと設定は保持されます。"
+        },
+        "transfer": {
+          "dropActiveTitle": "ドロップしてプリセットをインポート",
+          "buttons": {
+            "import": "インポート",
+            "export": "エクスポート"
+          },
+          "dialog": {
+            "title": "「{name}」をエクスポート",
+            "skinMode": "このプリセットのスキンの共有方法を選択してください。",
+            "image": "スキン画像",
+            "nickname": "Java ユーザー名",
+            "default": "スキンを共有しない",
+            "defaultHint": "既定のペットスキンでプリセットをエクスポートします。オブジェクトの配置、照明、ペットの外観など、スキン以外の設定だけを共有する場合に選択してください。",
+            "imageHint": "PNG スキン画像をプリセットに含めてエクスポートします。\n外部に共有する場合は、画像の作者の許可または共有する権利がある場合に限ってください。無断共有は著作権侵害にあたる可能性があります。",
+            "nicknameHint": "スキンのユーザー名をプリセットに含めてエクスポートします。\nインポート時には、そのユーザー名に関連付けられた最新のスキンを取得し、適用を確認した後にペットへ反映します。途中でスキンが変更された場合、エクスポート時と異なることがあります。",
+            "username": "関連付けられたユーザー名",
+            "noNickname": "このプリセットには Java ユーザー名が関連付けられていません。ペットタブでユーザー名からスキンを適用すると選択できます。"
+          },
+          "hints": {
+            "drop": ".petpreset ファイルをここにドロップすると一覧に追加できます。複数のファイルをまとめてインポートできます。"
+          },
+          "phases": {
+            "reading": "プリセットファイルを読み込み中…",
+            "skin": "スキンを準備中…",
+            "applying": "プリセットを適用中…",
+            "saving": "インポートしたプリセットを保存中…",
+            "exporting": "プリセットをエクスポート中…"
+          },
+          "success": {
+            "import": "プリセットをインポートしました。",
+            "export": "プリセットをエクスポートしました。"
+          },
+          "errors": {
+            "import": "プリセットをインポートできませんでした。再試行してください。",
+            "export": "プリセットファイルを保存できませんでした。再試行してください。",
+            "read": "プリセットファイルを読み込めませんでした。もう一度選択してください。",
+            "tooLarge": "プリセットファイルは最大 4 MiB、含まれる PNG スキンは最大 2 MiB まで対応しています。",
+            "invalidFormat": "有効な .petpreset ファイルではありません。",
+            "unsupportedVersion": "このバージョンのプリセットファイルには対応していません。",
+            "invalidSettings": "プリセットに無効な設定値があります。",
+            "invalidSkin": "プリセットのスキンは、有効な 64×64 または 64×32 の PNG 画像である必要があります。",
+            "invalidNickname": "プリセットに有効な Java ユーザー名が関連付けられていません。",
+            "lookup": "このユーザー名のスキンを取得できませんでした。接続を確認して再試行してください。",
+            "library": "インポートしたスキンをライブラリに保存できませんでした。再試行してください。",
+            "apply": "インポートしたプリセットを適用できませんでした。再試行してください。",
+            "save": "インポートしたプリセットを保存できませんでした。再試行してください。",
+            "recovery": "前回のインポートを復旧する必要があります。再試行して設定を復元してから、インポートしてください。"
+          },
+          "batch": {
+            "progress": "{current}/{total}：{file} をインポート中…",
+            "summary": "インポート {saved} 件 · 失敗 {failed} 件 · 未処理 {pending} 件",
+            "saved": "インポート済み",
+            "failed": "失敗",
+            "pending": "待機中",
+            "stopped": "残りのファイルのインポートが中断されました。問題を解決してから再試行してください。",
+            "retry": "失敗・未処理のファイルを再試行"
+          }
+        },
+        "errors": {
+          "invalidName": "前後の空白を除いて1～255文字で入力し、制御文字を使用しないでください。",
+          "duplicateName": "同じ名前のプリセットがあります。別の名前を入力してください。",
+          "save": "設定を自動保存できませんでした。現在の設定は保持されています。再試行してください。",
+          "create": "プリセットを作成できませんでした。「作成」を押した時点の設定で再試行できます。",
+          "apply": "プリセットを適用できませんでした。再試行して以前の設定を復元してください。",
+          "manage": "プリセットの変更を完了できませんでした。再試行してください。",
+          "preview": "プレビューを作成できませんでした。",
+          "load": "プリセットを読み込めませんでした。再試行してください。"
+        },
+        "warnings": {
+          "skinLibraryUnavailable": "保存されたスキン画像を使用してプリセット {name} を適用しました。スキンライブラリの復元は確認できませんでした。元のプリセットは保持されており、再適用して復元を再試行できます。"
+        },
+        "builtinNames": {
+          "default": "標準",
+          "sunset": "標準（夕焼け）",
+          "headbutt": "標準（頭突き）",
+          "torsoHeadbutt": "胴体の頭突き",
+          "front": "正面",
+          "bigHeadKeyboard": "大きな頭とキーボード"
+        },
+        "compatibility": {
+          "applyCompatible": "互換性のある設定のみ適用",
+          "hint": "このプリセットには現在のバージョンで使用できない設定があります。以下の項目は現在の値を保持し、互換性のある設定のみ変更します。現在の状態を残す場合は、先に新しいプリセットとして保存してください。",
+          "badgeHint": "このプリセットには互換性のない設定があります。適用時に詳細を確認できます。プレビューでは該当項目に既定値を使用します。",
+          "listTitle": "互換性のない設定",
+          "savedValue": "保存された値：{value}",
+          "supported": "現在の対応範囲：{value}",
+          "missingValue": "なし",
+          "range": "{min}～{max} {integer}",
+          "integerOnly": "（整数）",
+          "changed": "プリセットの内容が変更されました。一覧を再確認してから適用してください。",
+          "reasons": {
+            "missing": "設定値がありません。",
+            "type": "この値の形式には対応していません。",
+            "range": "現在の許容範囲を超えています。",
+            "integer": "整数値のみ使用できます。",
+            "choice": "この選択肢には対応していません。",
+            "color": "有効な色の値ではありません。",
+            "unknown": "このバージョンでは使用できない設定です。",
+            "structure": "このバージョンでは対応していない設定構造です。"
+          },
+          "types": {
+            "boolean": "オン / オフ",
+            "color": "#RRGGBB の色",
+            "enum": "対応する選択肢",
+            "structure": "現在の設定構造"
+          },
+          "settings": {
+            "petAnimationMode": "タイピング動作",
+            "petHeadbuttRecoilEnabled": "反動を使用",
+            "petHeadbuttMaxRadius": "頭突きの最大到達距離",
+            "petTypingRadius": "タイピングの到達距離",
+            "petHeadbuttRecoilStrength": "反動の強さ",
+            "petHeadbuttRecoilWobble": "揺れ",
+            "petTypingHandLift": "手の持ち上がり",
+            "petTypingBodyMotion": "体の動き",
+            "petTypingReturnSpeed": "戻る速さ",
+            "petShoulderTorsoConnected": "肩と胴体の接続",
+            "petRightArmDisabled": "右腕を非表示",
+            "petLeftArmDisabled": "左腕を非表示",
+            "petRightArmBendPercent": "右腕の曲げ",
+            "petLeftArmBendPercent": "左腕の曲げ",
+            "petRightArmSpreadDegrees": "右腕の開き",
+            "petLeftArmSpreadDegrees": "左腕の開き",
+            "petHeadScalePercent": "頭の大きさ",
+            "petRotationDegrees": "ペットの回転",
+            "petDeskOffset": "ペットの位置",
+            "deskHeightOffset": "デスクの高さ",
+            "deskWidthOffset": "デスクの幅",
+            "deskDepthOffset": "デスクの奥行き",
+            "deskTransparent": "デスクを透明にする",
+            "deskColor": "デスクの色",
+            "showDisplayArea": "表示領域を表示",
+            "autoViewportEnabled": "自動表示領域",
+            "autoViewportPaddingPixels": "自動表示領域の余白",
+            "sceneRotationOffsetDegrees": "シーンの回転",
+            "cameraHorizontalOffset": "視点の左右位置",
+            "cameraVerticalOffset": "視点の高さ",
+            "cameraZoomPercent": "拡大率",
+            "mouseEnabled": "マウスを表示",
+            "mouseBaseXOffset": "マウスの左右位置",
+            "mouseBaseZOffset": "マウスの前後位置",
+            "mouseScalePercent": "マウスの大きさ",
+            "keyboardBaseXOffset": "キーボードの左右位置",
+            "keyboardBaseZOffset": "キーボードの前後位置",
+            "keyboardScalePercent": "キーボードの大きさ",
+            "keyboardLegendLanguage": "キーの印字言語",
+            "keyboardColor": "キーボードの色",
+            "keyboardKeycapColor": "キーキャップの色",
+            "keyboardLegendColor": "印字の色",
+            "keyboardPressedColor": "押したキーの色",
+            "mouseColor": "マウスの色",
+            "mousePressedColor": "押したマウスの色",
+            "dmeloperPalmColor": "手のひらの色",
+            "mirror": "左右反転",
+            "opacity": "不透明度",
+            "eyebrowAnimationEnabled": "眉毛のアニメーション",
+            "dmeloperEyebrows": {
+              "enabled": "眉毛を表示",
+              "color": "眉毛の色",
+              "centerOffsetPixels": "眉毛の左右位置",
+              "heightOffsetPixels": "眉毛の高さ",
+              "spacingPixels": "眉毛の間隔",
+              "widthPixels": "眉毛の幅",
+              "thicknessPixels": "眉毛の太さ",
+              "depthPercent": "眉毛の奥行き"
+            },
+            "lighting": {
+              "key": {
+                "color": "照明の色",
+                "azimuthDegrees": "照明の水平角度",
+                "elevationDegrees": "照明の高さ角度",
+                "strengthPercent": "照明の明るさ"
+              }
+            },
+            "manualViewportRect": {
+              "x": "手動表示領域の左右位置",
+              "y": "手動表示領域の上下位置",
+              "width": "手動表示領域の幅",
+              "height": "手動表示領域の高さ"
+            }
+          },
+          "groups": {
+            "preset": "ペット・オブジェクト・シーンの設定",
+            "preset.dmeloperEyebrows": "眉毛の設定",
+            "preset.lighting": "照明の設定",
+            "preset.lighting.key": "ライトの設定",
+            "preset.manualViewportRect": "手動表示領域"
+          },
+          "none": "適用できる互換性のある設定がありません。"
+        }
+      },
+      "block": {
+        "title": "ペット",
+        "detailTabs": {
+          "body": "頭・体",
+          "arms": "腕・手のひら",
+          "eyebrows": "眉毛",
+          "motion": "動作"
+        },
+        "detailReset": {
+          "body": "頭・体の設定を初期化",
+          "arms": "腕・手のひらの設定を初期化",
+          "eyebrows": "眉毛の設定を初期化",
+          "motion": "動作の設定を初期化"
+        },
+        "detailResetConfirm": {
+          "body": "頭と体の設定を既定値に戻しますか？",
+          "arms": "両腕と手のひらの色を既定値に戻しますか？",
+          "eyebrows": "眉毛の設定を既定値に戻しますか？",
+          "motion": "動作の設定を既定値に戻しますか？"
+        },
+        "labels": {
+          "modelSettings": "シーン設定",
+          "mirrorMode": "左右反転",
+          "sceneRotation": "シーンの回転",
+          "cameraElevation": "カメラの高さ角度",
+          "cameraDistance": "カメラまでの距離",
+          "mouseMirror": "マウスの動作を反転",
+          "ignoreMouse": "マウス入力を無視",
+          "windowSettings": "ウィンドウ設定",
+          "visible": "ペットウィンドウを表示",
+          "passThrough": "クリックを通過",
+          "alwaysOnTop": "常に手前に表示",
+          "keepInScreen": "画面内に保持",
+          "windowSize": "ウィンドウサイズ",
+          "windowRadius": "ウィンドウの角",
+          "opacity": "不透明度",
+          "hideOnHover": "マウスを重ねると非表示",
+          "maxFPS": "最大フレームレート",
+          "petModel": "ペットモデル",
+          "minecraftSkinUsername": "スキンのユーザー名",
+          "applyMinecraftSkin": "適用",
+          "dmeloperSkinModel": "スキンの種類",
+          "petHeadScale": "頭の大きさ",
+          "petBehaviorSettings": "ペットの外観",
+          "petAnimationMode": "タイピング動作",
+          "petShoulderTorsoConnected": "肩と胴体の接続",
+          "petRightArmDisabled": "右腕を非表示",
+          "petLeftArmDisabled": "左腕を非表示",
+          "petRightArmVisible": "右腕を表示",
+          "petLeftArmVisible": "左腕を表示",
+          "petRightArmBend": "右腕の曲げ具合",
+          "petHeadbuttRecoilEnabled": "反動を使用",
+          "petHeadbuttMaxRadius": "頭突きの最大到達距離",
+          "petTypingRadius": "タイピングの到達距離",
+          "petHeadbuttRecoilStrength": "反動の強さ",
+          "petHeadbuttRecoilWobble": "揺れ",
+          "petTypingHandLift": "手の持ち上がり",
+          "petTypingBodyMotion": "体の動き",
+          "petTypingReturnSpeed": "戻る速さ",
+          "petRightArmSpread": "右腕の開き",
+          "petLeftArmBend": "左腕の曲げ具合",
+          "petLeftArmSpread": "左腕の開き",
+          "resetPetBehavior": "ペットの詳細設定を初期化",
+          "clearSkin": "スキンを消去",
+          "keyboardLanguage": "キーキャップの言語",
+          "petRotation": "ペットの向き",
+          "deskDistance": "デスクからの距離",
+          "keyboardX": "キーボードの左右位置",
+          "keyboardZ": "キーボードの前後位置",
+          "mouseX": "マウスの左右位置",
+          "mouseZ": "マウスの前後位置",
+          "dmeloperEyebrows": "dmeloper の立体眉毛",
+          "dmeloperEyebrowSettings": "ペットの眉毛設定",
+          "dmeloperEyebrowsEnabled": "ペットの眉毛を表示",
+          "dmeloperEyebrowColor": "ペットの眉毛の色",
+          "setDmeloperEyebrowColorAutomatically": "眉毛の色を自動設定",
+          "dmeloperEyebrowCustomColor": "眉毛の色を指定",
+          "dmeloperEyebrowCenter": "左右位置",
+          "dmeloperEyebrowHeight": "高さ",
+          "dmeloperEyebrowSpacing": "間隔",
+          "dmeloperEyebrowWidth": "長さ",
+          "dmeloperEyebrowDepth": "奥行き",
+          "dmeloperEyebrowThickness": "太さ",
+          "resetDmeloperEyebrows": "眉毛の設定を初期化",
+          "dmeloperPalmSettings": "ペットの手のひら設定",
+          "dmeloperPalmColor": "ペットの手のひらの色",
+          "resetDmeloperPalmColor": "手のひらの色を自動設定",
+          "setAutomatically": "自動設定",
+          "reset3d": "設定を初期化",
+          "eyebrowAnimation": "眉毛のアニメーションを使用"
+        },
+        "hints": {
+          "mirrorMode": "シーン全体を左右反転します。",
+          "sceneRotation": "シーン全体をワールドの Y 軸を中心に回転します。現在の基準となる構図は 0° です。",
+          "cameraElevation": "シーン全体を画面内に収めたまま、カメラの高さを調整します。",
+          "cameraDistance": "現在の視線軸に沿ってカメラを前後に移動します。",
+          "visible": "ペットを表示または非表示にします。",
+          "mouseMirror": "手のマウス操作の方向を反転します。",
+          "ignoreMouse": "マウス入力に反応しないようにします。キーボードモードで使用できます。",
+          "passThrough": "クリックがペットウィンドウを通過するようにします。",
+          "alwaysOnTop": "ペットウィンドウを他のウィンドウより手前に表示します。フルスクリーンゲームでは、この設定を有効にしても表示されない場合があります。ゲームのウィンドウモードまたはボーダーレスウィンドウモードをご利用ください。",
+          "keepInScreen": "ペットウィンドウを画面内に保持します。",
+          "windowSize": "構図と縦横比を保ちながら、ペットウィンドウの大きさを 10%～100% の範囲で調整します。",
+          "hideOnHover": "マウスを重ねると設定した遅延後にペットウィンドウを非表示にします。0 の場合はすぐに非表示になります。",
+          "maxFPS": "モデル描画の最大フレームレートを制限します。フレームレートを下げると CPU/GPU 使用量を減らせる場合があります。",
+          "petModel": "ペットモデルを選択します。",
+          "minecraftSkinUsername": "Minecraft: Java Edition のユーザー名に関連付けられたスキンを検索し、ペットに適用します。",
+          "dmeloperSkinModel": "読み込んだスキンが対応している場合のみ、ワイドを選択できます。",
+          "petHeadScale": "ペットの頭の大きさを調整します。",
+          "petShoulderTorsoConnected": "ペットモデルの肩の接合部と胴体をつなぎます。",
+          "petHeadbuttRecoilEnabled": "頭突きの後に体を起こすとき、自然な反動を加えます。",
+          "petHeadbuttMaxRadius": "値を大きくすると、頭突きがより遠くまで届きます。",
+          "petTypingRadius": "値を大きくすると、腕をより遠くまで伸ばしてタイピングします。",
+          "petHeadbuttRecoilStrength": "値を大きくすると、首をより大きく後ろに反らします。",
+          "petHeadbuttRecoilWobble": "値を大きくすると、前後の揺れが長く続きます。（「反動の強さ」が -0.7 以下の場合、このオプションは非表示になります。）",
+          "petTypingHandLift": "値を大きくすると、タイピング時に手をより高く持ち上げます。",
+          "petTypingBodyMotion": "値を大きくすると、タイピング時に体が大きく動き、腰をより深く前に曲げます。",
+          "petTypingReturnSpeed": "値を大きくすると、タイピング後に早く戻り始め、手と体がより速く元の姿勢に戻ります。",
+          "petRightArmDisabled": "右腕と手のひらを非表示にし、その腕のアニメーションを停止します。",
+          "petLeftArmDisabled": "左腕と手のひらを非表示にし、その腕のアニメーションを停止します。",
+          "petRightArmBend": "右ひじの曲げ具合を調整します。",
+          "petRightArmSpread": "右腕を水平方向に回転します。",
+          "petLeftArmBend": "左ひじの曲げ具合を調整します。",
+          "petLeftArmSpread": "左腕を水平方向に回転します。",
+          "keyboardLanguage": "キーの印字を韓国語・英語・日本語に変更します。特殊キーと方向キーの表記は変わりません。",
+          "petRotation": "ペット自体を Y 軸を中心に回転します。",
+          "deskDistance": "値を大きくするとペットがデスクから離れ、小さくすると近づきます。",
+          "keyboardX": "キーボードの大きさと回転を変えずに、基準位置を左右に移動します。",
+          "keyboardZ": "キーボードの大きさと回転を変えずに、基準位置を前後に移動します。",
+          "mouseX": "マウスの移動範囲を変えずに、基準位置を左右に移動します。",
+          "mouseZ": "マウスの移動範囲を変えずに、基準位置を前後に移動します。",
+          "dmeloperEyebrowsEnabled": "ペットの眉毛を表示します。",
+          "dmeloperEyebrowColor": "ペットの眉毛の色を設定します。自動設定ではスキンの頭頂面の平均色を使用します。",
+          "dmeloperPalmColor": "ペットの手のひらの色を設定します。",
+          "eyebrowAnimation": "ペットの眉毛をアニメーション表示します。"
+        },
+        "placeholders": {
+          "minecraftSkinUsername": "Java Edition のユーザー名"
+        },
+        "status": {
+          "defaultSkin": "現在のソース：dmeloper（既定）",
+          "localSkin": "現在のソース：ローカル PNG",
+          "minecraftSkinApplied": "適用中：{name} · {model}",
+          "minecraftSkinLoading": "Minecraft のサービスでスキンを検索中…"
+        },
+        "options": {
+          "petAnimationMode": {
+            "default": "標準",
+            "headbutt": "頭突き"
+          },
+          "dmeloperSkinModel": {
+            "wide": "ワイド",
+            "slim": "スリム"
+          },
+          "dmeloperEyebrowColorMode": {
+            "auto": "自動",
+            "custom": "カスタム"
+          }
+        },
+        "confirm": {
+          "resetPetBehavior": "ペットの詳細設定を既定値に戻しますか？",
+          "resetEyebrows": "眉毛の設定を既定値に戻しますか？",
+          "resetPalmColor": "現在のプリセットの手のひらの色を既定値に戻しますか？"
+        },
+        "errors": {
+          "pngOnly": "PNG ファイルのみ選択できます。",
+          "skinRead": "スキンファイルを読み込めませんでした。",
+          "skinStore": "スキンをライブラリに保存できませんでした。現在のスキンは保持されます。",
+          "minecraftSkin": {
+            "INVALID_USERNAME": "ユーザー名は英字、数字、アンダースコアのみを使用し、3～16文字で入力してください。",
+            "PROFILE_NOT_FOUND": "このユーザー名の公開 Java Edition プロフィールが見つかりませんでした。",
+            "NO_SKIN": "この Java Edition プロフィールには適用できる公開スキンがありません。",
+            "RATE_LIMITED": "Minecraft サービスへのリクエストが多すぎます。",
+            "TIMEOUT": "Minecraft サービスの応答がタイムアウトしました。",
+            "NETWORK": "Minecraft サービスに接続できませんでした。ネットワーク接続を確認してください。",
+            "UPSTREAM": "Minecraft サービスが一時的に利用できません。",
+            "SERVICE_BLOCKED": "現在の環境では Minecraft サービスへのアクセスがブロックされています。",
+            "INVALID_RESPONSE": "Minecraft サービスから無効な応答を受信しました。",
+            "UNTRUSTED_TEXTURE_URL": "返されたスキンアドレスは信頼できないため、適用を中止しました。",
+            "TOO_LARGE": "スキンファイルが 2 MiB の上限を超えています。",
+            "INVALID_PNG": "ダウンロードしたスキンが破損しているか、有効な PNG ではありません。",
+            "INVALID_DIMENSIONS": "スキンのサイズは 64x64 または 64x32 ピクセルである必要があります。",
+            "HASH_MISMATCH": "スキンファイルの整合性検証に失敗しました。",
+            "retry": "しばらくしてから再試行してください。",
+            "retryAfter": "約 {seconds} 秒後に再試行してください。"
+          }
+        }
+      },
+      "skinLibrary": {
+        "title": "スキンライブラリ",
+        "drop": {
+          "activeTitle": "ドロップしてスキンをインポート",
+          "title": "PNG スキンファイルをここにドロップ",
+          "hint": "複数のファイルを一度にインポートできます。"
+        },
+        "labels": {
+          "preview": "{name} スキンのプレビュー",
+          "rename": "{name} スキンの名前を変更",
+          "renameInput": "{name} スキンの新しい名前"
+        },
+        "hints": {
+          "rename": "Enter を押すかフォーカスを外すと保存し、Escape を押すとキャンセルします。名前は前後の空白を除いて1～255文字にしてください。"
+        },
+        "sources": {
+          "java": "Java",
+          "local": "ローカル",
+          "builtin": "標準搭載"
+        },
+        "buttons": {
+          "open": "スキンライブラリを開く",
+          "back": "戻る",
+          "importFile": "スキンファイルをインポート",
+          "overwrite": "上書き",
+          "skipOverwrite": "既存のファイルをスキップ",
+          "retryCleanup": "ファイルの整理を再試行",
+          "retry": "再試行",
+          "toggleSelection": "{name} の選択を切り替え",
+          "selectAll": "すべて選択",
+          "clearAll": "すべて解除",
+          "delete": "削除"
+        },
+        "status": {
+          "loading": "スキンを読み込み中…",
+          "cleanupPending": "削除したスキンの一部のファイルを整理できませんでした。再試行してください。",
+          "empty": "追加したスキンはありません。",
+          "current": "適用中",
+          "selected": "{count} 件を選択中",
+          "importSuccess": "スキンを {count} 件インポートしました。",
+          "importPartial": "スキンを {successCount} 件インポートしました。{failureCount} 件はインポートできませんでした。",
+          "importWithSkipped": "スキンを {successCount} 件インポートし、{failureCount} 件が失敗、{skippedCount} 件の上書きをスキップしました。",
+          "overwriteSkipped": "上書きの可能性があるファイルを {count} 件スキップしました。スキンは変更されていません。"
+        },
+        "confirm": {
+          "deleteMany": "本当に {count} 件のスキンを削除しますか？",
+          "deleteOne": "このスキンを削除しますか？",
+          "overwriteOne": "{filename} は既に存在します。上書きしますか？",
+          "overwriteMany": "{count} 個のファイルが保存済みのスキンまたは同じ処理内の先行スキンを上書きします。続行しますか？",
+          "overwriteHint": "ファイル名が一致する項目のみ上書きできます。スキンの表示名を変更しても一致の判定は変わりません。"
+        },
+        "errors": {
+          "load": "スキンライブラリを読み込めませんでした。",
+          "apply": "スキンを適用できませんでした。現在のスキンは保持されます。",
+          "delete": "選択したスキンを削除できませんでした。",
+          "importAll": "スキンを {count} 件インポートできませんでした。",
+          "importReasons": {
+            "pngOnly": "PNG ファイルのみ読み込めます。",
+            "invalidPng": "有効な PNG 画像ではありません。",
+            "dimensions": "64×64 または 64×32 ピクセルの PNG のみ読み込めます。",
+            "tooLarge": "ファイルサイズが許容上限を超えています。",
+            "storage": "スキンライブラリを利用できません。",
+            "unknown": "不明な理由で画像を読み込めませんでした。"
+          },
+          "invalidName": "スキン名は前後の空白を除いて1～255文字で、制御文字は使用できません。",
+          "rename": "スキン名を保存できませんでした。再試行してください。",
+          "preview": "既定のスキンのプレビューを読み込めませんでした。"
+        },
+        "builtinName": "dmeloper（既定）"
+      },
+      "scene": {
+        "detailTabs": {
+          "view": "表示",
+          "viewport": "表示領域",
+          "lighting": "照明"
+        },
+        "lighting": {
+          "title": "照明設定",
+          "reset": "照明設定を初期化",
+          "confirmReset": "照明設定を既定値に戻しますか？",
+          "labels": {
+            "color": "照明の色",
+            "strengthPercent": "強さ",
+            "azimuthDegrees": "水平角度",
+            "elevationDegrees": "垂直角度"
+          },
+          "hints": {
+            "color": "照明の色を設定します。",
+            "strengthPercent": "照明の強さを調整します。",
+            "azimuthDegrees": "照明の水平角度を調整します。",
+            "elevationDegrees": "照明の垂直角度を調整します。"
+          }
+        },
+        "title": "画面",
+        "labels": {
+          "widthShort": "幅",
+          "heightShort": "高さ",
+          "resetView": "表示設定を初期化",
+          "resetViewport": "表示領域の設定を初期化",
+          "zoom": "拡大率",
+          "rotation": "回転",
+          "opacity": "不透明度",
+          "mirror": "左右反転",
+          "viewport": "スキンの表示領域",
+          "showDisplayArea": "表示領域を表示",
+          "automatic": "スキンの表示領域を自動設定",
+          "automaticPadding": "自動表示領域の余白",
+          "width": "スキン表示領域の幅",
+          "height": "スキン表示領域の高さ",
+          "cameraHorizontal": "カメラの左右位置",
+          "cameraVertical": "カメラの上下位置",
+          "refreshViewport": "再確認",
+          "reset": "シーン設定を初期化"
+        },
+        "hints": {
+          "zoom": "シーンの拡大率を調整します。",
+          "rotation": "カメラをシーンの周囲に360度回転します。",
+          "mirror": "シーン全体を左右反転します。",
+          "showDisplayArea": "表示領域内のホログラム背景を常に表示します。",
+          "automatic": "ペットとオブジェクトがすべて見えるように、表示領域の幅と高さを自動調整します。",
+          "automaticPadding": "スキンの表示領域を自動設定するときに、上下左右へ追加する余白を設定します。値が小さすぎると、ペットやオブジェクトの一部が切れることがあります。",
+          "width": "スキンが表示される領域の幅を設定します。",
+          "height": "スキンが表示される領域の高さを設定します。",
+          "cameraHorizontal": "シーンを画面内で左右に移動します。",
+          "cameraVertical": "シーンを画面内で上下に移動します。"
+        },
+        "errors": {
+          "unavailable": "スキンの表示領域を適用できませんでした。もう一度確認してください。",
+          "timeout": "スキンの表示領域からの応答を待っています。もう一度確認してください。"
+        },
+        "confirm": {
+          "resetView": "表示設定を既定値に戻しますか？",
+          "resetViewport": "表示領域の設定を既定値に戻しますか？",
+          "reset": "シーン設定を既定値に戻しますか？"
+        }
+      },
+      "environment": {
+        "detailTabs": {
+          "desk": "デスク",
+          "keyboard": "キーボード",
+          "mouse": "マウス"
+        },
+        "title": "オブジェクト",
+        "labels": {
+          "objectSettings": "オブジェクト",
+          "deskSettings": "デスク設定",
+          "deskTransparent": "デスクを透明にする",
+          "deskHeightOffset": "高さ",
+          "deskWidthOffset": "幅",
+          "deskDepthOffset": "奥行き",
+          "deskColor": "デスクの色",
+          "keyboardColor": "キーボードの色",
+          "keyboardKeycapColor": "キーキャップの色",
+          "keyboardLegendColor": "キーキャップの文字色",
+          "keyboardPressedColor": "入力強調色",
+          "mouseColor": "マウスの色",
+          "mousePressedColor": "入力強調色",
+          "windowSize": "ウィンドウサイズ",
+          "opacity": "不透明度",
+          "mirrorMode": "左右反転",
+          "keyboardLanguage": "キーキャップの言語",
+          "cameraSettings": "カメラ設定",
+          "sceneRotation": "カメラの回転",
+          "cameraHorizontal": "カメラの左右位置",
+          "cameraVertical": "カメラの上下位置",
+          "cameraZoom": "拡大率",
+          "petRotation": "体の向き",
+          "deskDistance": "デスクからの距離",
+          "keyboardSettings": "キーボード設定",
+          "mouseSettings": "マウス設定",
+          "mouseEnabled": "マウスを使用",
+          "refreshMouse": "再確認",
+          "keyboardX": "左右位置",
+          "keyboardZ": "前後位置",
+          "keyboardScale": "大きさ",
+          "mouseX": "左右位置",
+          "mouseZ": "前後位置",
+          "mouseScale": "大きさ",
+          "resetDesk": "デスク設定を初期化",
+          "resetKeyboard": "キーボード設定を初期化",
+          "resetMouse": "マウス設定を初期化"
+        },
+        "options": {
+          "keyboardKorean": "韓国語",
+          "keyboardEnglish": "英語",
+          "keyboardJapanese": "日本語",
+          "keyboardSystem": "システム"
+        },
+        "hints": {
+          "deskTransparent": "デスクを透明に表示します。",
+          "deskHeightOffset": "デスクの高さを調整します。",
+          "deskColor": "デスクの色を設定します。",
+          "windowSize": "シーンの大きさを調整します。",
+          "mirrorMode": "シーン全体を左右反転します。",
+          "keyboardLanguage": "キーキャップの文字を変更します。システムを選択すると、現在のシステムの入力言語の状態に連動します。",
+          "sceneRotation": "カメラを左右に最大360度回転します。",
+          "cameraHorizontal": "シーンを表示領域内で左右に移動します。",
+          "cameraVertical": "シーンを表示領域内で上下に移動します。",
+          "cameraZoom": "シーンの拡大率を調整します。",
+          "petRotation": "ペットの胴体を左右に回転します。",
+          "deskDistance": "値を大きくするとペットがデスクから離れ、小さくすると近づきます。",
+          "keyboardX": "キーボードを左右に移動します。",
+          "keyboardZ": "キーボードを前後に移動します。",
+          "keyboardScale": "キーボードの大きさを調整します。",
+          "mouseX": "マウスを左右に移動します。",
+          "mouseZ": "マウスを前後に移動します。",
+          "mouseScale": "マウスの大きさを調整します。",
+          "mouseEnabled": "このオプションをオフにするとマウスのオブジェクトが非表示になり、クリックとスクロールの反応が停止します。カーソルを目で追う動作は維持されます。",
+          "keyboardColor": "キーボード本体の色を変更します。",
+          "keyboardKeycapColor": "キーキャップの色を変更します。",
+          "keyboardLegendColor": "キーキャップに表示される文字の色を変更します。",
+          "keyboardPressedColor": "キーを押したときの強調色を変更します。",
+          "mouseColor": "マウス本体と左右のボタンの色を変更します。",
+          "mousePressedColor": "マウスのクリックとスクロールの強調色を変更します。"
+        },
+        "mouseErrors": {
+          "unsupported": "このオペレーティングシステムではマウスの追跡をオフにできません。",
+          "unavailable": "マウスの設定を適用できませんでした。もう一度確認してください。",
+          "timeout": "マウス設定の応答を待っています。もう一度確認してください。"
+        },
+        "confirm": {
+          "resetDesk": "デスク設定を既定値に戻しますか？",
+          "resetKeyboard": "キーボード設定を既定値に戻しますか？",
+          "resetMouse": "マウス設定を既定値に戻しますか？"
+        }
+      },
+      "general": {
+        "title": "環境設定",
+        "labels": {
+          "appSettings": "プログラムの環境設定",
+          "visible": "ペットを表示",
+          "launchOnStartup": "Windows ログイン時に自動起動",
+          "passThrough": "クリックを通過",
+          "alwaysOnTop": "常に手前に表示",
+          "hideOnHover": "マウスを重ねると非表示",
+          "keepInScreen": "画面内に保持",
+          "showTaskbarIcon": "タスクバーにアイコンを表示",
+          "appearanceSettings": "外観設定",
+          "themeMode": "テーマ",
+          "language": "言語",
+          "reset": "環境設定を初期化",
+          "petSettings": "ペットの環境設定"
+        },
+        "options": {
+          "auto": "システム",
+          "systemLanguage": "システム",
+          "lightMode": "ライト",
+          "darkMode": "ダーク"
+        },
+        "hints": {
+          "visible": "ペットを表示または非表示にします。",
+          "passThrough": "クリックがペットウィンドウを通過するようにします。",
+          "alwaysOnTop": "ペットウィンドウを他のウィンドウより手前に表示します。フルスクリーンゲームでは、この設定を有効にしても表示されない場合があります。ゲームのウィンドウモードまたはボーダーレスウィンドウモードをご利用ください。",
+          "hideOnHover": "マウスを重ねると設定した遅延後にペットウィンドウを非表示にします。",
+          "keepInScreen": "ペットウィンドウを画面の表示範囲内に保持します。",
+          "showTaskbarIcon": "ペットをタスクバーのアイコンとして表示します。",
+          "launchOnStartup": "Windows ログイン時にプログラムを自動起動します。"
+        },
+        "confirm": {
+          "reset": "環境設定タブの設定を既定値に戻しますか？"
+        },
+        "errors": {
+          "resetAutostartBlocked": "Windows のポリシーによりログイン時の自動起動をオフにできません。環境設定は初期化されていません。",
+          "resetPreflight": "ログイン時の自動起動を確認またはオフにできませんでした。環境設定は初期化されていません。再試行してください。",
+          "resetPartial": "環境設定の初期化を完了できませんでした。一部の設定は既に初期化された可能性があります。再試行してください。"
+        }
+      },
+      "performance": {
+        "title": "パフォーマンス",
+        "labels": {
+          "metrics": "リアルタイムのパフォーマンス指標",
+          "settings": "レンダリング設定",
+          "maxFPS": "最大フレームレート",
+          "idlePowerSaving": "スマート省電力",
+          "shadowQuality": "影の品質",
+          "renderScale": "レンダリング倍率",
+          "antialias": "アンチエイリアシング（MSAA）",
+          "reset": "パフォーマンス設定を初期化",
+          "pixelFilter": "ピクセルフィルター"
+        },
+        "options": {
+          "shadowQuality": {
+            "high": "高",
+            "medium": "中",
+            "low": "低",
+            "off": "オフ"
+          }
+        },
+        "metrics": {
+          "cpu": "CPU 使用率",
+          "gpu": "GPU 使用率",
+          "ram": "RAM 使用量"
+        },
+        "hints": {
+          "broadcastUsage": "OBS に接続されたペットは OBS で別に描画されるため、その使用量はこの指標に含まれません。Windows のタスクマネージャーで OBS の使用量を確認できますが、その値は OBS 全体の使用量であり、ペットの描画に使われた正確な使用量ではありません。",
+          "sampling": "パフォーマンスタブを表示している間、現在値は約1秒ごとに更新され、一時的な負荷により変動します。Windows の GPU 使用率は、関連するアプリプロセスで最も使用率の高いエンジンを反映します。",
+          "average": "括弧内の値は、直近 {duration} の平均使用量です。",
+          "durationSeconds": "{seconds}秒",
+          "durationMinutesSeconds": "{minutes}分 {seconds}秒",
+          "maxFPS": "描画フレーム数を制限して CPU と GPU の使用量を減らします。",
+          "idlePowerSaving": "5秒間入力がない場合、最大フレームレートを15に下げてリソースを節約します。入力が再開すると設定した最大値に戻ります。",
+          "shadowQuality": "影の品質を設定します。低く設定するとパフォーマンスが向上します。",
+          "renderScale": "描画解像度を調整します。低く設定するとパフォーマンスが向上します。",
+          "antialias": "描画モデルのギザギザを滑らかにします。オフにするとパフォーマンスが向上します。",
+          "pixelFilter": "ペットのピクセル色の境界を滑らかにします。オフにするとパフォーマンスが向上します。",
+          "warmup": "測定を準備しています。",
+          "resourceUnavailable": "{resource}：{reason}",
+          "unavailableEnvironment": "環境によっては一部のリソース使用量を測定できない場合があります。"
+        },
+        "unavailableReasons": {
+          "unsupported": "この環境では対応していません。",
+          "accessDenied": "パフォーマンス情報にアクセスできませんでした。",
+          "processUnavailable": "アプリのプロセスを確認できませんでした。",
+          "processSnapshotFailed": "プロセス一覧を取得できませんでした。",
+          "counterUnavailable": "パフォーマンスカウンターを利用できません。",
+          "counterReadFailed": "パフォーマンスカウンターを読み取れませんでした。",
+          "initializing": "測定値を準備しています。",
+          "intervalTooShort": "測定間隔が短すぎます。",
+          "invalidSample": "有効な測定値を取得できませんでした。",
+          "samplingFailed": "パフォーマンスの測定要求を完了できませんでした。"
+        },
+        "status": {
+          "unavailable": "測定不可",
+          "preparing": "測定準備中"
+        },
+        "buttons": {
+          "measurementInfo": "測定情報"
+        },
+        "confirm": {
+          "reset": "パフォーマンス設定を既定値に戻しますか？"
+        },
+        "errors": {
+          "antialiasFailed": "アンチエイリアシングを変更できなかったため、以前の設定を保持しました。",
+          "antialiasUnconfirmed": "アンチエイリアシングの適用結果を確認できませんでした。再試行してください。"
+        }
+      },
+      "shortcut": {
+        "title": "ショートカットキー",
+        "labels": {
+          "toggleBlock": "ペットの表示を切り替え",
+          "toggleBroadcast": "配信出力を切り替え",
+          "toggleMouse": "マウス入力を切り替え",
+          "hideOnHover": "マウスを重ねると非表示",
+          "togglePreferences": "環境設定の表示を切り替え",
+          "mirrorMode": "左右反転",
+          "passThrough": "クリックを通過",
+          "alwaysOnTop": "常に手前に表示",
+          "cycleZoom": "拡大率を順に切り替え",
+          "cycleRotation": "回転を順に切り替え"
+        },
+        "hints": {
+          "toggleBlock": "ペットウィンドウの表示・非表示を切り替えます。",
+          "toggleBroadcast": "配信出力をオンまたはオフにします。",
+          "togglePreferences": "環境設定ウィンドウの表示・非表示を切り替えます。",
+          "mirrorMode": "ペットのシーンの左右反転を切り替えます。",
+          "passThrough": "ペットウィンドウのクリック通過を切り替えます。",
+          "alwaysOnTop": "ペットウィンドウを常に手前に表示するか切り替えます。",
+          "cycleZoom": "次の拡大率に切り替え、最後の次は最初に戻ります。",
+          "cycleRotation": "次の回転設定に切り替え、最後の次は最初に戻ります。"
+        }
+      },
+      "about": {
+        "encouragement": {
+          "button": "開発者を応援",
+          "store": "このプログラムは今後も無料で提供します。レビューを残して開発活動を応援してください。",
+          "github": "このプログラムは今後も無料で提供します。開発活動を応援してください。",
+          "error": "応援リクエストを完了できませんでした。再試行してください。"
+        },
+        "title": "情報",
+        "labels": {
+          "aboutApp": "アプリ情報",
+          "troubleshootingSupport": "トラブルシューティングとサポート",
+          "appLog": "アプリのログ",
+          "appInfo": "環境情報",
+          "contactUs": "お問い合わせ",
+          "iconCredits": "アイコンの出典",
+          "legalNotices": "サードパーティライセンス",
+          "resetAll": "プログラム設定をすべて初期化",
+          "introduction": "紹介ページ",
+          "releaseNotes": "リリースノート",
+          "developer": "開発者",
+          "developerName": "DMeloper",
+          "developerEmail": "開発者のメールアドレス",
+          "dataNotice": "データと権限について",
+          "resetDeleteSkins": "ペットスキンをすべて削除",
+          "resetPresets": "ユーザープリセットをすべて削除"
+        },
+        "hints": {
+          "appInfo": "個人のパス、ユーザー名、スキン、配信アドレスを除く Windows のバージョン、グラフィックと主な環境情報をコピーします。",
+          "copySuccess": "コピーしました。",
+          "solarIcons": "480 Design の Solar Icons を CC BY 4.0 に従って使用しています。",
+          "lucideIcons": "Lucide の ISC 通知と、Cole Bemis による Feather 由来のアイコンの MIT 通知をあわせて提供しています。",
+          "antDesignIcons": "塗りつぶしの GitHub アイコンは、MIT License の Ant Design Icons から取得しました。元の著作権とライセンスはサードパーティライセンスに含まれます。",
+          "notionIcon": "Notion のリンクには、提供された参考画像に合わせて作成したローカルベクターを使用しています。Notion の名称とマークは権利者に帰属します。",
+          "microsoftStoreIcon": "Microsoft Store のリンクには、提供された買い物袋と窓の参考画像を基に作成したローカルベクターを使用しています。Microsoft Store の名称とマークは Microsoft に帰属します。",
+          "legalNotices": "アプリの MIT ライセンスとサードパーティライセンス、出典を確認します。",
+          "dataNotice": "アプリで使用するデータ、権限、外部通信について確認します。",
+          "unofficialProduct": "このアプリは公式の Minecraft 製品ではありません。Mojang Studios または Microsoft の承認、提携、後援を受けていません。"
+        },
+        "buttons": {
+          "copy": "コピー",
+          "viewLog": "開く",
+          "fillSurvey": "お問い合わせフォームを開く",
+          "viewLegalNotices": "案内を読む",
+          "github": "GitHub",
+          "notion": "Notion",
+          "microsoftStore": "Microsoft Store",
+          "openLinktree": "Linktree を開く"
+        },
+        "confirm": {
+          "resetAll": "プログラム設定をすべて初期化しますか？",
+          "resetAllWarning": "プログラムのすべての設定とウィンドウ位置を既定値に戻します。この操作は元に戻せません。"
+        },
+        "errors": {
+          "resetAll": "プログラムの初期化を完了できませんでした。",
+          "resetAutostartBlocked": "Windows のポリシーによりログイン時の自動起動をオフにできません。設定とスキンファイルは初期化されていません。Windows で自動起動をオフにできるようになってから再試行してください。",
+          "resetPreflight": "初期化前にログイン時の自動起動を確認できませんでした。設定とスキンファイルは初期化されていません。再試行してください。",
+          "resetPartial": "初期化を完了できませんでした。一部の設定やスキンファイルは既に初期化または削除されている可能性があり、自動的には復元されていません。初期化を完了するには再試行してください。",
+          "legalNotices": "案内を開けませんでした。再試行してください。",
+          "openDeveloperLink": "開発者のリンクを開けませんでした。再試行してください。",
+          "openLink": "ページを開けませんでした。再試行してください。",
+          "copyInfo": "環境情報をコピーできませんでした。再試行してください。",
+          "openLog": "ログフォルダーを開けませんでした。再試行してください。",
+          "copyEmail": "メールアドレスをコピーできませんでした。再試行してください。"
+        }
+      },
+      "foregroundHiding": {
+        "title": "ペットの自動非表示",
+        "faqLabel": "ペットの自動非表示 FAQ",
+        "faqQuestion": "Q. 登録したアプリを開いてもペットが非表示になりません。",
+        "faqAnswer": "A. 通常版、Store 版、ポータブル版など、プログラムが異なる場所にインストールされている場合、実際に実行するアプリと異なるものを選択すると、この問題が発生することがあります。正しいアプリを選択しているか確認してください。",
+        "enabled": "ペットの自動非表示",
+        "enabledHint": "登録したアプリのウィンドウがアクティブな間、デスクトップペットを一時的に非表示にします。",
+        "applications": "自動非表示の対象アプリ",
+        "noApplications": "追加したアプリはありません。",
+        "addApplication": "アプリを追加",
+        "removeApplication": "{name} を削除",
+        "applicationModalTitle": "インストール済みアプリを選択",
+        "applicationModalHint": "インストール済みアプリを選ぶか、PC で実行ファイルを直接指定してください。",
+        "sharedExecutable": "このショートカットが使用する実行ファイルを基準に、同じファイルを共有する項目にも適用されます。",
+        "unresolvedApplication": "実行ファイルを特定できません。PC でアプリを選択して直接指定してください。",
+        "requiresExecutable": "EXE を指定",
+        "selectFromPc": "PC でアプリを選択",
+        "searchApplications": "プログラムを検索",
+        "noMatchingApplications": "検索に一致するプログラムはありません。",
+        "loadingApplications": "インストール済みアプリを読み込み中…",
+        "noInstalledApplications": "表示できるアプリが見つかりませんでした。PC でアプリを選択して実行ファイルを直接指定してください。",
+        "addNamedApplication": "{name} を追加",
+        "add": "追加",
+        "added": "追加済み",
+        "remove": "削除",
+        "invalidHint": "保存された自動非表示設定が無効です。元の値は保持され、自動非表示は動作しません。この項目を初期化して無効なルールを削除するか、保存された設定を修正してから使用してください。",
+        "repair": "自動非表示を初期化",
+        "repairTitle": "自動非表示の設定を初期化しますか？",
+        "repairHint": "自動非表示をオフにし、選択したアプリを削除します。他の環境設定は保持されます。",
+        "unavailableHint": "アクティブなアプリを特定できませんでした。特定できない間はペットを自動的に非表示にしません。アプリがより高い権限で実行されているか確認してください。",
+        "status": {
+          "off": "自動非表示はオフです。",
+          "empty": "自動非表示を使うにはアプリを追加してください。",
+          "observing": "アクティブなアプリを確認中です。",
+          "hidden": "選択したアプリのためデスクトップペットを非表示にしました。",
+          "bypassed": "今回の表示中はペットを手動で表示しました。",
+          "unavailable": "アクティブなアプリを確認できません。",
+          "invalid": "保存された自動非表示設定を確認してください。"
+        },
+        "errors": {
+          "limit": "アプリは最大 {count} 件まで追加できます。既存のアプリを削除してから追加してください。",
+          "applicationsUnavailable": "インストール済みアプリを読み込めませんでした。PC でアプリを選択して実行ファイルを直接指定してください。",
+          "applicationsIncomplete": "一部の登録情報を読み取れなかったか、一覧の上限に達しました。表示されたアプリを選択するか、PC で実行ファイルを直接指定してください。",
+          "selectionUnavailable": "アプリを選択できませんでした。実行ファイルをもう一度選択してください。"
+        }
+      },
+      "broadcast": {
+        "portInUseHint": "別のプログラムが配信ポートを使用しています。そのプログラムを終了してから再試行してください。配信アドレスは保持されます。",
+        "endpointConflictHint": "保存された配信アドレスの情報が一致しません。アドレスは変更していません。プログラムを終了してから既存データの状態を確認してください。",
+        "endpointInvalidHint": "保存された配信アドレスを読み込めませんでした。元のアドレスを保護するため、代わりのアドレスは作成していません。既存データの状態を確認してから再試行してください。",
+        "endpointUnavailableHint": "保存された配信アドレスにアクセスできませんでした。空き容量とアクセス権限を確認してから再試行してください。",
+        "endpointBackupHint": "既存の配信アドレスは保持されていますが、復旧用情報を保存できませんでした。空き容量とアクセス権限を確認してから再試行してください。",
+        "title": "配信設定",
+        "enabled": "配信出力",
+        "enabledHint": "OBS のブラウザーソースにペットを表示します。",
+        "usageInfoLabel": "配信・録画の使用許可",
+        "usageInfoQuestion": "Q. このペットを配信や録画に使用できますか？",
+        "usageInfoAnswer": "A. 既定のスキン（DMeloper）またはご自身で制作したスキンを使用している場合は、自由に配信・録画できます。他のユーザーが制作したスキンを使用する場合は、元の作者の許可を得てください。",
+        "desktopVisible": "自分のデスクトップにもペットを表示",
+        "desktopVisibleHint": "配信に出力するペットとは別に、デスクトップにもペットを表示します。",
+        "connection": "OBS 接続 URL",
+        "setupHint": "ペットを表示するためのブラウザー URL です。",
+        "setupInfoLabel": "OBS 連携方法",
+        "setupButtonLabel": "連携方法",
+        "setupInfo": "OBS 連携方法\n1. OBS のソース一覧で + ボタンをクリックします。\n2. ［ブラウザ］をクリックして追加します。\n3. 「OBS 接続 URL」をコピーし、ブラウザーソースのプロパティの［URL］に貼り付けます。\n4. OK をクリックして適用します。",
+        "addressPlaceholder": "配信出力をオンにすると URL が表示されます。",
+        "holdToShowAddress": "押している間だけ URL を表示（Space または Enter）",
+        "copy": "URL をコピー",
+        "copied": "コピー済み",
+        "copyError": "アドレスをコピーできませんでした。再試行してください。",
+        "statusTitle": "接続状態",
+        "statusHint": "ペットの OBS 接続状態を表示します。正常に動作しない場合は OBS ソースを更新してください。",
+        "status": {
+          "off": "オフ",
+          "updating": "適用中",
+          "waiting": "接続待ち",
+          "connected": "ブラウザーソース {count} 件が接続中",
+          "error": "接続エラー"
+        },
+        "retry": "再試行",
+        "errorHint": "接続を準備できませんでした。他のアプリがポートを使用していないか、ペットアプリが起動しているか確認してから再試行してください。",
+        "renderErrorHint": "ブラウザーソースでシーンを表示できませんでした。ブラウザーソースのハードウェアアクセラレーションを確認して再試行するか、OBS ソースを更新してください。可能な場合は以前のシーンを維持します。"
+      }
+    }
+  },
+  "components": {
+    "defaultSnapSlider": {
+      "defaultSuffix": "（既定値）"
+    },
+    "shortcut": {
+      "errors": {
+        "duplicate": "このショートカットキーは別の操作に割り当てられています。"
+      },
+      "buttons": {
+        "clear": "ショートカットキーを消去"
+      },
+      "hints": {
+        "pressRecordShortcut": "ショートカットキーを押してください",
+        "clickRecordShortcut": "クリックしてショートカットキーを記録"
+      }
+    }
+  },
+  "composables": {
+    "useAppMenu": {
+      "errors": {
+        "quit": "設定の保存または終了要求を完了できなかったため、アプリは開いたままです。再試行してください。",
+        "restart": "設定の保存または再起動要求を完了できなかったため、アプリは開いたままです。再試行してください。"
+      },
+      "labels": {
+        "preference": "環境設定",
+        "hideBlock": "ペットを非表示",
+        "showBlock": "ペットを表示",
+        "passThrough": "クリックを通過",
+        "windowSize": "拡大率",
+        "opacity": "不透明度",
+        "restartApp": "アプリを再起動",
+        "quitApp": "アプリを終了",
+        "petSettings": "ペット設定",
+        "rotation": "回転",
+        "keepInScreen": "画面内に保持"
+      },
+      "windowSizeOptions": {
+        "maximum": "最大",
+        "large": "大きく",
+        "normal": "標準",
+        "small": "小さく",
+        "slightlySmall": "少し小さく",
+        "verySmall": "非常に小さく",
+        "veryLarge": "非常に大きく"
+      },
+      "rotationOptions": {
+        "default": "標準",
+        "rightDiagonal": "右斜め",
+        "rightSide": "右側面",
+        "rearRight": "右後方",
+        "back": "背面",
+        "rearLeft": "左後方",
+        "leftSide": "左側面"
+      }
+    }
+  },
+  "updateReminder": {
+    "title": "更新があります",
+    "message": "新しいバージョン (v{version}) が公開されました。今すぐインストールしますか？",
+    "snooze": "1週間後に再通知",
+    "update": "今すぐ更新",
+    "close": "閉じる"
+  },
+  "inAppUpdates": {
+    "check": "更新を確認",
+    "install": "更新をインストール",
+    "checking": "更新を確認しています…",
+    "unknown": "更新を確認できませんでした。再試行してください。",
+    "available": "最新バージョン (v{version}) に更新できます。",
+    "upToDate": "現在のプログラムは最新です。",
+    "downloading": "更新をダウンロードして検証しています…",
+    "saving": "設定、プリセット、スキンを保存しています…",
+    "installing": "インストーラーを起動します。インストール完了後、アプリが再起動します。",
+    "failed": "更新を完了できませんでした。アプリが開いている場合は再確認してください。インストールが中断された場合は、GitHub リリースページからインストーラーを入手して修復してください。",
+    "verifying": "ダウンロードしたファイルの整合性と署名を検証しています。",
+    "cancel": "更新をキャンセル"
+  },
+  "storeUpdates": {
+    "hint": "バージョン情報は Microsoft Store が管理します。",
+    "open": "Microsoft Store を開く",
+    "openFailed": "Store ページを開けませんでした。Microsoft Store アプリで更新を確認してください。"
+  },
+  "autostartStatus": {
+    "enabled": "Windows ログイン時にこのインストール版を起動します。",
+    "disabled": "このインストール版の自動起動はオフです。",
+    "disabledByUser": "Windows で無効になっています。Windows の設定 → スタートアップアプリで変更してください。",
+    "disabledByPolicy": "Windows のポリシーにより無効になっています。",
+    "enabledByPolicy": "Windows のポリシーにより有効になっています。",
+    "unknown": "Windows の自動起動状態を確認できませんでした。",
+    "failed": "自動起動を変更できませんでした。Windows のスタートアップアプリの設定を確認してください。"
+  },
+  "startup": {
+    "web": {
+      "unconfirmedTitle": "アプリの起動を確認できませんでした",
+      "unconfirmedMessage": "起動処理が継続している可能性があります。応答を待ってから再起動してください。",
+      "failedTitle": "アプリを起動できませんでした",
+      "failedMessage": "既存の設定とユーザーデータを保持し、アプリを終了してから再起動してください。",
+      "guidance": "原因が分からない場合は、コンピューターの再起動とアプリの再インストールを試してください。既存の設定とユーザーデータは保持してください。"
+    },
+    "native": {
+      "installationInProgress": "インストールが進行中です。インストールを完了するかインストーラーを閉じてから、アプリを再度起動してください。",
+      "couldNotStart": "アプリを安全に起動できませんでした。",
+      "recheck": "再確認",
+      "exit": "終了",
+      "startupDialogUnavailable": "起動案内を表示できませんでした。Windows と WebView2 のインストール状態を確認してください。",
+      "webviewRequiredTitle": "WebView2 Runtime が必要です",
+      "webviewRequiredMessage": "3D 描画には Microsoft WebView2 Runtime が必要です。次のリンクから手動でインストールしてから、再試行してください。",
+      "openInstallationGuide": "インストール案内を開く",
+      "windowsMinimumWarning": "最小要件は Windows 10 22H2（ビルド 19045.3448）または Windows 11 22H2（ビルド 22621.2283）以降の x64 環境で、2023年9月以降の累積更新プログラムが必要です。現在の Windows は最小要件を満たしていないか、更新状態を確認できません。続行できますが、一部の機能が正常に動作しない可能性があります。",
+      "installationInterrupted": "インストールが中断されました。アプリを閉じ、同じインストーラーを再実行してインストールを修復してください。共有ペットデータは保持されます。",
+      "updateRequiredTitle": "更新が必要です",
+      "updateRequiredMessage": "共有ペットデータには新しいバージョンが必要です。設定は変更されていません。このインストール版の公式更新ページを開いてください。",
+      "dataCompatibilityTitle": "共有データの互換性を確認できません",
+      "dataCompatibilityMessage": "共有データの互換性情報を解釈できません。既存のファイルは保持されます。このインストール版の公式ページで更新またはヘルプを確認してください。",
+      "openOfficialPage": "公式ページを開く",
+      "dataUnavailable": "共有ペットデータを開けませんでした。代わりのデータフォルダーは作成されていません。"
+    }
+  }
+}

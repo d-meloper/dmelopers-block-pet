@@ -1,10 +1,14 @@
 import { LANGUAGE } from '@/constants'
 
-export type Language = typeof LANGUAGE[keyof typeof LANGUAGE]
+import type { Language } from './registry'
+
+import { isPublicLanguage } from './registry'
+
+export type { Language } from './registry'
 export type LanguagePreference = 'system' | Language
 
 export function isLanguage(value: unknown): value is Language {
-  return value === LANGUAGE.KO_KR || value === LANGUAGE.EN_US
+  return isPublicLanguage(value)
 }
 
 export function isLanguagePreference(value: unknown): value is LanguagePreference {

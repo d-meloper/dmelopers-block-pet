@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 2,
+  "kind": "BlockPetLocaleContentLock",
+  "sourceRevision": "8a5792ddbbf4ad6cd7e2faac68bb71612a0cb7209e58124f02b93fbf35062d0c",
+  "files": [
+    {
+      "path": "src/locales/en-US.json",
+      "sha256": "cedba8c83a5a4ee65691ca1b841372b6a217f8913d8bf1c52cf25ac36da86db9"
+    },
+    {
+      "path": "src/locales/inclusion-policy.json",
+      "sha256": "63eb5490432674eeefc304a4329c339daa15971c758a2a1a6cbebe9425c92fa1"
+    },
+    {
+      "path": "src/locales/ja-JP.json",
+      "sha256": "4e6a60bcd565327437615368b6feca74c19ec47b82ae933db603a6503914e08d"
+    },
+    {
+      "path": "src/locales/ko-KR.json",
+      "sha256": "957a744ae14878b344a6bc447a72501a2a06a47d12b441695b12e04c19e10b52"
+    },
+    {
+      "path": "src/locales/registry.json",
+      "sha256": "4d56b88c315343a45243c22d636c49db8ee960930d0e340a7a082d3f1402789b"
+    },
+    {
+      "path": "src/locales/reviews.json",
+      "sha256": "83f675b2a211a7eeb471ffbf0e0b20f9760be3d690640e269dc77b045aad39b9"
+    }
+  ],
+  "languages": [
+    {
+      "locale": "en-US",
+      "provider": "LocalFirstParty",
+      "sourceRevision": "8a5792ddbbf4ad6cd7e2faac68bb71612a0cb7209e58124f02b93fbf35062d0c",
+      "translationContentSha256": "1669135f142dfe6155258ecec48f50f4651c87d2cc44ea2f796cfd66e6ba5ef5",
+      "catalogSha256": "cedba8c83a5a4ee65691ca1b841372b6a217f8913d8bf1c52cf25ac36da86db9",
+      "provenanceSha256": "3b788a58ef1e27d7b2e804912cd29058d2fc85528c9b863ad876a4bbdf1432f8",
+      "reviewState": "Unknown"
+    },
+    {
+      "locale": "ja-JP",
+      "provider": "GoogleSheets",
+      "sourceRevision": "8a5792ddbbf4ad6cd7e2faac68bb71612a0cb7209e58124f02b93fbf35062d0c",
+      "translationContentSha256": "287854d82d81b4e38539b1e7f797d666c61cd4bda3004da57060a08b703178f2",
+      "catalogSha256": "4e6a60bcd565327437615368b6feca74c19ec47b82ae933db603a6503914e08d",
+      "provenanceSha256": "0aacfff5f3631a86644e03cb87bad879549dcae6128d8c72a19804eee7c0e014",
+      "reviewState": "AiOnly"
+    },
+    {
+      "locale": "ko-KR",
+      "provider": "LocalFirstParty",
+      "sourceRevision": "8a5792ddbbf4ad6cd7e2faac68bb71612a0cb7209e58124f02b93fbf35062d0c",
+      "translationContentSha256": "969114ebf2eaa6b7b88389d5d83433c089f432cfc6ab141301c01e88d7bb858d",
+      "catalogSha256": "957a744ae14878b344a6bc447a72501a2a06a47d12b441695b12e04c19e10b52",
+      "provenanceSha256": "33f108c10caab7b6039e7905d8244460eaaa826630b42c24eb0b84b2c9644234",
+      "reviewState": "Unknown"
+    }
+  ],
+  "snapshotInputsSha256": "eaffea92fae86ba7c5ca28136844b215798ddef3db9b516507d41fcb6978f330",
+  "lockSha256": "86c2e449c93c2ce59cdc0908b43d91de341d4565a2cd93ca9212ca9128338bd0"
+}

@@ -15,11 +15,11 @@ use windows_sys::Win32::{
     },
     UI::{
         Controls::{
-            TASKDIALOG_BUTTON, TASKDIALOGCONFIG, TDF_ALLOW_DIALOG_CANCELLATION,
+            TASKDIALOG_BUTTON, TASKDIALOGCONFIG, TDF_ALLOW_DIALOG_CANCELLATION, TDF_RTL_LAYOUT,
             TDF_SIZE_TO_CONTENT, TaskDialogIndirect,
         },
         Shell::ShellExecuteW,
-        WindowsAndMessaging::{MB_ICONERROR, MB_ICONWARNING, MessageBoxW},
+        WindowsAndMessaging::{MB_ICONERROR, MB_ICONWARNING, MB_RIGHT, MB_RTLREADING, MessageBoxW},
     },
 };
 
@@ -76,7 +76,9 @@ impl LifetimeLock {
         }
         let name = match crate::distribution::channel() {
             crate::distribution::Channel::Github => "Local\\DMeloper.BlockPet.Installer",
-            crate::distribution::Channel::Test if cfg!(feature = "wix-local-test") => "Local\\DMeloper.BlockPet.WixLocal.Installer",
+            crate::distribution::Channel::Test if cfg!(feature = "wix-local-test") => {
+                "Local\\DMeloper.BlockPet.WixLocal.Installer"
+            }
             crate::distribution::Channel::Test => "Local\\DMeloper.BlockPet.Test.Installer",
             _ => return Ok(()),
         };
@@ -89,7 +91,7 @@ impl LifetimeLock {
         let exists = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
         let handle = Handle(mutex);
         if exists {
-            return Err(localized("설치가 진행 중입니다. 설치를 완료하거나 설치 프로그램을 닫은 다음 앱을 다시 실행하세요.", "An installation is in progress. Finish or close the installer, then open the app again.").into());
+            return Err(localized("installationInProgress").into());
         }
         self.installation = Some(handle);
         Ok(())
@@ -116,7 +118,10 @@ impl LifetimeLock {
 #[cfg(any(feature = "wix-local-test", feature = "wix-github"))]
 pub fn remove_user_data_for_uninstall() -> Result<(), &'static str> {
     let channel = crate::distribution::channel();
-    if !matches!(channel, crate::distribution::Channel::Github | crate::distribution::Channel::Test) {
+    if !matches!(
+        channel,
+        crate::distribution::Channel::Github | crate::distribution::Channel::Test
+    ) {
         return Err("UNINSTALL_CLEANUP_CALLER_INVALID");
     }
     if !channel_uninstaller_is_caller()? {
@@ -161,7 +166,11 @@ fn channel_uninstaller_is_caller() -> Result<bool, &'static str> {
     let current_image = std::env::current_exe().map_err(|_| "UNINSTALL_CLEANUP_CALLER_INVALID")?;
     let registered_install_root = crate::windows_process::registered_install_root()
         .map_err(|_| "UNINSTALL_CLEANUP_CALLER_INVALID")?;
-    Ok(crate::wix_local::cleanup_caller(&current_image, &registered_install_root, &parent_image))
+    Ok(crate::wix_local::cleanup_caller(
+        &current_image,
+        &registered_install_root,
+        &parent_image,
+    ))
 }
 
 fn wait_for_activation(event: &Handle) -> u32 {
@@ -194,28 +203,34 @@ fn handle_activation_wait(
 }
 
 pub fn error(message: &str) {
-    let message = format!(
-        "{}\n\n{message}",
-        localized(
-            "앱을 안전하게 시작할 수 없습니다.",
-            "The app could not start safely."
-        )
-    );
+    let message = format!("{}\n\n{message}", localized("couldNotStart"));
     unsafe {
         MessageBoxW(
             std::ptr::null_mut(),
             wide(&message).as_ptr(),
             wide("DMeloper's Block Pet").as_ptr(),
-            MB_ICONERROR,
+            message_flags(MB_ICONERROR),
         );
     }
 }
-fn localized<'a>(korean: &'a str, english: &'a str) -> &'a str {
-    if crate::system_language::is_korean() {
-        korean
+fn localized(key: &str) -> &'static str {
+    crate::locale_catalog::text(key)
+}
+fn message_flags(icon: u32) -> u32 {
+    if crate::locale_catalog::is_rtl() {
+        icon | MB_RIGHT | MB_RTLREADING
     } else {
-        english
+        icon
     }
+}
+fn dialog_flags() -> i32 {
+    TDF_ALLOW_DIALOG_CANCELLATION
+        | TDF_SIZE_TO_CONTENT
+        | if crate::locale_catalog::is_rtl() {
+            TDF_RTL_LAYOUT
+        } else {
+            0
+        }
 }
 const OPEN: i32 = 101;
 const RECHECK: i32 = 102;
@@ -226,8 +241,8 @@ fn prompt(instruction: &str, content: &str, recheck: bool, open_label: &str) -> 
     let content = wide(content);
     let labels = [
         wide(open_label),
-        wide(localized("다시 확인", "Recheck")),
-        wide(localized("종료", "Exit")),
+        wide(localized("recheck")),
+        wide(localized("exit")),
     ];
     let mut buttons = vec![TASKDIALOG_BUTTON {
         nButtonID: OPEN,
@@ -245,7 +260,7 @@ fn prompt(instruction: &str, content: &str, recheck: bool, open_label: &str) -> 
     });
     let config = TASKDIALOGCONFIG {
         cbSize: std::mem::size_of::<TASKDIALOGCONFIG>() as u32,
-        dwFlags: TDF_ALLOW_DIALOG_CANCELLATION | TDF_SIZE_TO_CONTENT,
+        dwFlags: dialog_flags(),
         pszWindowTitle: title.as_ptr(),
         pszMainInstruction: instruction.as_ptr(),
         pszContent: content.as_ptr(),
@@ -264,10 +279,7 @@ fn prompt(instruction: &str, content: &str, recheck: bool, open_label: &str) -> 
         )
     };
     if result < 0 {
-        error(localized(
-            "시작 안내 창을 열 수 없습니다. Windows와 WebView2 설치 상태를 확인하세요.",
-            "The startup dialog could not be displayed. Check Windows and WebView2 installation.",
-        ));
+        error(localized("startupDialogUnavailable"));
         return EXIT;
     }
     selected
@@ -295,19 +307,10 @@ fn webview_preflight() -> bool {
             return true;
         }
         let choice = prompt(
-            localized(
-                "WebView2 Runtime 설치가 필요합니다",
-                "WebView2 Runtime required",
-            ),
-            &format!(
-                "{}\n\n{guide}",
-                localized(
-                    "3D 렌더링을 위해 Microsoft WebView2 Runtime 프로그램이 필요합니다. 다음 링크에서 수동으로 설치한 뒤 다시 실행해 주세요.",
-                    "Microsoft WebView2 Runtime is needed for 3D rendering. Follow this link to install it manually, then try again.",
-                )
-            ),
+            localized("webviewRequiredTitle"),
+            &format!("{}\n\n{guide}", localized("webviewRequiredMessage")),
             true,
-            localized("설치 안내 열기", "Open installation guide"),
+            localized("openInstallationGuide"),
         );
         match choice {
             OPEN => open_url(guide),
@@ -356,12 +359,9 @@ fn platform_preflight() {
         unsafe {
             MessageBoxW(
                 std::ptr::null_mut(),
-                wide(localized(
-                    "최소 사양은 Windows 10 22H2(빌드 19045.3448) 또는 Windows 11 22H2(빌드 22621.2283) 이상의 x64 환경입니다. 2023년 9월 또는 이후 누적 업데이트가 필요합니다. 현재 Windows가 최소 사양에 미달하거나 업데이트 상태를 확인할 수 없습니다. 계속 실행할 수 있지만 일부 기능이 올바르게 작동하지 않을 수 있습니다.",
-                    "The minimum is Windows 10 22H2 (build 19045.3448) or Windows 11 22H2 (build 22621.2283) or later, x64, with the September 2023 or a later cumulative update. This Windows version is below the minimum or its update revision could not be checked. You can continue, but some features may not work correctly.",
-                )).as_ptr(),
+                wide(localized("windowsMinimumWarning")).as_ptr(),
                 wide("DMeloper's Block Pet").as_ptr(),
-                MB_ICONWARNING,
+                message_flags(MB_ICONWARNING),
             );
         }
     }
@@ -385,7 +385,7 @@ pub fn prepare() -> Result<Option<(LifetimeLock, DataRoots)>, String> {
         .try_exists()
         .map_err(|_| "INSTALLATION_UNAVAILABLE")?
     {
-        return Err(localized("설치가 중단되었습니다. 앱을 닫고 동일한 설치 프로그램을 다시 실행해 설치를 복구하세요. 공유 펫 데이터는 유지됩니다.", "Installation was interrupted. Close this app and run the same installer again to repair this installation. Your shared pet data will be preserved.").into());
+        return Err(localized("installationInterrupted").into());
     }
     if !webview_preflight() {
         return Ok(None);
@@ -398,42 +398,22 @@ pub fn prepare() -> Result<Option<(LifetimeLock, DataRoots)>, String> {
         ) {
             let (title, message) = if code == "DATA_SCHEMA_UNSUPPORTED" {
                 (
-                    localized("업데이트가 필요합니다", "Update required"),
-                    localized(
-                        "공유 펫 데이터에 더 최신 버전이 필요합니다. 설정은 변경되지 않았습니다. 이 설치본의 공식 업데이트 페이지를 여세요.",
-                        "This shared pet data requires a newer version. No settings have been changed. Open the official update page for this installation.",
-                    ),
+                    localized("updateRequiredTitle"),
+                    localized("updateRequiredMessage"),
                 )
             } else {
                 (
-                    localized(
-                        "공유 데이터 호환성을 확인할 수 없습니다",
-                        "Shared data compatibility is unknown",
-                    ),
-                    localized(
-                        "공유 데이터의 호환성 정보를 해석할 수 없습니다. 기존 파일은 그대로 유지됩니다. 이 설치본의 공식 페이지에서 업데이트 또는 도움말을 확인하세요.",
-                        "The shared data compatibility information cannot be interpreted. Existing files are preserved. Open this installation's official page for updates or help.",
-                    ),
+                    localized("dataCompatibilityTitle"),
+                    localized("dataCompatibilityMessage"),
                 )
             };
-            let choice = prompt(
-                title,
-                message,
-                false,
-                localized("공식 페이지 열기", "Open official page"),
-            );
+            let choice = prompt(title, message, false, localized("openOfficialPage"));
             if choice == OPEN {
                 open_url(&crate::distribution::channel().update_url());
             }
             return Ok(None);
         }
-        return Err(format!(
-            "{} ({code})",
-            localized(
-                "공유 펫 데이터를 열 수 없습니다. 대체 데이터 폴더는 생성하지 않았습니다.",
-                "Shared pet data could not be opened. No fallback data folder was created."
-            )
-        ));
+        return Err(format!("{} ({code})", localized("dataUnavailable")));
     }
     Ok(Some((lock, roots)))
 }

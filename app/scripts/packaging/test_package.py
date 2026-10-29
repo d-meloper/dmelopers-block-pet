@@ -3,6 +3,10 @@ import importlib.util
 from contextlib import ExitStack, redirect_stdout
 import io
 import json
+import os
+import shutil
+import struct
+import zlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -254,6 +258,114 @@ class PackageContracts(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'optional'):
                     builder.verify_msix(file, '1.0.1', builder.SYNTHETIC,
                             expected_minimum_windows='10.0.19045.3448')
+
+
+
+def png_fixture(size, alpha=0):
+    def chunk(tag, data):
+        return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', zlib.crc32(tag + data))
+    raw = (b'\0' + bytes([20, 40, 60, alpha]) * size) * size
+    # One visible pixel; the exterior keeps the requested alpha.
+    raw = raw[:4] + b'\xff' + raw[5:]
+    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', size, size, 8, 6, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b'')
+
+
+class StoreResourceContracts(unittest.TestCase):
+    def test_complete_target_matrix_and_pixel_validation(self):
+        self.assertEqual(builder.STORE_TARGET_SIZES, (16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 80, 96, 256))
+        self.assertEqual(len(builder.store_asset_sizes()), 45)
+        for name, size in builder.store_asset_sizes().items():
+            with self.subTest(name=name):
+                builder.verify_store_png(png_fixture(size), size)
+        for data in (b'bad', png_fixture(20), png_fixture(16, 255), png_fixture(16)[:-1]):
+            with self.subTest(data=data[:16]), self.assertRaises(ValueError):
+                builder.verify_store_png(data, 16)
+        corrupt = bytearray(png_fixture(16)); corrupt[-16] ^= 1
+        with self.assertRaisesRegex(ValueError, 'checksum'):
+            builder.verify_store_png(corrupt, 16)
+
+    def test_makepri_must_exist_in_the_selected_sdk(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            sdk = Path(temporary) / '10.0.26100.0/x64'
+            sdk.mkdir(parents=True)
+            appx = sdk / 'makeappx.exe'
+            appx.write_bytes(b'appx')
+            with self.assertRaisesRegex(ValueError, 'Selected Windows SDK'):
+                builder.makepri_tool(appx)
+            (sdk / 'makepri.exe').write_bytes(b'pri')
+            self.assertEqual(builder.makepri_tool(appx), (sdk / 'makepri.exe').resolve())
+
+
+class StoreResourceSdkTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            cls.makepri = builder.makepri_tool(builder.makeappx_tool())
+        except (OSError, ValueError) as error:
+            raise unittest.SkipTest(str(error))
+        cls.temporary = tempfile.TemporaryDirectory(prefix='block-pet-store-resource-test-')
+        cls.addClassCleanup(cls.temporary.cleanup)
+        cls.output = Path(cls.temporary.name)
+        cls.stage = cls.output / 'msix-stage'
+        cls.stage.mkdir()
+        (cls.stage / 'AppxManifest.xml').write_bytes(builder.manifest(builder.SYNTHETIC, '1.1.4'))
+        cls.evidence = builder.generate_store_resources(cls.stage, cls.output, builder.SYNTHETIC,
+                shutil.which('node.exe'), builder.ROOT / 'node_modules/@tauri-apps/cli/tauri.js', cls.makepri, os.environ.copy())
+
+    def test_actual_generation_pri_and_packaged_readback(self):
+        self.assertEqual(len(self.evidence['assets']), 45)
+        artifact = self.output / 'synthetic-resources.zip'
+        with zipfile.ZipFile(artifact, 'w') as archive:
+            for file in self.stage.rglob('*'):
+                if file.is_file(): archive.write(file, file.relative_to(self.stage).as_posix())
+        actual = builder.verify_msix_store_resources(artifact, builder.SYNTHETIC, self.makepri,
+                 os.environ.copy(), self.output / 'archive-dump.log', self.output / 'archive-dump.xml')
+        self.assertEqual(actual['pri'], self.evidence['pri'])
+        self.assertEqual(actual['assets'], self.evidence['assets'])
+        with self.assertRaisesRegex(ValueError, 'identity'):
+            builder.verify_store_pri_dump((self.output / 'archive-dump.xml').read_bytes(), {'name': 'Wrong.Identity'})
+
+    def test_missing_assets_wrong_dimensions_and_missing_pri_fail_before_dump(self):
+        for index, defect in enumerate(('missing', 'dimensions', 'opaque', 'pri')):
+            stage = self.output / ('negative-' + defect)
+            shutil.copytree(self.stage, stage)
+            asset = stage / 'StoreAssets/Square44x44Logo.targetsize-16_altform-unplated.png'
+            if defect == 'missing': asset.unlink()
+            elif defect == 'dimensions': asset.write_bytes(png_fixture(20))
+            elif defect == 'opaque': asset.write_bytes(png_fixture(16, 255))
+            else: (stage / 'resources.pri').unlink()
+            with self.subTest(defect=defect), patch.object(builder, 'run') as run, self.assertRaises(ValueError):
+                builder.verify_store_resources(stage, builder.SYNTHETIC, self.makepri, os.environ.copy(),
+                         self.output / f'negative-{index}.log', self.output / f'negative-{index}.xml')
+            run.assert_not_called()
+
+    def test_pri_must_register_every_size_form_under_the_manifest_logo(self):
+        original = (self.output / 'resources.pri.xml').read_bytes()
+        root = ET.fromstring(original)
+        logo = root.find('.//NamedResource[@name="Square44x44Logo.png"]')
+        for candidate in list(logo.findall('Candidate')):
+            qualifiers = {q.get('name'): q.get('value') for q in candidate.findall('QualifierSet/Qualifier')}
+            if qualifiers.get('AlternateForm') == 'LIGHTUNPLATED':
+                logo.remove(candidate)
+                break
+        with self.assertRaisesRegex(ValueError, 'candidate'):
+            builder.verify_store_pri_dump(ET.tostring(root), builder.SYNTHETIC)
+        root = ET.fromstring(original)
+        candidate = root.find('.//Candidate')
+        candidate.find('Value').text = 'StoreAssets/wrong.png'
+        with self.assertRaisesRegex(ValueError, 'candidate'):
+            builder.verify_store_pri_dump(ET.tostring(root), builder.SYNTHETIC)
+        root = ET.fromstring(original)
+        candidate = root.find('.//Candidate')
+        root.find('.//Candidate/QualifierSet/Qualifier').set('value', '44')
+        with self.assertRaisesRegex(ValueError, 'candidate'):
+            builder.verify_store_pri_dump(ET.tostring(root), builder.SYNTHETIC)
+        broken = self.output / 'broken-pri'
+        shutil.copytree(self.stage, broken)
+        (broken / 'resources.pri').write_bytes(b'not a PRI')
+        with self.assertRaisesRegex(ValueError, 'Build command failed'):
+            builder.verify_store_resources(broken, builder.SYNTHETIC, self.makepri, os.environ.copy(),
+                  self.output / 'broken-pri.log', self.output / 'broken-pri.xml')
 
 
 if __name__ == '__main__':

@@ -151,6 +151,7 @@ onBeforeUnmount(() => {
 })
 function confirmRepair() {
   Modal.confirm({
+    direction: typeof document !== 'undefined' && document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr',
     title: t(`${key}.repairTitle`),
     content: t(`${key}.repairHint`),
     okText: t(`${key}.repair`),

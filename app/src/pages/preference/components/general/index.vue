@@ -8,6 +8,7 @@ import type { AutostartStatus } from '@/services/autostart'
 import PreferenceSections from '@/components/preference-sections/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
+import { getPublicLanguageOptions } from '@/locales/registry'
 import { getAutostartStatus, setAutostartEnabled } from '@/services/autostart'
 import { reportDiagnostic } from '@/services/diagnostics'
 import { useBlockStore } from '@/stores/block'
@@ -20,6 +21,7 @@ import ThemeMode from './components/theme-mode/index.vue'
 const blockStore = useBlockStore()
 const generalStore = useGeneralStore()
 const { t } = useI18n()
+const languageOptions = getPublicLanguageOptions()
 
 const autostart = ref<AutostartStatus>()
 const autostartBusy = ref(false)
@@ -62,6 +64,7 @@ onBeforeUnmount(() => {
 function confirmGeneralReset() {
   if (disposed || autostartBusy.value || resetting.value) return
   Modal.confirm({
+    direction: typeof document !== 'undefined' && document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr',
     title: t('pages.preference.general.confirm.reset'),
     okType: 'danger',
     onOk: async () => {
@@ -141,16 +144,19 @@ function confirmGeneralReset() {
       <ProListItem :title="$t('pages.preference.general.labels.language')">
         <Select
           v-model:value="generalStore.appearance.language"
+          :aria-label="t('pages.preference.general.labels.language')"
+          class="app-language-select"
           :dropdown-match-select-width="false"
         >
           <Select.Option value="system">
             {{ $t('pages.preference.general.options.systemLanguage') }}
           </Select.Option>
-          <Select.Option value="ko-KR">
-            한국어
-          </Select.Option>
-          <Select.Option value="en-US">
-            English
+          <Select.Option
+            v-for="option in languageOptions"
+            :key="option.value"
+            :value="option.value"
+          >
+            <bdi :lang="option.value">{{ option.label }}</bdi>
           </Select.Option>
         </Select>
       </ProListItem>

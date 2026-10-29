@@ -1,17 +1,7 @@
-import type { Locale as AntdLocale } from 'ant-design-vue/es/locale'
+import { antdLocales } from 'virtual:block-pet-locales'
 
-import antdEnUS from 'ant-design-vue/locale/en_US'
-import antdKoKR from 'ant-design-vue/locale/ko_KR'
+import { FALLBACK_LOCALE } from './registry'
 
-import type { Language } from '@/stores/general'
-
-import { LANGUAGE } from '@/constants'
-
-export function getAntdLocale(language: Language = LANGUAGE.EN_US) {
-  const antdLanguage: Record<Language, AntdLocale> = {
-    [LANGUAGE.KO_KR]: antdKoKR,
-    [LANGUAGE.EN_US]: antdEnUS,
-  }
-
-  return antdLanguage[language]
+export function getAntdLocale(language: string = FALLBACK_LOCALE) {
+  return antdLocales[language] ?? antdLocales[FALLBACK_LOCALE]
 }

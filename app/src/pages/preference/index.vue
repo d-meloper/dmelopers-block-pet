@@ -8,7 +8,7 @@ import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useAntialiasSetting } from '@/composables/useAntialiasSetting'
-import { useAppLanguage } from '@/composables/useAppLanguage'
+import { useAppLocale } from '@/composables/useAppLocale'
 import { BROADCAST_CONTROLLER, useBroadcast } from '@/composables/useBroadcast'
 import { cancelShortcutRecording, useKeyPress } from '@/composables/useKeyPress'
 import { usePetRuntimeRecovery } from '@/composables/usePetRuntimeRecovery'
@@ -71,7 +71,7 @@ watch([scrollTab, scrollContainer], ([tab, container]) => {
   if (tab !== undefined && container) container.scrollTop = tabScrollPositions.get(tab) ?? 0
 }, { flush: 'post' })
 const { t } = useI18n()
-const { language } = useAppLanguage()
+const { language, direction } = useAppLocale()
 const updates = providePreferenceUpdates()
 usePetRuntimeRecovery(t)
 useTauriListen<{ action: 'quit' | 'restart' }>(APP_PROCESS_FAILED, ({ payload }) => {
@@ -496,6 +496,7 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
 
 <template>
   <ConfigProvider
+    :direction="direction"
     :dropdown-match-select-width="false"
     :locale="getAntdLocale(language)"
     :theme="{
@@ -671,7 +672,7 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
   line-height: 20px;
   padding: 0 11px;
   position: relative;
-  text-align: left;
+  text-align: start;
   transition:
     background-color 150ms,
     color 150ms,
@@ -693,7 +694,7 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
   border-radius: 2px;
   content: '';
   height: 24px;
-  left: 0;
+  inset-inline-start: 0;
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
@@ -717,7 +718,7 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
   min-width: 0;
   opacity: 0;
   overflow: hidden;
-  transform: translateX(-6px);
+  transform: translateX(var(--preference-label-offset, -6px));
   transition:
     max-width 220ms cubic-bezier(0.2, 0, 0, 1),
     opacity 150ms,
@@ -725,6 +726,10 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
     visibility 0s 220ms;
   visibility: hidden;
   white-space: nowrap;
+}
+
+:global(html[dir='rtl']) .preference-tab-label {
+  --preference-label-offset: 6px;
 }
 
 /* The owner-selected breakpoint leaves 500 px for the content pane. */

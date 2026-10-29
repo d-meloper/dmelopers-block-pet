@@ -7,7 +7,7 @@ import ts from 'typescript'
 import { parse } from 'vue/compiler-sfc'
 
 import { BLOCK_STORE_ID } from '@/config/persistedNames'
-import { WINDOW_LABEL } from '@/constants'
+import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
 import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import { SCENE_VIEWPORT_STATE } from '@/features/scene/types'
 import { equalViewportRect, normalizeManualViewport } from '@/features/scene/viewportSettings'
@@ -105,4 +105,38 @@ describe('desktop native settings confirmations', () => {
       assert.deepEqual(Array.from(read(), item => item.id), label === 'main' ? ['app', 'general', 'shortcut'] : ['app', 'cat', 'general', 'shortcut'])
     }
   })
+})
+
+it('main reset reports native input failure and retains geometry-only request behavior', async () => {
+  const handler = fragment('useTauriListen<MainViewportResetRequest>(', 'async function handleMouseDown(')
+  for (const mouseEnabled of [undefined, true]) {
+    let receive!: (event: { payload: { requestId: string, mouseEnabled?: boolean } }) => void
+    let complete!: (payload: { success: boolean }) => void
+    const completion = new Promise<{ success: boolean }>((resolve) => {
+      complete = resolve
+    })
+    let centered = false
+    let requested = false
+    run(handler, {
+      useTauriListen: (_event: string, callback: typeof receive) => {
+        receive = callback
+      },
+      LISTEN_KEY,
+      WINDOW_LABEL,
+      device: { requestMouseSetting: async () => {
+        requested = true
+        throw new Error('native failed')
+      } },
+      settleAndCenterResetViewport: async () => {
+        centered = true
+        return true
+      },
+      emitTo: async (_label: string, _event: string, payload: { success: boolean }) => complete(payload),
+      console: { error: () => {} },
+    })
+    receive({ payload: { requestId: 'reset', ...(mouseEnabled === undefined ? {} : { mouseEnabled }) } })
+    assert.equal((await completion).success, mouseEnabled === undefined)
+    assert.equal(requested, mouseEnabled !== undefined)
+    assert.equal(centered, mouseEnabled === undefined)
+  }
 })

@@ -1,5 +1,7 @@
 export interface MainViewportResetRequest {
   requestId: string
+  /** Full reset also owns the native mouse option; geometry-only callers omit it. */
+  mouseEnabled?: boolean
 }
 
 export interface MainViewportResetComplete extends MainViewportResetRequest {
@@ -19,6 +21,7 @@ interface MainViewportResetTransport {
 }
 
 interface MainViewportResetOptions {
+  mouseEnabled?: boolean
   clock?: MainViewportResetClock
   createRequestId?: () => string
   timeoutMs?: number
@@ -59,7 +62,7 @@ export async function requestMainViewportReset(
         rejectCompletion?.(new Error('The main viewport reset timed out.'))
       }, timeoutMs)
     }
-    await transport.emit({ requestId })
+    await transport.emit({ requestId, ...(options.mouseEnabled === undefined ? {} : { mouseEnabled: options.mouseEnabled }) })
     await completion
   } finally {
     settled = true

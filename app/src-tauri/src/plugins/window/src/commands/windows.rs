@@ -17,6 +17,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IsWindowVisible, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowLongW, SetWindowPos, WS_EX_NOACTIVATE, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
 };
 use windows::core::Interface;
+use windows_version::OsVersion;
 
 static TOPMOST_REQUESTS: OnceLock<mpsc::Sender<TopmostRequest>> = OnceLock::new();
 static PET_MENU_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -482,29 +483,44 @@ fn preference_caption_color(label: &str, dark: bool) -> Result<u32, String> {
     })
 }
 
+fn apply_preference_caption_color(
+    label: &str,
+    dark: bool,
+    version: OsVersion,
+    apply: impl FnOnce(u32) -> Result<(), String>,
+) -> Result<(), String> {
+    let color = preference_caption_color(label, dark)?;
+    // DWMWA_CAPTION_COLOR is supported starting at Windows 11 build 22000.
+    if (version.major, version.minor, version.build) < (10, 0, 22000) {
+        return Ok(());
+    }
+    apply(color)
+}
+
 #[command]
 pub async fn set_preference_caption_color<R: Runtime>(
     window: WebviewWindow<R>,
     dark: bool,
 ) -> Result<(), String> {
-    let color = preference_caption_color(window.label(), dark)?;
-    let hwnd = window
-        .hwnd()
-        .map_err(|_| "WINDOW_HANDLE_UNAVAILABLE".to_owned())?;
-    unsafe {
-        DwmSetWindowAttribute(
-            hwnd,
-            DWMWA_CAPTION_COLOR,
-            (&color as *const u32).cast(),
-            std::mem::size_of::<u32>() as u32,
-        )
-    }
-    .map_err(|error| {
-        super::warn(
-            "window.preference_caption",
-            &format!("HRESULT_0x{:08X}", error.code().0 as u32),
-        );
-        "CAPTION_COLOR_UNAVAILABLE".to_owned()
+    apply_preference_caption_color(window.label(), dark, OsVersion::current(), |color| {
+        let hwnd = window
+            .hwnd()
+            .map_err(|_| "WINDOW_HANDLE_UNAVAILABLE".to_owned())?;
+        unsafe {
+            DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_CAPTION_COLOR,
+                (&color as *const u32).cast(),
+                std::mem::size_of::<u32>() as u32,
+            )
+        }
+        .map_err(|error| {
+            super::warn(
+                "window.preference_caption",
+                &format!("HRESULT_0x{:08X}", error.code().0 as u32),
+            );
+            "CAPTION_COLOR_UNAVAILABLE".to_owned()
+        })
     })
 }
 
@@ -683,6 +699,66 @@ mod tests {
         );
         assert!(preference_caption_color(MAIN_WINDOW_LABEL, true).is_err());
         assert!(preference_caption_color("remote", false).is_err());
+    }
+
+    #[test]
+    fn caption_color_unsupported_versions_do_not_call_the_native_api() {
+        for version in [
+            OsVersion::new(10, 0, 0, 19045),
+            OsVersion::new(10, 0, 0, 21999),
+            OsVersion::new(0, 0, 0, 0),
+        ] {
+            for dark in [false, true] {
+                assert_eq!(
+                    apply_preference_caption_color(PREFERENCE_WINDOW_LABEL, dark, version,
+                        |_| panic!("unsupported Windows versions must preserve the native caption")),
+                    Ok(())
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn caption_color_supported_versions_apply_the_requested_color() {
+        for version in [
+            OsVersion::new(10, 0, 0, 22000),
+            OsVersion::new(10, 0, 0, 26100),
+        ] {
+            for (dark, expected) in [(true, 0x00202020), (false, DWMWA_COLOR_DEFAULT)] {
+                let mut applied = None;
+                let result = apply_preference_caption_color(
+                    PREFERENCE_WINDOW_LABEL, dark, version, |color| {
+                        applied = Some(color);
+                        Ok(())
+                    });
+                assert_eq!(result, Ok(()));
+                assert_eq!(applied, Some(expected));
+            }
+        }
+    }
+
+    #[test]
+    fn caption_color_supported_versions_preserve_native_failures() {
+        for error in ["WINDOW_HANDLE_UNAVAILABLE", "CAPTION_COLOR_UNAVAILABLE"] {
+            assert_eq!(
+                apply_preference_caption_color(PREFERENCE_WINDOW_LABEL, true,
+                    OsVersion::new(10, 0, 0, 22000), |_| Err(error.into())),
+                Err(error.into())
+            );
+        }
+    }
+
+    #[test]
+    fn caption_color_rejects_other_windows_before_checking_os_support() {
+        for label in [MAIN_WINDOW_LABEL, "remote"] {
+            for version in [OsVersion::new(10, 0, 0, 19045), OsVersion::new(10, 0, 0, 22000)] {
+                assert_eq!(
+                    apply_preference_caption_color(label, true, version,
+                        |_| panic!("another window must never reach the native caption API")),
+                    Err("Only the preference window can set its caption color.".into())
+                );
+            }
+        }
     }
 
     #[test]

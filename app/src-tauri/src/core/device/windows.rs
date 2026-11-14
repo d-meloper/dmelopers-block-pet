@@ -2,7 +2,7 @@
 //! changes registrations; configuration replies follow the completed operation.
 //! rdev's process-global KEYBOARD_ONLY/exit_grab interfaces cannot provide this.
 use super::{
-    DeviceInputState, InputEpoch, capture_input_epoch, capture_raw_input_epoch, input_time_at,
+    DeviceInputState, InputEpoch, capture_input_epoch, input_time_at,
     next_mouse_generation,
 };
 use rdev::{Button, EventType};
@@ -137,11 +137,7 @@ impl CallbackState {
         {
             return;
         }
-        let epoch = if raw {
-            capture_raw_input_epoch(&event, time)
-        } else {
-            capture_input_epoch()
-        };
+        let epoch = capture_input_epoch(&event, event_time);
         if matches!(event, EventType::MouseMove { .. }) {
             if let Ok(mut pending) = self.pointer.lock() {
                 let wake = pending.is_none();

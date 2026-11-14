@@ -13,21 +13,39 @@ const button = { name: 'Button' }
 const toggle = { name: 'Switch' }
 const placeholder = { name: 'Placeholder' }
 
-async function harness() {
+async function harness(options: {
+  elevated?: boolean
+  inputElevated?: boolean
+  always?: boolean
+  persist?: boolean
+  save?: () => Promise<void>
+} = {}) {
   const calls: string[] = []
-  const app = Vue.reactive({ alwaysRunAsAdministrator: true, administratorReminderDismissed: true, taskbarVisible: true })
-  let confirmation: { onOk: () => Promise<void> } | undefined
+  const infos: Array<{ key: string, duration?: number }> = []
+  const errors: string[] = []
+  const unmount: Array<() => void> = []
+  const app = Vue.reactive({ alwaysRunAsAdministrator: options.always ?? true, administratorReminderDismissed: true, taskbarVisible: true })
+  let inputElevated = options.inputElevated
+  let confirmation: { title?: string, content?: Vue.VNode, okButtonProps?: { danger?: boolean, type?: string, style?: object }, onOk: () => Promise<void> } | undefined
   const elevation = createPreferenceElevation({
-    status: async () => ({ supported: true, elevated: true }),
+    status: async () => ({ supported: true, elevated: options.elevated ?? true, inputElevated }),
     prepare: async () => {
       assert.fail('changing a saved choice must not request UAC')
     },
     restart: async () => assert.fail('must not exit'),
     cancel: async () => {},
-    persist: async (key, enabled) => {
-      calls.push(key)
-      app[key] = enabled
+    disableInput: async () => {
+      calls.push('disable')
+      inputElevated = false
+      return { supported: true, elevated: options.elevated ?? true, inputElevated: false }
     },
+    persist: options.persist === false
+      ? undefined
+      : async (key, enabled) => {
+        calls.push(key)
+        await options.save?.()
+        app[key] = enabled
+      },
     reminderDismissed: () => app.administratorReminderDismissed,
     report: () => {},
   })
@@ -44,10 +62,14 @@ async function harness() {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, {
     exports,
+    window: { removeEventListener: () => {} },
     require: (id: string) => ({
-      'vue': { ...Vue, onMounted: () => {}, onBeforeUnmount: () => {} },
+      'vue': { ...Vue, onMounted: () => {}, onBeforeUnmount: (callback: () => void) => unmount.push(callback) },
       'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
-      'ant-design-vue': { Button: button, Switch: toggle, Select: { ...placeholder, Option: placeholder }, message: { error: () => {} }, Modal: { confirm: (value: typeof confirmation) => {
+      'ant-design-vue': { Button: button, Switch: toggle, Select: { ...placeholder, Option: placeholder }, message: {
+        error: (key: string) => errors.push(key),
+        info: (key: string, duration?: number) => infos.push({ key, duration }),
+      }, Modal: { confirm: (value: typeof confirmation) => {
         confirmation = value
       } } },
       '@/services/autostart': { getAutostartStatus: async () => ({ enabled: false, canDisable: true, canEnable: true }) },
@@ -69,43 +91,64 @@ async function harness() {
         : []
     return [node, ...children.flatMap(child => Vue.isVNode(child) ? flatten(child) : [])]
   }
-  return { app, calls, elevation, nodes: () => flatten(render({ $t: (key: string) => key }, [])), confirmation: () => confirmation }
+  return { app, calls, elevation, errors, infos, unmount: () => unmount.forEach(callback => callback()), nodes: () => flatten(render({ $t: (key: string) => key }, [])), confirmation: () => confirmation }
 }
 
-test('the Always switch ignores Ant Design change-event arguments and never changes reminder suppression', async () => {
-  const h = await harness()
-  const setting = h.nodes().find(node => node.type === toggle && node.props?.['aria-label'] === 'administratorSettings.title')!
-  const saving = setting.props!.onChange(false, { type: 'change' })
-  assert.equal(h.nodes().some(node => node.props?.role === 'status'), false)
-  await saving
-  assert.equal(h.app.alwaysRunAsAdministrator, false)
-  assert.equal(h.app.administratorReminderDismissed, true)
-  assert.equal(h.app.taskbarVisible, true)
-  assert.deepEqual(h.calls, ['alwaysRunAsAdministrator'])
-  assert.equal(h.elevation.status.value?.elevated, true)
-  h.elevation.dispose()
+test('General displays actual administrator state, accent and shield without an administrator toggle or enable button', async () => {
+  for (const opts of [{ elevated: true, always: false }, { elevated: false, inputElevated: true, always: false }]) {
+    const h = await harness(opts)
+    const rows = h.nodes().filter(node => node.props?.title === 'administratorSettings.title')
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].props?.description, 'administratorSettings.hint')
+    const slots = rows[0].children as Record<string, () => Vue.VNode[]>
+    const title = slots.title()[0]
+    const titleMarkup = JSON.stringify(title, (key, value) => ['component', 'ctx', 'appContext'].includes(key) ? undefined : value)
+    assert.ok(titleMarkup.includes('administrator-status-active'))
+    const controls = h.nodes().find(node => node.props?.class === 'administrator-status-controls')!
+    assert.equal(JSON.stringify(controls.children).includes('administrator-status-active'), false)
+    assert.equal(h.nodes().some(node => node.type === toggle && node.props?.['aria-label'] === 'administratorSettings.title'), false)
+    assert.ok(h.nodes().some(node => node.props?.class?.includes('administrator-status-active')))
+    assert.ok(h.nodes().some(node => node.props?.class === 'i-lucide:shield-check'))
+    assert.equal(h.nodes().some(node => node.children === 'adminLaunchReminder.always'), false)
+    assert.deepEqual(h.calls, [])
+    h.elevation.dispose()
+  }
 })
 
-test('General exposes only the Always administrator setting and turning it back on opens the shared dialog', async () => {
-  const h = await harness()
-  const administratorRows = h.nodes().filter(node => String(node.props?.title).startsWith('administratorSettings.'))
-  assert.equal(administratorRows.length, 1)
-  assert.equal(administratorRows[0].props?.description, 'administratorSettings.hint')
-  const setting = h.nodes().find(node => node.type === toggle && node.props?.['aria-label'] === 'administratorSettings.title')!
-  await setting.props!.onChange(false, { type: 'change' })
-  await setting.props!.onChange(true, { type: 'change' })
-  assert.equal(h.app.administratorReminderDismissed, true)
-  assert.equal(h.app.alwaysRunAsAdministrator, false)
+test('known inactive input shows warning and Enable even when the saved choice is already enabled', async () => {
+  const h = await harness({ elevated: false, inputElevated: false, always: true })
+  assert.ok(h.nodes().some(node => node.props?.class?.includes('administrator-status-inactive')))
+  assert.ok(h.nodes().some(node => node.props?.class === 'i-lucide:triangle-alert'))
+  const enable = h.nodes().find(node => node.type === button && node.props?.block !== '')!
+  assert.ok(enable)
+  assert.equal(enable.props?.type, undefined)
+  enable.props!.onClick()
   assert.equal(h.elevation.open.value, true)
   assert.equal(h.elevation.showDismiss.value, false)
-  assert.deepEqual(h.calls, ['alwaysRunAsAdministrator'])
-  await h.elevation.restartAlways()
+  assert.deepEqual(h.calls, [])
   assert.equal(h.app.alwaysRunAsAdministrator, true)
-  assert.equal(h.elevation.open.value, false)
-  assert.deepEqual(h.calls, ['alwaysRunAsAdministrator', 'alwaysRunAsAdministrator'])
+  assert.equal(h.app.administratorReminderDismissed, true)
   h.elevation.dispose()
 })
 
+test('unknown and checking states remain neutral and cannot blindly request administrator input', async () => {
+  const h = await harness({ elevated: false })
+  h.elevation.status.value = undefined
+  assert.ok(h.nodes().some(node => node.props?.class?.includes('administrator-status-unknown')))
+  assert.equal(h.nodes().some(node => node.children === 'adminLaunchReminder.always'), false)
+  h.elevation.checking.value = true
+  assert.ok(h.nodes().some(node => node.props?.class?.includes('administrator-status-checking')))
+  assert.equal(h.nodes().some(node => node.children === 'adminLaunchReminder.always'), false)
+  h.elevation.dispose()
+})
+
+test('unsupported runtime shows the reason without an enable action or a fake activated state', async () => {
+  const h = await harness({ elevated: false })
+  h.elevation.status.value = { supported: false, elevated: false }
+  assert.ok(h.nodes().some(node => node.children === 'administratorSettings.unsupported'))
+  assert.equal(h.nodes().some(node => node.children === 'adminLaunchReminder.always'), false)
+  h.elevation.dispose()
+})
 test('General reset persists automatic elevation off and restores the reminder', async () => {
   const h = await harness()
   const reset = h.nodes().find(node => node.type === button && node.props?.block === '')!
@@ -114,5 +157,31 @@ test('General reset persists automatic elevation off and restores the reminder',
   assert.equal(h.app.alwaysRunAsAdministrator, false)
   assert.equal(h.app.administratorReminderDismissed, false)
   assert.deepEqual(h.calls, ['save-reset'])
+  h.elevation.dispose()
+})
+
+test('administrator status precedes autostart with a normal disable action and warning confirmation', async () => {
+  const h = await harness({ elevated: false, inputElevated: true })
+  const rows = h.nodes().filter(node => node.props?.title)
+  assert.ok(rows.findIndex(node => node.props?.title === 'administratorSettings.title')
+    < rows.findIndex(node => node.props?.title === 'pages.preference.general.labels.launchOnStartup'))
+  const disable = h.nodes().find(node => node.type === button && node.props?.class === 'administrator-disable')!
+  assert.equal(disable.props?.danger, undefined)
+  assert.equal(disable.props?.type, undefined)
+  assert.equal(disable.props?.style, undefined)
+  disable.props!.onClick()
+  assert.equal(h.confirmation()!.title, 'administratorSettings.disableTitle')
+  assert.equal(h.confirmation()!.content?.children, 'administratorSettings.disableMessage')
+  assert.equal(h.confirmation()!.content?.props?.style.whiteSpace, 'pre-line')
+  assert.equal(h.confirmation()!.okButtonProps?.danger, undefined)
+  assert.equal((h.confirmation()!.okButtonProps?.style as { backgroundColor: string }).backgroundColor, 'var(--ant-color-warning)')
+  assert.deepEqual(h.calls, [])
+  assert.equal(h.app.alwaysRunAsAdministrator, true)
+  await h.confirmation()!.onOk()
+  assert.deepEqual(h.calls, ['alwaysRunAsAdministrator', 'disable'])
+  assert.equal(h.app.alwaysRunAsAdministrator, false)
+  assert.equal(h.elevation.isActive.value, false)
+  assert.equal(h.nodes().some(node => node.type === button && node.props?.class === 'administrator-disable'), false)
+  assert.ok(h.nodes().some(node => node.children === 'adminLaunchReminder.always'))
   h.elevation.dispose()
 })

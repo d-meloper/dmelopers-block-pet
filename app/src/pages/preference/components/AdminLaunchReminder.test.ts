@@ -30,7 +30,7 @@ function compile(filename: string, modalComponent: unknown = modal) {
   return exports.default
 }
 
-function harness(props = Vue.reactive<{ open: boolean, showDismiss?: boolean, showOnce?: boolean, reminderDismissed?: boolean, restartConfirmation?: boolean, busy?: boolean, phase?: string, feedback?: string }>({ open: true })) {
+function harness(props = Vue.reactive<{ open: boolean, showDismiss?: boolean, reminderDismissed?: boolean, busy?: boolean, phase?: string, feedback?: string }>({ open: true })) {
   const events: string[] = []
   const changes: boolean[] = []
   const emit = (event: string, value?: unknown) => {
@@ -54,7 +54,7 @@ function harness(props = Vue.reactive<{ open: boolean, showDismiss?: boolean, sh
   return { props, events, changes, tree, slotNodes, nodes: () => flatten(tree()) }
 }
 
-test('the automatic reminder places the checkbox above its three buttons and omits the extra permission paragraph', () => {
+test('the automatic recommendation has a checkbox above Cancel and one highlighted Enable action', () => {
   const h = harness()
   const modal = h.tree()
   assert.equal(modal.props?.open, true)
@@ -62,19 +62,20 @@ test('the automatic reminder places the checkbox above its three buttons and omi
   assert.equal(modal.props?.closable, false)
   assert.equal(modal.props?.['mask-closable'], false)
   const buttons = h.nodes().filter(node => node.type === button)
-  assert.equal(buttons.length, 3)
+  assert.equal(buttons.length, 2)
   assert.ok(h.nodes().some(node => node.children === 'adminLaunchReminder.continue'))
   assert.ok(h.nodes().some(node => node.children === 'adminLaunchReminder.neverShow'))
   assert.ok(h.nodes().some(node => node.children === 'adminLaunchReminder.always'))
-  assert.deepEqual(buttons.map(button => button.props?.type), [undefined, undefined, 'primary'])
-  assert.ok(h.nodes().some(node => node.children === 'adminLaunchReminder.restart'))
+  assert.deepEqual(buttons.map(button => button.props?.type), [undefined, 'primary'])
+  assert.equal(h.nodes().some(node => node.children === 'adminLaunchReminder.restart'), false)
   assert.equal(h.nodes().some(node => node.children === 'adminLaunchReminder.permissionHint'), false)
+  assert.equal(h.nodes().some(node => node.children === 'adminLaunchReminder.accountRequirement'), false)
   assert.equal(h.slotNodes('default').filter(node => node.type === checkbox).length, 1)
   assert.equal(h.slotNodes('footer').some(node => node.type === checkbox), false)
   assert.equal(h.slotNodes('default').some(node => node.type === button), false)
   assert.ok(h.nodes().some(node => node.type === 'div' && node.props?.class === 'admin-launch-reminder-option'))
   buttons.forEach(button => (button.props?.onClick as () => void)())
-  assert.deepEqual(h.events, ['continue', 'restart', 'always'])
+  assert.deepEqual(h.events, ['continue', 'enable'])
 })
 
 test('the checkbox reflects saved state, emits the checked value and ignores changes while busy', () => {
@@ -117,43 +118,23 @@ test('UAC and restart waits disable dismissal and announce translated progress',
   assert.ok(h.nodes().some(node => node.props?.role === 'status' && node.children === 'adminLaunchReminder.restarting'))
 })
 
-test('a manually opened dialog exposes only Cancel and highlighted Always', () => {
+test('a manually opened dialog exposes only Cancel and highlighted Enable', () => {
   const h = harness()
   h.props.showDismiss = false
-  h.props.showOnce = false
   const buttons = h.nodes().filter(node => node.type === button)
   assert.equal(buttons.length, 2)
   assert.equal(h.nodes().some(node => node.children === 'adminLaunchReminder.neverShow'), false)
   assert.equal(h.nodes().some(node => node.children === 'adminLaunchReminder.restart'), false)
   assert.deepEqual(buttons.map(button => button.props?.type), [undefined, 'primary'])
   buttons.forEach(button => (button.props?.onClick as () => void)())
-  assert.deepEqual(h.events, ['continue', 'always'])
+  assert.deepEqual(h.events, ['continue', 'enable'])
   h.props.showDismiss = true
-  h.props.showOnce = true
-  assert.equal(h.nodes().filter(node => node.type === button).length, 3)
-})
-
-test('the second dialog shows the restart question with only Cancel and Restart now', () => {
-  const h = harness()
-  h.props.restartConfirmation = true
-  assert.equal(h.tree().props?.title, 'adminLaunchReminder.restartConfirmationTitle')
-  assert.ok(h.nodes().some(node => node.children === 'adminLaunchReminder.restartConfirmationMessage'))
-  assert.equal(h.nodes().some(node => node.children === 'adminLaunchReminder.permissionHint'), false)
-  assert.equal(h.nodes().some(node => node.type === checkbox), false)
-  const buttons = h.nodes().filter(node => node.type === button)
-  assert.equal(buttons.length, 2)
-  assert.deepEqual(buttons.map(button => button.props?.type), [undefined, 'primary'])
-  assert.ok(h.nodes().some(node => node.children === 'adminLaunchReminder.confirmRestart'))
-  buttons.forEach(button => (button.props?.onClick as () => void)())
-  assert.deepEqual(h.events, ['continue', 'confirmRestart'])
-  h.props.busy = true
-  assert.equal(h.tree().props?.keyboard, false)
-  assert.ok(h.nodes().filter(node => node.type === button).every(node => node.props?.disabled === true))
+  assert.equal(h.nodes().filter(node => node.type === button).length, 2)
 })
 
 test('cancellation/failure remain in the current dialog and Escape means continue normally', () => {
   const h = harness()
-  for (const feedback of ['cancelled', 'failed']) {
+  for (const feedback of ['cancelled', 'failed', 'identityMismatch']) {
     h.props.feedback = feedback
     assert.ok(h.nodes().some(node => node.props?.role === 'status' && node.children === `adminLaunchReminder.${feedback}`))
   }

@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <mutex>
 #include "AppExternalLinks.h"
 #include "BootstrapperApplication.h"
 #include "dutil.h"
@@ -49,7 +50,7 @@ constexpr wchar_t kExe[] = L"dmelopers-block-pet.exe";
 constexpr wchar_t kRemovalLink[] = L"Uninstall.lnk";
 constexpr wchar_t kUninstallRegistry[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\";
 constexpr wchar_t kDependencyRegistry[] = L"Software\\Classes\\Installer\\Dependencies\\";
-constexpr UINT kDetected = WM_APP + 1, kPlanned = WM_APP + 2, kCompleted = WM_APP + 3, kProgress = WM_APP + 4, kMsiRemoved = WM_APP + 5;
+constexpr UINT kDetected = WM_APP + 1, kPlanned = WM_APP + 2, kCompleted = WM_APP + 3, kProgress = WM_APP + 4, kMsiRemoved = WM_APP + 5, kActivity = WM_APP + 6;
 constexpr int kNext = 101, kBack = 102, kCancel = 103, kFolder = 104, kBrowse = 105, kDesktop = 106, kStart = 107, kRun = 108, kDelete = 109;
 constexpr int kUiWidth = 560, kUiHeight = 400, kFooterTop = 354, kHeaderBottom = 74, kSidebarWidth = 164;
 std::wstring SpaceBytes(ULONGLONG bytes) {
@@ -643,14 +644,81 @@ std::wstring FailureText(HRESULT hr, bool korean) {
         message += korean ? L"\r\n\r\n기존 설치와 현재 설치 파일이 충돌했습니다. Windows 설정의 설치된 앱에서 기존 앱을 제거하되, 사용자 데이터 삭제는 선택하지 마세요. 그 뒤 다시 설치할 수 있습니다."
             : L"\r\n\r\nThe existing installation conflicts with this setup package. Remove the existing app from Windows Settings > Installed apps, leaving user data removal unchecked, then retry installation.";
     }
-    message += korean ? L"\r\n\r\n문제를 확인한 뒤 처음 화면에서 다시 시도할 수 있습니다." : L"\r\n\r\nAfter addressing the problem, you can retry from the first page.";
+    if (code == ERROR_INSTALL_USEREXIT || code == ERROR_CANCELLED)
+        message += korean ? L"\r\n\r\n설치를 계속하려면 처음 화면에서 다시 시도하세요." : L"\r\n\r\nTo continue setup, retry from the first page.";
+    else message += korean ? L"\r\n\r\n문제를 확인한 뒤 처음 화면에서 다시 시도할 수 있습니다." : L"\r\n\r\nAfter addressing the problem, you can retry from the first page.";
     return message;
+}
+enum class SetupPart { Installer, Runtime, App };
+enum class SetupStep { Checking, Planning, Preparing, Verifying, Applying, Installing, Removing, RollingBack, Shortcuts };
+SetupPart PackagePart(LPCWSTR package) {
+    return package && wcscmp(package, L"WebView2") == 0 ? SetupPart::Runtime :
+        package && wcscmp(package, L"Application") == 0 ? SetupPart::App : SetupPart::Installer;
+}
+LPCWSTR PartName(SetupPart part, bool korean) {
+    return part == SetupPart::Runtime ? L"WebView2 Runtime" : part == SetupPart::App ? kDisplayProduct : korean ? L"설치 프로그램" : L"Setup";
+}
+LPCWSTR StepName(SetupStep step, bool korean) {
+    switch (step) {
+    case SetupStep::Checking: return korean ? L"설치 상태 확인 중" : L"Checking installation state";
+    case SetupStep::Planning: return korean ? L"설치 작업 계획 중" : L"Planning setup operations";
+    case SetupStep::Preparing: return korean ? L"설치 파일 준비 중" : L"Preparing setup files";
+    case SetupStep::Verifying: return korean ? L"설치 파일 검증 중" : L"Verifying setup files";
+    case SetupStep::Applying: return korean ? L"설치 작업 적용 중" : L"Applying setup operations";
+    case SetupStep::Installing: return korean ? L"구성 요소 설치/복구 중" : L"Installing/repairing the component";
+    case SetupStep::Removing: return korean ? L"구성 요소 제거 중" : L"Removing the component";
+    case SetupStep::RollingBack: return korean ? L"실패하거나 취소된 작업 정리 중" : L"Rolling back failed or cancelled operations";
+    case SetupStep::Shortcuts: return korean ? L"바로가기 및 시작 설정 처리 중" : L"Processing shortcuts and startup settings";
+    }
+    return L"";
+}
+struct SetupActivity {
+    SetupStep step = SetupStep::Checking;
+    SetupPart part = SetupPart::Installer;
+    SetupStep failedStep = SetupStep::Applying;
+    SetupPart failedPart = SetupPart::Installer;
+    HRESULT failure = S_OK;
+    bool appInstallStarted = false;
+};
+std::wstring ActivityText(const SetupActivity& value, bool korean) {
+    auto step = value.step == SetupStep::Installing && value.part == SetupPart::App
+        ? (korean ? L"앱 파일 설치/복구 중" : L"Installing/repairing app files")
+        : value.step == SetupStep::Installing && value.part == SetupPart::Runtime
+        ? (korean ? L"다운로드 및 설치 중" : L"Downloading and installing") : StepName(value.step, korean);
+    return std::wstring(korean ? L"작업: " : L"Task: ") + step + L"\r\n" +
+        (korean ? L"구성 요소: " : L"Component: ") + PartName(value.part, korean);
+}
+std::wstring ActivityLocation(const SetupActivity& value, const std::wstring& appDirectory, bool korean) {
+    if (value.part == SetupPart::Runtime)
+        return korean ? L"런타임 설치 위치: 확인되지 않음 (Microsoft 설치 프로그램에서 관리)" : L"Runtime location: not confirmed (managed by Microsoft setup)";
+    return std::wstring(korean ? L"앱 설치 위치: " : L"App destination: ") + appDirectory;
+}
+std::wstring FailureContext(const SetupActivity& value, HRESULT finalError, bool korean) {
+    bool cancelled = finalError == HRESULT_FROM_WIN32(ERROR_INSTALL_USEREXIT) || finalError == HRESULT_FROM_WIN32(ERROR_CANCELLED);
+    std::wstring text = cancelled ? (korean ? L"설치를 취소했습니다.\r\n\r\n" : L"Setup was cancelled.\r\n\r\n") : L"";
+    if (SUCCEEDED(value.failure) || value.failure == HRESULT_FROM_WIN32(ERROR_INSTALL_USEREXIT) || value.failure == HRESULT_FROM_WIN32(ERROR_CANCELLED)) return text;
+    text += std::wstring(korean ? L"실패한 구성 요소: " : L"Failed component: ") + PartName(value.failedPart, korean) +
+        L"\r\n" + (korean ? L"작업: " : L"Task: ") + StepName(value.failedStep, korean) + L"\r\n\r\n";
+    if (value.failure != finalError) text += std::wstring(korean ? L"구성 요소 원본 " : L"Original component ") + ErrorCodeText(value.failure, korean) + L"\r\n\r\n";
+    if (value.failedPart == SetupPart::Runtime) {
+        if (!value.appInstallStarted) text += korean ? L"앱 설치는 시작하지 않았습니다.\r\n\r\n" : L"App installation did not start.\r\n\r\n";
+        if (!cancelled) text += korean ? L"네트워크 연결을 확인하거나 Microsoft 공식 WebView2 Runtime을 준비한 뒤 다시 시도하세요.\r\n\r\n"
+            : L"Check the connection or prepare the official Microsoft WebView2 Runtime, then retry.\r\n\r\n";
+    }
+    return text;
 }
 }
 
 class BlockPetBootstrapper final : public CBootstrapperApplicationBase {
     HINSTANCE instance_ = GetModuleHandleW(nullptr);
     HWND window_ = nullptr, heading_ = nullptr, subtitle_ = nullptr, text_ = nullptr, group_ = nullptr, details_ = nullptr, space_ = nullptr, path_ = nullptr, edit_ = nullptr, browse_ = nullptr, desktopBox_ = nullptr, startBox_ = nullptr, runBox_ = nullptr, deleteBox_ = nullptr, progress_ = nullptr, next_ = nullptr, back_ = nullptr, cancel_ = nullptr;
+    HWND progressPath_ = nullptr, failureDetails_ = nullptr;
+    std::mutex activityMutex_;
+    SetupActivity activity_;
+    ULONG_PTR activityEpoch_ = 1;
+    SetupStep executingStep_ = SetupStep::Applying;
+    SetupPart executingPart_ = SetupPart::Installer;
+    std::wstring failureMessage_;
     HFONT font_ = nullptr, titleFont_ = nullptr, welcomeFont_ = nullptr;
     HICON artworkIcon_ = nullptr;
     HANDLE uiThread_ = nullptr, ready_ = nullptr, mutex_ = nullptr;
@@ -683,6 +751,42 @@ class BlockPetBootstrapper final : public CBootstrapperApplicationBase {
     LPCWSTR T(LPCWSTR korean, LPCWSTR english) const { return korean_ ? korean : english; }
     bool Unattended() const { return quiet_ || passive_ || related_; }
     bool InteractiveRetry() const { return !automatic_ && !update_ && !related_ && !quiet_ && !passive_; }
+    SetupActivity ActivitySnapshot() {
+        std::lock_guard<std::mutex> lock(activityMutex_); return activity_;
+    }
+    ULONG_PTR ActivityEpoch() {
+        std::lock_guard<std::mutex> lock(activityMutex_); return activityEpoch_;
+    }
+    void SetActivity(SetupStep step, SetupPart part = SetupPart::Installer) {
+        { std::lock_guard<std::mutex> lock(activityMutex_); activity_.step = step; activity_.part = part; }
+        // Messages carry no old text/pointers. A delayed notification always
+        // renders the latest snapshot, including after Retry has reset it.
+        if (window_) PostMessageW(window_, kActivity, 0, 0);
+    }
+    void PackageResult(SetupPart part, SetupStep step, HRESULT hr, bool rollback = false) {
+        std::lock_guard<std::mutex> lock(activityMutex_);
+        if (FAILED(hr) && SUCCEEDED(activity_.failure)) {
+            activity_.failure = hr; activity_.failedPart = part; activity_.failedStep = step;
+        } else if (SUCCEEDED(hr) && !rollback && part != SetupPart::Installer && activity_.failedPart == part && activity_.failedStep == step) {
+            // A successful package retry retires that earlier package failure.
+            activity_.failure = S_OK;
+        }
+    }
+    void RenderActivity() {
+        if (page_ != 3 || CheckCanceled()) return;
+        auto value = ActivitySnapshot();
+        SetWindowTextW(details_, ActivityText(value, korean_).c_str());
+        SetWindowTextW(progressPath_, ActivityLocation(value, directory_, korean_).c_str());
+    }
+    void SetProgress(DWORD value) {
+        // Burn reports per-Apply completion before shortcut/final checks. Keep
+        // that finishing interval indeterminate, rather than implying success.
+        bool waiting = value >= 100;
+        LONG_PTR style = GetWindowLongPtrW(progress_, GWL_STYLE);
+        SetWindowLongPtrW(progress_, GWL_STYLE, waiting ? style | PBS_MARQUEE : style & ~PBS_MARQUEE);
+        SendMessageW(progress_, PBM_SETMARQUEE, waiting, 50);
+        if (!waiting) SendMessageW(progress_, PBM_SETPOS, value, 0);
+    }
     void Error(const std::wstring& message) {
         if (Unattended()) m_pEngine->Log(BOOTSTRAPPER_LOG_LEVEL_ERROR, message.c_str());
         else MessageBoxW(window_, message.c_str(), kDisplayProduct, MB_OK | MB_ICONERROR);
@@ -1019,7 +1123,7 @@ class BlockPetBootstrapper final : public CBootstrapperApplicationBase {
     }
     void ShowPage(int page) {
         page_ = page;
-        for (HWND item : { edit_, browse_, desktopBox_, startBox_, runBox_, deleteBox_, progress_, group_, details_, space_, path_ }) ShowWindow(item, SW_HIDE);
+        for (HWND item : { edit_, browse_, desktopBox_, startBox_, runBox_, deleteBox_, progress_, group_, details_, space_, path_, progressPath_, failureDetails_ }) ShowWindow(item, SW_HIDE);
         ShowWindow(back_, automatic_ ? SW_HIDE : SW_SHOW);
         EnableWindow(back_, page > 0 && page < 3);
         EnableWindow(cancel_, !finished_ && !CheckCanceled());
@@ -1080,13 +1184,21 @@ class BlockPetBootstrapper final : public CBootstrapperApplicationBase {
             SetWindowTextW(text_, T(L"작업을 진행하고 있습니다. 잠시 기다려 주세요.", L"Setup is working. Please wait."));
             Place(text_, 24, 96, 512, 42);
             ShowWindow(progress_, SW_SHOW);
-            Place(group_, 24, 204, 512, 118); SetWindowTextW(group_, T(L"설치 위치", L"Install location")); ShowWindow(group_, SW_SHOW);
-            Place(path_, 40, 236, 476, 24); SetWindowTextW(path_, directory_.c_str()); ShowWindow(path_, SW_SHOW);
+            Place(group_, 24, 204, 512, 126); SetWindowTextW(group_, T(L"설치 내용", L"Installation details")); ShowWindow(group_, SW_SHOW);
+            Place(details_, 40, 230, 476, 42); ShowWindow(details_, SW_SHOW);
+            Place(progressPath_, 40, 286, 476, 24); ShowWindow(progressPath_, SW_SHOW);
+            RenderActivity();
         } else {
             SetWindowTextW(heading_, failed_ ? T(L"작업을 완료하지 못했습니다", L"Setup could not complete") : remove_ ? T(L"제거 완료", L"Uninstall complete") : T(L"설치 완료", L"Installation complete"));
             Place(text_, 188, 118, 348, 114);
             SetWindowTextW(text_, failed_ ? T(L"앱을 종료하고 같은 폴더에서 설치 파일을 다시 실행하세요. 기존 설정은 유지됩니다.", L"Close the app and run setup again in the same folder. Existing settings are preserved.") : remove_ ? T(L"앱 파일을 제거했습니다.\r\n\r\n마침을 눌러 제거 프로그램을 닫으세요.", L"The app files have been removed.\r\n\r\nSelect Finish to close this wizard.") : T(L"설치를 마쳤습니다. 앱 실행 여부를 선택한 뒤 마침을 눌러 설치 프로그램을 닫으세요.", L"Installation is complete. Choose whether to run the app, then select Finish to close this wizard."));
             if (!failed_ && !remove_) ShowWindow(runBox_, SW_SHOW);
+            if (failed_) {
+                Place(text_, 188, 118, 348, 40);
+                SetWindowTextW(text_, T(L"오류 정보와 다음 조치를 확인하세요.", L"Review the error and next steps below."));
+                Place(failureDetails_, 188, 164, 348, 166);
+                SetWindowTextW(failureDetails_, failureMessage_.c_str()); ShowWindow(failureDetails_, SW_SHOW);
+            }
             SetWindowTextW(next_, T(L"마침(&F)", L"&Finish")); EnableWindow(cancel_, FALSE);
         }
         // Group boxes are transparent. Repaint the parent's background under
@@ -1196,6 +1308,9 @@ class BlockPetBootstrapper final : public CBootstrapperApplicationBase {
             (GetLastError() == ERROR_FILE_NOT_FOUND || GetLastError() == ERROR_PATH_NOT_FOUND);
     }
     void PlanStage(BOOTSTRAPPER_ACTION action) {
+        { std::lock_guard<std::mutex> lock(activityMutex_); ++activityEpoch_; }
+        SetProgress(0);
+        SetActivity(SetupStep::Planning);
         plannedApplication_ = BOOTSTRAPPER_ACTION_STATE_NONE;
         HRESULT hr = m_pEngine->Plan(action, BOOTSTRAPPER_SCOPE_PER_USER);
         if (FAILED(hr)) Complete(hr);
@@ -1248,6 +1363,7 @@ class BlockPetBootstrapper final : public CBootstrapperApplicationBase {
             if (SetInstallVariables(oldRoot_)) PlanStage(BOOTSTRAPPER_ACTION_UNINSTALL);
         } else {
             phase_ = Phase::RemoveMsi; directRemoval_ = true;
+            SetActivity(SetupStep::Removing, SetupPart::App);
             removalThread_ = CreateThread(nullptr, 0, RemoveMsiThread, this, 0, nullptr);
             if (!removalThread_) Complete(HRESULT_FROM_WIN32(GetLastError()));
         }
@@ -1316,6 +1432,8 @@ class BlockPetBootstrapper final : public CBootstrapperApplicationBase {
             Error(T(L"앱을 자동으로 시작하지 못했습니다. 설치 폴더에서 앱을 실행해주세요.", L"The app could not start automatically. Run it from the installation folder."));
     }
     void ResetRetryState() {
+        { std::lock_guard<std::mutex> lock(activityMutex_); ++activityEpoch_; activity_ = {}; executingStep_ = SetupStep::Applying; executingPart_ = SetupPart::Installer; }
+        failureMessage_.clear();
         phase_ = Phase::Normal; replacement_ = false; prepared_ = false; forceFamilyRemoval_ = false;
         active_ = false; finished_ = false; failed_ = false; rebootRequired_ = false;
         detecting_ = false; retryDetect_ = false;
@@ -1365,6 +1483,7 @@ class BlockPetBootstrapper final : public CBootstrapperApplicationBase {
         return ok && (digest.empty() || WriteReceipt(L"Uninstall", digest));
     }
     void BeginDetect(bool notifyError = true) {
+        SetActivity(SetupStep::Checking);
         retryDetect_ = false; detecting_ = true; notifyDetectError_ = notifyError;
         detected_ = false; installed_ = false; eligibleCleanup_ = false;
         RefreshInstallLocation();
@@ -1396,6 +1515,9 @@ class BlockPetBootstrapper final : public CBootstrapperApplicationBase {
         active_ = false; finished_ = true; failed_ = FAILED(hr);
         exitCode_ = failed_ ? (HRESULT_FACILITY(hr) == FACILITY_WIN32 ? HRESULT_CODE(hr) : static_cast<DWORD>(hr)) : rebootRequired_ ? ERROR_SUCCESS_REBOOT_REQUIRED : 0;
         if (!failed_ && !related_) {
+            SetActivity(SetupStep::Shortcuts, SetupPart::App);
+            RenderActivity();
+            RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
             bool ok = true;
             if (!remove_) {
                 ok &= Shortcut(KnownFolder(FOLDERID_Desktop), Exe(), L"Desktop", !desktop_);
@@ -1409,20 +1531,35 @@ class BlockPetBootstrapper final : public CBootstrapperApplicationBase {
             if (!ok) m_pEngine->Log(BOOTSTRAPPER_LOG_LEVEL_STANDARD, L"Shortcut post-processing could not complete.");
         }
         if (mutex_) { CloseHandle(mutex_); mutex_ = nullptr; }
-        if (failed_ && InteractiveRetry()) {
-            lastFailure_ = hr;
-            std::wstring message = FailureText(hr, korean_);
-            if (oldRemoved_) message += newInstalled_
+        if (failed_) {
+            failureMessage_ = FailureContext(ActivitySnapshot(), hr, korean_) + FailureText(hr, korean_);
+            if (oldRemoved_) failureMessage_ += newInstalled_
                 ? T(L"\r\n\r\n새 앱 설치는 확인됐지만 이번 작업을 모두 완료하지 못했습니다. 개인 데이터는 유지됩니다. 다시 시도하여 남은 작업을 완료하세요.", L"\r\n\r\nThe new app installation was verified, but setup could not complete all remaining work. Your personal data is retained. Retry to finish.")
                 : T(L"\r\n\r\n기존 설치 등록은 제거됐지만 새 설치는 완료되지 않았습니다. 개인 데이터는 유지됩니다. 다시 시도하여 설치를 완료하세요.", L"\r\n\r\nThe previous installation registration was removed, but the new installation did not complete. Your personal data is retained. Retry to finish installing.");
-            m_pEngine->Log(BOOTSTRAPPER_LOG_LEVEL_ERROR, message.c_str());
-            if (showFailure && (!detectFailure || notifyDetectError_))
-                MessageBoxW(window_, message.c_str(), T(L"작업을 완료하지 못했습니다", L"Setup could not complete"), MB_OK | MB_ICONERROR);
+            auto log = EngineString(L"WixBundleLog");
+            if (!log.empty()) failureMessage_ += std::wstring(T(L"\r\n\r\n설치 로그: ", L"\r\n\r\nSetup log: ")) + log;
+            m_pEngine->Log(BOOTSTRAPPER_LOG_LEVEL_ERROR, failureMessage_.c_str());
+        }
+        if (failed_ && InteractiveRetry()) {
+            lastFailure_ = hr;
+            if (showFailure && (!detectFailure || notifyDetectError_)) {
+                auto snapshot = ActivitySnapshot();
+                if (snapshot.failedPart == SetupPart::Runtime && FAILED(snapshot.failure) && hr != HRESULT_FROM_WIN32(ERROR_INSTALL_USEREXIT) && hr != HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+                    const auto guide = WebViewGuide(korean_);
+                    auto footer = std::wstring(L"<a href=\"") + guide + L"\">" + T(L"WebView2 수동 설치 안내", L"WebView2 manual installation guide") + L"</a>";
+                    TASKDIALOGCONFIG dialog{ sizeof(dialog) };
+                    dialog.hwndParent = window_; dialog.dwFlags = TDF_ENABLE_HYPERLINKS | TDF_ALLOW_DIALOG_CANCELLATION | TDF_SIZE_TO_CONTENT;
+                    dialog.dwCommonButtons = TDCBF_OK_BUTTON; dialog.pszWindowTitle = kDisplayProduct;
+                    dialog.pszMainIcon = TD_ERROR_ICON; dialog.pszContent = failureMessage_.c_str(); dialog.pszFooter = footer.c_str();
+                    dialog.pfCallback = WebViewGuideCallback; dialog.lpCallbackData = reinterpret_cast<LONG_PTR>(guide);
+                    if (FAILED(TaskDialogIndirect(&dialog, nullptr, nullptr, nullptr))) Error(failureMessage_);
+                } else MessageBoxW(window_, failureMessage_.c_str(), T(L"작업을 완료하지 못했습니다", L"Setup could not complete"), MB_OK | MB_ICONERROR);
+            }
             ResetRetryState();
             RefreshInstallLocation();
             SendMessageW(desktopBox_, BM_SETCHECK, desktop_ ? BST_CHECKED : BST_UNCHECKED, 0);
             SendMessageW(startBox_, BM_SETCHECK, start_ ? BST_CHECKED : BST_UNCHECKED, 0);
-            SendMessageW(progress_, PBM_SETPOS, 0, 0);
+            SetProgress(0);
             detecting_ = !detectFailure;
             ShowPage(0);
             if (detectFailure) {
@@ -1524,7 +1661,8 @@ class BlockPetBootstrapper final : public CBootstrapperApplicationBase {
             self->OldRemovalComplete(result == 0 || result == ERROR_SUCCESS_REBOOT_REQUIRED || result == ERROR_SUCCESS_REBOOT_INITIATED ? S_OK : HRESULT_FROM_WIN32(result), result == ERROR_SUCCESS_REBOOT_REQUIRED || result == ERROR_SUCCESS_REBOOT_INITIATED);
             return 0;
         }
-        case kProgress: SendMessageW(self->progress_, PBM_SETPOS, w, 0); return 0;
+        case kProgress: if (self->page_ == 3 && !self->finished_ && static_cast<ULONG_PTR>(l) == self->ActivityEpoch()) self->SetProgress(static_cast<DWORD>(w)); return 0;
+        case kActivity: self->RenderActivity(); return 0;
         case WM_CLOSE:
             self->Cancel(); return 0;
         case WM_DESTROY: self->window_ = nullptr; PostQuitMessage(0); return 0;
@@ -1556,6 +1694,8 @@ class BlockPetBootstrapper final : public CBootstrapperApplicationBase {
         details_ = Control(L"STATIC", L"", SS_LEFT | SS_NOPREFIX, 40, 276, 476, 34);
         space_ = Control(L"STATIC", L"", SS_LEFT | SS_NOPREFIX, 24, 316, 512, 34);
         path_ = Control(L"STATIC", L"", SS_LEFTNOWORDWRAP | SS_PATHELLIPSIS | SS_NOPREFIX, 40, 236, 476, 24);
+        progressPath_ = Control(L"EDIT", L"", WS_BORDER | ES_READONLY | ES_AUTOHSCROLL | WS_TABSTOP, 40, 286, 476, 24);
+        failureDetails_ = Control(L"EDIT", L"", WS_BORDER | ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL | WS_TABSTOP, 188, 164, 348, 166);
         edit_ = Control(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 40, 236, 374, 24, kFolder);
         browse_ = Control(L"BUTTON", T(L"찾아보기(&R)…", L"B&rowse…"), WS_TABSTOP, 424, 235, 96, 26, kBrowse);
         desktopBox_ = Control(L"BUTTON", T(L"바탕화면 바로가기 만들기(&D)", L"Create a &desktop shortcut"), BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP, 40, 180, 476, 30, kDesktop);
@@ -1582,6 +1722,85 @@ class BlockPetBootstrapper final : public CBootstrapperApplicationBase {
     }
 public:
 #if defined(BP_BA_SELF_TEST)
+    static bool TestInstallationActivity() {
+        BlockPetBootstrapper setup;
+        BOOL cancel = FALSE;
+        setup.OnCachePackageBegin(L"WebView2", 1, 1, TRUE, &cancel);
+        if (cancel || setup.ActivitySnapshot().part != SetupPart::Runtime) return false;
+        setup.OnCacheVerifyBegin(L"Application", L"payload", &cancel);
+        if (cancel || setup.ActivitySnapshot().step != SetupStep::Verifying || setup.ActivitySnapshot().part != SetupPart::App) return false;
+        const HRESULT prerequisite = static_cast<HRESULT>(0x80040828);
+        setup.PackageResult(SetupPart::Runtime, SetupStep::Preparing, prerequisite);
+        setup.PackageResult(SetupPart::App, SetupStep::RollingBack, E_FAIL, true);
+        for (bool korean : { false, true }) {
+            auto failure = FailureContext(setup.ActivitySnapshot(), E_FAIL, korean);
+            if (failure.find(L"WebView2 Runtime") == std::wstring::npos || failure.find(L"0x80040828") == std::wstring::npos ||
+                failure.find(korean ? L"앱 설치는 시작하지 않았습니다" : L"App installation did not start") == std::wstring::npos) return false;
+            auto cancelled = FailureContext(setup.ActivitySnapshot(), HRESULT_FROM_WIN32(ERROR_INSTALL_USEREXIT), korean);
+            if (cancelled.find(L"0x80040828") == std::wstring::npos || cancelled.find(korean ? L"취소" : L"cancelled") == std::wstring::npos) return false;
+            if (FailureContext({}, HRESULT_FROM_WIN32(ERROR_INSTALL_USEREXIT), korean).find(L"WebView2") != std::wstring::npos) return false;
+            auto running = setup.ActivitySnapshot(); running.appInstallStarted = true;
+            if (FailureContext(running, prerequisite, korean).find(korean ? L"앱 설치는 시작하지 않았습니다" : L"App installation did not start") != std::wstring::npos) return false;
+            if (ActivityLocation(running, L"C:\\app", korean).find(L"C:\\app") == std::wstring::npos) return false; // latest activity is App
+            running.part = SetupPart::Runtime;
+            if (ActivityLocation(running, L"C:\\app", korean).find(L"C:\\app") != std::wstring::npos) return false;
+        }
+        setup.PackageResult(SetupPart::Runtime, SetupStep::Preparing, S_OK);
+        if (FAILED(setup.ActivitySnapshot().failure)) return false;
+        setup.PackageResult(SetupPart::App, SetupStep::Removing, E_ACCESSDENIED);
+        setup.ResetRetryState();
+        if (FAILED(setup.ActivitySnapshot().failure) || setup.ActivitySnapshot().appInstallStarted ||
+            setup.ActivitySnapshot().step != SetupStep::Checking || PackagePart(L"unknown") != SetupPart::Installer) return false;
+
+        INITCOMMONCONTROLSEX controls{ sizeof(controls), ICC_PROGRESS_CLASS }; InitCommonControlsEx(&controls);
+        WNDCLASSW cls{}; cls.hInstance = setup.instance_; cls.lpfnWndProc = WindowProc; cls.lpszClassName = L"BlockPetActivityFixture";
+        if (!RegisterClassW(&cls)) return false;
+        HWND parent = CreateWindowExW(0, cls.lpszClassName, L"", WS_POPUP, 0, 0, kUiWidth, kUiHeight, nullptr, nullptr, setup.instance_, &setup);
+        bool ok = parent != nullptr;
+        if (parent) {
+            setup.group_ = setup.Control(L"BUTTON", L"", BS_GROUPBOX, 24, 204, 512, 126);
+            setup.details_ = setup.Control(L"STATIC", L"", SS_LEFT | SS_NOPREFIX, 40, 230, 476, 42);
+            setup.progressPath_ = setup.Control(L"EDIT", L"", ES_READONLY | ES_AUTOHSCROLL, 40, 286, 476, 24);
+            setup.progress_ = setup.Control(PROGRESS_CLASSW, L"", PBS_SMOOTH, 24, 158, 512, 22);
+            setup.directory_ = L"C:\\Unicode 시험 "; for (int i = 0; i < 30; ++i) setup.directory_ += L"long folder\\";
+            for (bool korean : { false, true }) for (UINT dpi : { 96U, 144U }) {
+                setup.korean_ = korean; setup.dpi_ = dpi;
+                setup.ShowPage(3);
+                wchar_t title[128]{}; GetWindowTextW(setup.group_, title, _countof(title));
+                ok &= std::wstring(title) == (korean ? L"설치 내용" : L"Installation details");
+                setup.SetActivity(SetupStep::Installing, SetupPart::Runtime);
+                setup.SetActivity(SetupStep::Installing, SetupPart::App);
+                SendMessageW(parent, kActivity, 0, 0); // delayed old notifications render latest state
+                std::vector<wchar_t> text(2048); GetWindowTextW(setup.progressPath_, text.data(), static_cast<int>(text.size()));
+                ok &= std::wstring(text.data()) == ActivityLocation(setup.ActivitySnapshot(), setup.directory_, korean);
+                ok &= (GetWindowLongPtrW(setup.progressPath_, GWL_STYLE) & ES_READONLY) != 0;
+                HFONT font = CreateFontW(-MulDiv(12, dpi, 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                    0, 0, CLEARTYPE_QUALITY, 0, korean ? L"Malgun Gothic" : L"Segoe UI");
+                HDC dc = GetDC(parent); HGDIOBJ old = SelectObject(dc, font);
+                for (auto step : { SetupStep::Checking, SetupStep::Planning, SetupStep::Preparing, SetupStep::Verifying,
+                    SetupStep::Applying, SetupStep::Installing, SetupStep::Removing, SetupStep::RollingBack, SetupStep::Shortcuts }) {
+                    for (auto part : { SetupPart::Installer, SetupPart::App, SetupPart::Runtime }) {
+                        SetupActivity activity; activity.step = step; activity.part = part;
+                        RECT bounds{ 0, 0, MulDiv(476, dpi, 96), 0 };
+                        auto description = ActivityText(activity, korean);
+                        DrawTextW(dc, description.c_str(), -1, &bounds, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
+                        ok &= bounds.bottom <= MulDiv(42, dpi, 96);
+                    }
+                }
+                SelectObject(dc, old); ReleaseDC(parent, dc); DeleteObject(font);
+                setup.SetProgress(40); ok &= SendMessageW(setup.progress_, PBM_GETPOS, 0, 0) == 40;
+                setup.SetProgress(100); ok &= (GetWindowLongPtrW(setup.progress_, GWL_STYLE) & PBS_MARQUEE) != 0;
+                auto oldEpoch = setup.ActivityEpoch();
+                setup.ResetRetryState(); setup.SetProgress(0); SendMessageW(parent, kActivity, 0, 0);
+                SendMessageW(parent, kProgress, 80, static_cast<LPARAM>(oldEpoch));
+                ok &= SendMessageW(setup.progress_, PBM_GETPOS, 0, 0) == 0 && (GetWindowLongPtrW(setup.progress_, GWL_STYLE) & PBS_MARQUEE) == 0;
+                GetWindowTextW(setup.details_, text.data(), static_cast<int>(text.size()));
+                ok &= std::wstring(text.data()) == ActivityText(setup.ActivitySnapshot(), korean);
+            }
+            SetWindowLongPtrW(parent, GWLP_USERDATA, 0); DestroyWindow(parent); setup.window_ = nullptr;
+        }
+        UnregisterClassW(cls.lpszClassName, setup.instance_); return ok;
+    }
     static bool TestLegacyShortcutMigration() {
         HRESULT apartment = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         if (FAILED(apartment)) return false;
@@ -2066,7 +2285,24 @@ public:
         PostMessageW(window_, kDetected, 0, static_cast<LPARAM>(hr)); return S_OK;
     }
     STDMETHODIMP OnPlanComplete(HRESULT hr) override { PostMessageW(window_, kPlanned, 0, static_cast<LPARAM>(hr)); return S_OK; }
-    STDMETHODIMP OnProgress(DWORD, DWORD overall, BOOL* cancel) override { *cancel |= CheckCanceled(); PostMessageW(window_, kProgress, overall, 0); return S_OK; }
+    STDMETHODIMP OnCacheBegin(BOOL* cancel) override {
+        SetActivity(SetupStep::Preparing);
+        return CBootstrapperApplicationBase::OnCacheBegin(cancel);
+    }
+    STDMETHODIMP OnCachePackageBegin(LPCWSTR package, DWORD count, DWORD64 size, BOOL vital, BOOL* cancel) override {
+        SetActivity(SetupStep::Preparing, PackagePart(package));
+        return CBootstrapperApplicationBase::OnCachePackageBegin(package, count, size, vital, cancel);
+    }
+    STDMETHODIMP OnCacheVerifyBegin(LPCWSTR package, LPCWSTR payload, BOOL* cancel) override {
+        SetActivity(SetupStep::Verifying, PackagePart(package));
+        return CBootstrapperApplicationBase::OnCacheVerifyBegin(package, payload, cancel);
+    }
+    STDMETHODIMP OnCachePackageComplete(LPCWSTR package, HRESULT hr, BOOTSTRAPPER_CACHEPACKAGECOMPLETE_ACTION recommendation,
+        BOOTSTRAPPER_CACHEPACKAGECOMPLETE_ACTION* action) override {
+        PackageResult(PackagePart(package), SetupStep::Preparing, hr);
+        return CBootstrapperApplicationBase::OnCachePackageComplete(package, hr, recommendation, action);
+    }
+    STDMETHODIMP OnProgress(DWORD, DWORD overall, BOOL* cancel) override { *cancel |= CheckCanceled(); PostMessageW(window_, kProgress, overall, static_cast<LPARAM>(ActivityEpoch())); return S_OK; }
     STDMETHODIMP OnError(BOOTSTRAPPER_ERROR_TYPE type, LPCWSTR package, DWORD code, LPCWSTR message, DWORD hint, DWORD count, LPCWSTR* data, int recommendation, int* result) override {
         if (!Unattended()) return CBootstrapperApplicationBase::OnError(type, package, code, message, hint, count, data, recommendation, result);
         std::wstring detail = L"Setup error " + std::to_wstring(code) + L": " + (message ? message : L"");
@@ -2075,18 +2311,36 @@ public:
     }
     STDMETHODIMP OnApplyBegin(DWORD phases, BOOL* cancel) override {
         applyStarted_ = true;
+        SetActivity(SetupStep::Applying);
         return CBootstrapperApplicationBase::OnApplyBegin(phases, cancel);
     }
     STDMETHODIMP OnExecutePackageBegin(LPCWSTR package, BOOL execute, BOOTSTRAPPER_ACTION_STATE action,
                                        INSTALLUILEVEL ui, BOOL disableExternalUi, BOOL* cancel) override {
         HRESULT hr = CBootstrapperApplicationBase::OnExecutePackageBegin(package, execute, action, ui, disableExternalUi, cancel);
+        auto part = PackagePart(package);
+        auto step = !execute ? SetupStep::RollingBack : action == BOOTSTRAPPER_ACTION_STATE_UNINSTALL ? SetupStep::Removing : SetupStep::Installing;
+        { std::lock_guard<std::mutex> lock(activityMutex_); executingPart_ = part; executingStep_ = step; }
+        SetActivity(step, part);
         if (SUCCEEDED(hr) && BlockAppWithoutWebView(package, execute, action, managedWebView_, WebViewAvailable())) {
             // A zero prerequisite exit code cannot authorize app writes by itself.
             webviewFailed_ = true;
+            PackageResult(SetupPart::Runtime, SetupStep::Installing, HRESULT_FROM_WIN32(ERROR_INSTALL_FAILURE));
             RequireWebView();
             *cancel = TRUE;
         }
+        if (SUCCEEDED(hr) && !*cancel && execute && part == SetupPart::App &&
+            (action == BOOTSTRAPPER_ACTION_STATE_INSTALL || action == BOOTSTRAPPER_ACTION_STATE_REPAIR)) {
+            std::lock_guard<std::mutex> lock(activityMutex_); activity_.appInstallStarted = true;
+        }
         return hr;
+    }
+    STDMETHODIMP OnExecutePackageComplete(LPCWSTR package, HRESULT hr, BOOTSTRAPPER_APPLY_RESTART restart,
+        BOOTSTRAPPER_EXECUTEPACKAGECOMPLETE_ACTION recommendation, BOOTSTRAPPER_EXECUTEPACKAGECOMPLETE_ACTION* action) override {
+        auto part = PackagePart(package);
+        SetupStep step;
+        { std::lock_guard<std::mutex> lock(activityMutex_); step = executingPart_ == part ? executingStep_ : SetupStep::Applying; }
+        PackageResult(part, step, hr, IsRollingBack() != FALSE);
+        return CBootstrapperApplicationBase::OnExecutePackageComplete(package, hr, restart, recommendation, action);
     }
     STDMETHODIMP OnApplyComplete(HRESULT hr, BOOTSTRAPPER_APPLY_RESTART restart, BOOTSTRAPPER_APPLYCOMPLETE_ACTION, BOOTSTRAPPER_APPLYCOMPLETE_ACTION* action) override {
         if (webviewFailed_) hr = HRESULT_FROM_WIN32(ERROR_INSTALL_FAILURE);
@@ -2123,6 +2377,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command, int) {
         if (!BlockPetBootstrapper::TestCanceledCleanup()) return 6;
         if (!BlockPetBootstrapper::TestTextMetrics()) return 7;
         if (!BlockPetBootstrapper::TestInteractiveRetry()) return 9;
+        if (!BlockPetBootstrapper::TestInstallationActivity()) return 25;
         if (!BlockPetBootstrapper::TestWebViewPackageState()) return 22;
         if (!BlockPetBootstrapper::TestReplacementPlans()) return 23;
         if (!BlockPetBootstrapper::TestLegacyShortcutMigration()) return 24;

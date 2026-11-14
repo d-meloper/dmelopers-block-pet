@@ -38,6 +38,10 @@ function resetHarness(native: {
       message: { error: (key: string) => errors.push(key) },
     },
     '@/services/diagnostics': { reportDiagnostic: () => {} },
+    '@/plugins/process': { saveAppSettings: async (isCurrent: () => boolean) => {
+      assert.equal(isCurrent(), true)
+      calls.push('save')
+    } },
     '@/stores/block': { useBlockStore: () => ({ resetGeneralSettings: () => calls.push('reset-block') }) },
     '@/stores/general': { useGeneralStore: () => ({
       reset: () => calls.push('reset-general'),
@@ -115,6 +119,7 @@ for (const failure of ['status', 'disable', 'readback', 'still-enabled'] as cons
       'reset-block',
       'reset-general',
       'initialize-general',
+      'save',
       'read',
     ])
   })
@@ -143,7 +148,7 @@ it('waits for native startup readback and ignores reset or toggle reentry', asyn
   assert.deepEqual(h.calls, ['read', 'disable'])
   finish()
   await resetting
-  assert.deepEqual(h.calls, ['read', 'disable', 'read', 'reset-block', 'reset-general', 'initialize-general', 'read'])
+  assert.deepEqual(h.calls, ['read', 'disable', 'read', 'reset-block', 'reset-general', 'initialize-general', 'save', 'read'])
 })
 
 it('resets preferences when startup is already disabled by Windows', async () => {
@@ -154,7 +159,7 @@ it('resets preferences when startup is already disabled by Windows', async () =>
     },
   })
   await h.reset()
-  assert.deepEqual(h.calls, ['read', 'reset-block', 'reset-general', 'initialize-general', 'read'])
+  assert.deepEqual(h.calls, ['read', 'reset-block', 'reset-general', 'initialize-general', 'save', 'read'])
   assert.deepEqual(h.errors, [])
 })
 

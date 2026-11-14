@@ -29,6 +29,7 @@ test('service maps only the status, preparation and ticket-cancel APIs', async (
   const status = harness({ supported: true, elevated: false })
   await status.service.getElevationStatus()
   assert.equal(status.calls[0].command, 'elevation_status')
+  assert.deepEqual(await harness({ supported: true, elevated: false, inputElevated: true }).service.getElevationStatus(), { supported: true, elevated: false, inputElevated: true })
   const ready = harness({ outcome: 'ready', ticket: 'a'.repeat(64) })
   await ready.service.prepareElevatedRestart()
   await ready.service.cancelElevatedRestart('a'.repeat(64))
@@ -44,6 +45,7 @@ test('service rejects malformed native state instead of inferring supported or e
     { supported: true },
     { supported: 1, elevated: false },
     { supported: false, elevated: 'false' },
+    { supported: true, elevated: false, inputElevated: 'true' },
     { supported: true, elevated: false, startupAttempt: 'approved' },
     { supported: true, elevated: false, alwaysRunAsAdministrator: 'true' },
     { supported: true, elevated: false, administratorReminderDismissed: 1 },
@@ -53,4 +55,11 @@ test('service rejects malformed native state instead of inferring supported or e
   for (const result of [null, {}, { outcome: 'ready' }, { outcome: 'ready', ticket: '' }, { outcome: 'ready', ticket: 'g'.repeat(64) }, { outcome: 'cancelled', ticket: 'a'.repeat(64) }]) {
     await assert.rejects(harness(result).service.prepareElevatedRestart(), /ELEVATION_INVALID_PREPARATION/)
   }
+})
+
+test('disable uses its restricted native command and validates the actual returned runtime status', async () => {
+  const h = harness({ supported: true, elevated: false, inputElevated: false })
+  await h.service.disableElevatedInput()
+  assert.equal(h.calls[0].command, 'disable_elevated_input')
+  await assert.rejects(harness(null).service.disableElevatedInput(), /ELEVATION_INVALID_STATUS/)
 })

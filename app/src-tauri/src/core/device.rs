@@ -1,12 +1,12 @@
 use rdev::{Button, EventType, Key};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashSet, VecDeque},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
     time::{Duration, Instant},
 };
 use std::{
-    sync::{Mutex, mpsc},
+    sync::{Arc, Mutex, mpsc},
     thread::{self, JoinHandle},
 };
 
@@ -14,6 +14,9 @@ use std::{
 mod windows;
 #[path = "device/pointer_mailbox.rs"]
 mod pointer_mailbox;
+#[path = "device/admin_input.rs"]
+pub(crate) mod admin_input;
+pub(crate) use admin_input::{activate_elevated_input, deactivate_elevated_input, elevated_input_active};
 use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewWindow, async_runtime, command};
 
 const SEMANTIC_INPUT_EVENT: &str = "semantic-input";
@@ -22,11 +25,12 @@ const POINTER_INTERVAL: Duration = Duration::from_millis(16);
 const TYPING_WINDOW: Duration = Duration::from_secs(1);
 const TYPING_EVENTS_FOR_FULL_INTENSITY: f32 = 8.0;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
     rename_all = "snake_case",
-    rename_all_fields = "camelCase"
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
 )]
 pub(crate) enum SemanticInputEvent {
     Typing {
@@ -57,7 +61,8 @@ pub(crate) enum SemanticInputEvent {
     },
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct KeyboardContact {
     row: u8,
     column: u8,
@@ -95,10 +100,12 @@ fn next_mouse_generation() -> u64 {
 struct WindowsListener {
     hooks: windows::HookListener,
     processing: Option<JoinHandle<()>>,
+    expected_stop: Arc<AtomicBool>,
 }
 
 impl WindowsListener {
     fn stop(&mut self) -> Result<(), String> {
+        self.expected_stop.store(true, Ordering::SeqCst);
         self.hooks.stop()?;
         if let Some(processing) = self.processing.take() {
             if processing.join().is_err() {
@@ -126,11 +133,17 @@ impl Consumers {
 
 struct ListenerRegistry {
     listener: Option<WindowsListener>,
+    remote: Option<admin_input::Connection>,
+    stopping: Option<admin_input::StoppingPeer>,
+    host: Option<admin_input::InputHost>,
     consumers: Consumers,
 }
 
 static WINDOWS_LISTENER: Mutex<ListenerRegistry> = Mutex::new(ListenerRegistry {
     listener: None,
+    remote: None,
+    stopping: None,
+    host: None,
     consumers: Consumers {
         desktop: None,
         broadcast: None,
@@ -162,13 +175,6 @@ pub(super) struct InputEpoch {
     broadcast: u64,
 }
 
-fn capture_input_epoch() -> InputEpoch {
-    InputEpoch {
-        desktop: DESKTOP_INPUT.load(Ordering::SeqCst),
-        broadcast: BROADCAST_INPUT.load(Ordering::SeqCst),
-    }
-}
-
 fn input_time_at(time: u32, now: u64) -> u64 {
     // Extend the message clock into the current 64-bit uptime cycle; queued
     // messages from just before rollover belong to the previous cycle.
@@ -180,10 +186,7 @@ fn input_time_at(time: u32, now: u64) -> u64 {
     }
 }
 
-fn capture_raw_input_epoch(event: &EventType, time: u32) -> InputEpoch {
-    let time = input_time_at(time, unsafe {
-        windows_sys::Win32::System::SystemInformation::GetTickCount64()
-    });
+fn capture_input_epoch(event: &EventType, time: u64) -> InputEpoch {
     InputEpoch {
         desktop: capture_raw_word(event, time, &DESKTOP_INPUT, &DESKTOP_CUTOFFS),
         broadcast: capture_raw_word(event, time, &BROADCAST_INPUT, &BROADCAST_CUTOFFS),
@@ -201,8 +204,8 @@ fn capture_raw_word(event: &EventType, time: u64, word: &AtomicU64, cutoffs: &In
         if current != word.load(Ordering::SeqCst) {
             continue;
         }
-        // Conservative same-millisecond exclusion prevents a queued old Raw
-        // Input message from entering a newly acknowledged consumer epoch.
+        // Both Raw Input and supplemental hooks use their physical timestamp.
+        // A queued old message cannot enter a newly acknowledged consumer epoch.
         break if time > cutoff { current } else { 0 };
     }
 }
@@ -326,6 +329,10 @@ fn reconcile_listener<R: Runtime>(
     app: AppHandle<R>,
     consumers: Consumers,
 ) -> Result<(), String> {
+    admin_input::bind_host(registry, app);
+    if admin_input::configure_remote(registry, consumers)? {
+        return Ok(());
+    }
     if let Some(current) = registry
         .listener
         .as_mut()
@@ -345,7 +352,10 @@ fn reconcile_listener<R: Runtime>(
             current.hooks.configure(consumers.mouse_enabled())?;
         }
     } else {
-        registry.listener = Some(create_windows_listener(app, consumers.mouse_enabled())?);
+        registry.listener = Some(create_windows_listener(
+            registry.host.clone().ok_or("INPUT_HOST_UNAVAILABLE")?,
+            consumers.mouse_enabled(),
+        )?);
     }
     set_consumer_word(&DESKTOP_INPUT, &DESKTOP_CUTOFFS, consumers.desktop);
     set_consumer_word(&BROADCAST_INPUT, &BROADCAST_CUTOFFS, consumers.broadcast);
@@ -353,15 +363,18 @@ fn reconcile_listener<R: Runtime>(
     Ok(())
 }
 
-fn create_windows_listener<R: Runtime>(
-    app: AppHandle<R>,
+fn create_windows_listener(
+    host: admin_input::InputHost,
     mouse_enabled: bool,
 ) -> Result<WindowsListener, String> {
     let (send, receive) = mpsc::channel();
     let (hooks, _) = windows::HookListener::start(mouse_enabled, send)?;
+    let expected_stop = Arc::new(AtomicBool::new(false));
+    let stopped = expected_stop.clone();
     let processing = thread::Builder::new()
         .name("pet-semantic-input".into())
         .spawn(move || {
+            let _collector = admin_input::CollectorGuard::new(host.clone(), stopped);
             let mut desktop = AggregateState::default();
             let mut broadcast = AggregateState::default();
             let mut desktop_epoch = 0;
@@ -394,7 +407,7 @@ fn create_windows_listener<R: Runtime>(
                 ) {
                     refresh_aggregate(&mut desktop, &mut desktop_epoch, epoch.desktop);
                     process_input_event(&mut desktop, &event, |event| {
-                        emit_to_main(&app, event, epoch.desktop)
+                        host.emit(admin_input::Target::Desktop, event, epoch.desktop)
                     });
                 }
                 if accepts_captured_input(
@@ -404,7 +417,7 @@ fn create_windows_listener<R: Runtime>(
                 ) {
                     refresh_aggregate(&mut broadcast, &mut broadcast_epoch, epoch.broadcast);
                     process_input_event(&mut broadcast, &event, |event| {
-                        emit_to_broadcast(&app, event, epoch.broadcast)
+                        host.emit(admin_input::Target::Broadcast, event, epoch.broadcast)
                     });
                 }
             });
@@ -413,6 +426,7 @@ fn create_windows_listener<R: Runtime>(
     Ok(WindowsListener {
         hooks,
         processing: Some(processing),
+        expected_stop,
     })
 }
 
@@ -513,10 +527,25 @@ pub fn stop_listening() -> Result<(), String> {
     if let Some(current) = registry.listener.as_mut() {
         current.stop()?;
     }
+    let remote = registry.remote.take();
+    if let Some(remote) = &remote {
+        remote.cancel();
+    }
+    if let Some(stopping) = registry.stopping.take() {
+        stopping.cancel();
+    }
     registry.listener = None;
+    let host = registry.host.take();
     registry.consumers = Consumers::default();
     set_consumer_word(&DESKTOP_INPUT, &DESKTOP_CUTOFFS, None);
     set_consumer_word(&BROADCAST_INPUT, &BROADCAST_CUTOFFS, None);
+    drop(registry);
+    if let Some(remote) = remote {
+        remote.join();
+    }
+    if let Some(host) = host {
+        host.status_changed();
+    }
     Ok(())
 }
 
@@ -900,6 +929,9 @@ mod tests {
         assert!(require_main_input_window(preference.label()).is_err());
         let mut registry = ListenerRegistry {
             listener: None,
+            remote: None,
+            stopping: None,
+            host: None,
             consumers: Consumers::default(),
         };
         for consumers in [

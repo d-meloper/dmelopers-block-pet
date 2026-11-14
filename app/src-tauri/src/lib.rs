@@ -68,7 +68,7 @@ use core::{
         stop_device_listening,
     },
     elevation::{
-        cancel_elevated_restart, elevation_status, prepare_elevated_restart,
+        cancel_elevated_restart, disable_elevated_input, elevation_status, prepare_elevated_restart,
         restart_elevated_application,
     },
     eyedropper::{cancel_screen_color_pick, pick_screen_color},
@@ -170,6 +170,7 @@ pub fn run() {
             stop_device_listening,
             restart_application,
             elevation_status,
+            disable_elevated_input,
             prepare_elevated_restart,
             cancel_elevated_restart,
             restart_elevated_application,

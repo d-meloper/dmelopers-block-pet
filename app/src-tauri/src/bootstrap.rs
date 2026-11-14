@@ -367,6 +367,8 @@ fn platform_preflight() {
     }
 }
 pub fn prepare() -> Result<Option<(LifetimeLock, DataRoots)>, String> {
+    // A headless administrator input worker finishes here and never reaches
+    // user storage, instance locks, Tauri or WebView initialization.
     if !crate::core::elevation::wait_for_parent() {
         return Ok(None);
     }

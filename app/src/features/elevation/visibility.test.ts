@@ -14,12 +14,12 @@ import type { ElevatedRestartPreparation, ElevationStatus } from './types'
 
 import { createPreferencePromptPriority } from './preferencePrompts'
 
-function load<T>(relative: string, mocks: Record<string, unknown>): T {
+function load<T>(relative: string, mocks: Record<string, unknown>, globals: Record<string, unknown> = {}): T {
   const exports = {} as T
   const source = ts.transpileModule(readFileSync(new URL(relative, import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText
-  runInNewContext(source, { exports, require: (name: string) => mocks[name] })
+  runInNewContext(source, { exports, require: (name: string) => mocks[name], ...globals })
   return exports
 }
 
@@ -44,6 +44,8 @@ function harness() {
   let prepare = async (): Promise<ElevatedRestartPreparation> => ({ outcome: 'cancelled' })
   let save = async () => {}
   let status = async (): Promise<ElevationStatus> => ({ supported: true, elevated: false })
+  const focusCallbacks = new Set<() => void>()
+  let inputStatusChanged = () => {}
   const general = Vue.reactive({ app: { alwaysRunAsAdministrator: false, administratorReminderDismissed: false, taskbarVisible: true } })
   const vue = {
     ...Vue,
@@ -53,6 +55,12 @@ function harness() {
   }
   const elevation = load<typeof import('@/composables/usePreferenceElevation')>('../../composables/usePreferenceElevation.ts', {
     'vue': vue,
+    '@tauri-apps/api/event': { listen: async (_event: string, receive: () => void) => {
+      inputStatusChanged = receive
+      return () => {
+        inputStatusChanged = () => {}
+      }
+    } },
     '@/features/elevation/preferenceElevation': { createPreferenceElevation },
     '@/stores/general': { useGeneralStore: () => general },
     '@/plugins/process': { saveAppSettings: () => save(), restartAppAsAdministrator: async () => {
@@ -60,6 +68,10 @@ function harness() {
     } },
     '@/services/diagnostics': { reportDiagnostic: () => {} },
     '@/services/elevation': {
+      disableElevatedInput: async () => {
+        calls.push('disable')
+        return status()
+      },
       getElevationStatus: async () => {
         calls.push('status')
         return status()
@@ -72,7 +84,10 @@ function harness() {
         calls.push('cancel')
       },
     },
-  }).usePreferenceElevation()
+  }, { window: {
+    addEventListener: (_event: string, callback: () => void) => focusCallbacks.add(callback),
+    removeEventListener: (_event: string, callback: () => void) => focusCallbacks.delete(callback),
+  } }).usePreferenceElevation()
   const updates = load<typeof import('@/composables/usePreferenceUpdates')>('../../composables/usePreferenceUpdates.ts', {
     'vue': vue,
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
@@ -120,6 +135,8 @@ function harness() {
     },
     updates,
     elevation,
+    inputStatus: () => inputStatusChanged(),
+    focus: () => focusCallbacks.forEach(callback => callback()),
     prompts,
     mount: () => Promise.all(mounts.map(callback => callback())),
     emit: (visible: boolean) => receive(visible),
@@ -216,8 +233,7 @@ test('visibility read failure retires a pending UAC reply and never commits a la
   await settle()
   const preparation = deferred<ElevatedRestartPreparation>()
   h.prepare(() => preparation.promise)
-  await h.elevation.restart()
-  const action = h.elevation.confirmRestart()
+  const action = h.elevation.enable()
   h.read(async () => {
     throw new Error('unknown visibility')
   })
@@ -230,7 +246,7 @@ test('visibility read failure retires a pending UAC reply and never commits a la
   assert.equal(h.elevation.status.value, undefined)
   h.dispose()
 })
-test('failed preference persistence reconciles only the saved field and never requests UAC', async () => {
+test('after consent, failed preference persistence reconciles only the saved field and never activates input', async () => {
   const h = harness()
   await h.mount()
   h.emit(true)
@@ -239,51 +255,57 @@ test('failed preference persistence reconciles only the saved field and never re
   h.save(async () => {
     throw new Error('save unavailable')
   })
+  h.prepare(async () => ({ outcome: 'ready', ticket: 'a'.repeat(64) }))
   h.status(async () => ({ supported: true, elevated: false, alwaysRunAsAdministrator: false, administratorReminderDismissed: false }))
-  await h.elevation.setAlways(true)
-  await h.elevation.restartAlways()
+  await h.elevation.requestEnable()
+  await h.elevation.enable()
   assert.equal(h.general.app.alwaysRunAsAdministrator, false)
   assert.equal(h.general.app.taskbarVisible, true)
-  assert.equal(h.calls.includes('prepare'), false)
+  assert.equal(h.calls.includes('prepare'), true)
   assert.equal(h.calls.includes('restart'), false)
   assert.equal(h.elevation.feedback.value, 'saveFailed')
   assert.equal(h.elevation.canManage.value, true)
   h.dispose()
 })
 
-test('a successful preference save is confirmed by the bootstrap reader before it is reported saved', async () => {
+test('consent, verified preference persistence and immediate activation preserve both window stores', async () => {
   const h = harness()
-  h.status(async () => ({ supported: true, elevated: true }))
   await h.mount()
   h.emit(true)
   await settle()
   h.elevation.continueNormally()
+  h.prepare(async () => ({ outcome: 'ready', ticket: 'a'.repeat(64) }))
   h.status(async () => ({
     supported: true,
-    elevated: true,
+    elevated: false,
+    inputElevated: h.calls.includes('restart'),
     alwaysRunAsAdministrator: h.general.app.alwaysRunAsAdministrator,
     administratorReminderDismissed: h.general.app.administratorReminderDismissed,
   }))
-  await h.elevation.setAlways(true)
-  await h.elevation.restartAlways()
+  h.elevation.requestEnable()
+  await h.elevation.enable()
   assert.equal(h.general.app.alwaysRunAsAdministrator, true)
+  assert.equal(h.general.app.taskbarVisible, true)
+  assert.equal(h.elevation.isActive.value, true)
   assert.equal(h.elevation.feedback.value, undefined)
-  assert.equal(h.calls.includes('prepare'), false)
+  assert.equal(h.calls.filter(x => x === 'prepare').length, 1)
+  assert.equal(h.calls.filter(x => x === 'restart').length, 1)
   h.dispose()
 })
 
-test('an unreadable bootstrap preference cannot be reported as a successful save or start UAC', async () => {
+test('an unreadable bootstrap preference cannot be reported as a successful save or activate input', async () => {
   const h = harness()
   await h.mount()
   h.emit(true)
   await settle()
   h.elevation.continueNormally()
+  h.prepare(async () => ({ outcome: 'ready', ticket: 'a'.repeat(64) }))
   h.status(async () => ({ supported: true, elevated: false, alwaysRunAsAdministrator: null }))
-  await h.elevation.setAlways(true)
-  await h.elevation.restartAlways()
+  await h.elevation.requestEnable()
+  await h.elevation.enable()
   assert.equal(h.general.app.alwaysRunAsAdministrator, false)
   assert.equal(h.elevation.feedback.value, 'saveFailed')
-  assert.equal(h.calls.includes('prepare'), false)
+  assert.equal(h.calls.includes('prepare'), true)
   h.dispose()
 })
 
@@ -311,4 +333,27 @@ test('a failed checkbox save restores the saved field, keeps the dialog open and
   assert.equal(h.calls.includes('prepare'), false)
   assert.equal(h.calls.includes('restart'), false)
   h.dispose()
+})
+test('worker liveness changes refresh the actual token separately without reopening consent or writing data', async () => {
+  const h = harness()
+  h.status(async () => ({ supported: true, elevated: false, inputElevated: true }))
+  await h.mount()
+  h.emit(true)
+  await settle()
+  assert.equal(h.elevation.status.value?.elevated, false)
+  assert.equal(h.elevation.status.value?.inputElevated, true)
+  assert.equal(h.elevation.open.value, false)
+  h.status(async () => ({ supported: true, elevated: false, inputElevated: false }))
+  h.inputStatus()
+  await settle()
+  assert.equal(h.elevation.status.value?.inputElevated, false)
+  assert.equal(h.elevation.open.value, false)
+  assert.equal(h.calls.includes('prepare'), false)
+  assert.equal(h.calls.includes('restart'), false)
+  h.dispose()
+  const reads = h.calls.length
+  h.inputStatus()
+  h.focus()
+  await settle()
+  assert.equal(h.calls.length, reads)
 })

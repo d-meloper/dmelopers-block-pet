@@ -1,9 +1,10 @@
-import { onBeforeUnmount } from 'vue'
+import { listen } from '@tauri-apps/api/event'
+import { onBeforeUnmount, onMounted } from 'vue'
 
 import { createPreferenceElevation } from '@/features/elevation/preferenceElevation'
 import { restartAppAsAdministrator, saveAppSettings } from '@/plugins/process'
 import { reportDiagnostic } from '@/services/diagnostics'
-import { cancelElevatedRestart, getElevationStatus, prepareElevatedRestart } from '@/services/elevation'
+import { cancelElevatedRestart, disableElevatedInput, getElevationStatus, prepareElevatedRestart } from '@/services/elevation'
 import { useGeneralStore } from '@/stores/general'
 
 export function usePreferenceElevation() {
@@ -13,6 +14,7 @@ export function usePreferenceElevation() {
     prepare: prepareElevatedRestart,
     cancel: cancelElevatedRestart,
     restart: restartAppAsAdministrator,
+    disableInput: disableElevatedInput,
     reminderDismissed: () => general.app.administratorReminderDismissed,
     persist: async (key, enabled, isCurrent) => {
       if (!isCurrent()) throw new Error('APP_PROCESS_CANCELLED')
@@ -38,6 +40,23 @@ export function usePreferenceElevation() {
     },
     report: (operation, error) => reportDiagnostic('warn', `elevation.${operation}`, error),
   })
-  onBeforeUnmount(elevation.dispose)
+  let disposed = false
+  let stop: (() => void) | undefined
+  const refresh = () => {
+    void elevation.refreshStatus()
+  }
+  onMounted(() => {
+    window.addEventListener('focus', refresh)
+    void listen('admin-input-status', refresh).then((unlisten) => {
+      if (disposed) unlisten()
+      else stop = unlisten
+    }).catch(error => reportDiagnostic('warn', 'elevation.status', error))
+  })
+  onBeforeUnmount(() => {
+    disposed = true
+    window.removeEventListener('focus', refresh)
+    stop?.()
+    elevation.dispose()
+  })
   return elevation
 }

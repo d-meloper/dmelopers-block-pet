@@ -1124,24 +1124,31 @@
   },
   "adminLaunchReminder": {
     "title": "Run as administrator?",
-    "message": "If the pet doesn't react to keyboard or mouse input in some windows,\nyou can try running this app as administrator, but reactions\nmay still be limited depending on the window or environment.\n\nWould you like to run this app as administrator?\nYou can change this setting at any time.",
-    "restart": "Run once",
+    "message": "We recommend running input handling with administrator privileges\nto help reduce mouse and keyboard input detection issues in some programs.",
     "continue": "Cancel",
     "preparing": "Waiting for Windows permission approval.",
-    "restarting": "Saving settings and preparing to restart.",
-    "failed": "Could not restart as administrator. The current app and settings have been kept.",
+    "restarting": "Saving settings and preparing administrator input processing.",
+    "failed": "Could not start input processing as administrator. The current app and settings are kept.",
     "cancelled": "Permission approval was cancelled. The current app and settings have been kept.",
-    "always": "Always run",
+    "always": "Enable administrator privileges",
     "neverShow": "Don't show again",
     "saveFailed": "Could not save settings. The app is still running. Check the saved setting before trying again.",
-    "restartConfirmationTitle": "Restart",
-    "restartConfirmationMessage": "The changes take effect after restarting the app.\nRestart now?",
-    "confirmRestart": "Restart now"
+    "identityMismatch": "Could not verify the administrator input process. The current app and settings are kept.",
+    "disabling": "Stopping administrator input handling and restoring ordinary input.",
+    "disableFailed": "Could not disable administrator input handling. Check the current privilege status and try again.",
+    "requiresNormalLaunch": "The app itself is running with administrator privileges. To fully disable them, close the app and launch it again with ordinary privileges."
   },
   "administratorSettings": {
-    "title": "Run as administrator",
-    "hint": "Always run the app as administrator.",
-    "unsupported": "Administrator switching is not supported in this launch mode."
+    "title": "Administrator privilege status",
+    "hint": "Runs keyboard and mouse input handling with administrator privileges.",
+    "unsupported": "Administrator switching is not supported in this launch mode.",
+    "active": "Active",
+    "inactive": "Inactive",
+    "checking": "Checking",
+    "unknown": "Status unavailable",
+    "disable": "Disable administrator privileges",
+    "disableTitle": "Disable administrator privileges?",
+    "disableMessage": "Disabling administrator privileges for keyboard and mouse input handling\nmay prevent the pet from detecting input in some programs."
   },
   "updateReminder": {
     "title": "Update available",

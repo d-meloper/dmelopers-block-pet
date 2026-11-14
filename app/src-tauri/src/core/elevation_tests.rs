@@ -213,15 +213,20 @@ fn elevation_arguments_require_exact_pid_creation_time_and_crypto_nonce() {
 }
 
 #[test]
-fn elevation_rejects_different_admin_profile_session_image_or_process_lifetime() {
+fn input_worker_accepts_another_administrator_but_rejects_wrong_session_image_or_lifetime() {
     let parent = parent_identity();
     let child = child_identity();
-    assert!(same_account_successor(&parent, &child));
-    let mismatches = [
-        Identity {
-            sid: "S-1-5-21-111-222-333-1002".into(),
-            ..child.clone()
-        },
+    let parent_metadata = ProcessIdentity::from(&parent);
+    assert!(worker_identity_allowed(&parent_metadata, &child));
+    let other_administrator = Identity {
+        sid: "S-1-5-21-111-222-333-1002".into(),
+        ..child.clone()
+    };
+    assert!(worker_identity_allowed(
+        &parent_metadata,
+        &other_administrator
+    ));
+    for mismatch in [
         Identity {
             session: 2,
             ..child.clone()
@@ -246,27 +251,19 @@ fn elevation_rejects_different_admin_profile_session_image_or_process_lifetime()
             created: parent.created - 1,
             ..child.clone()
         },
-    ];
-    for mismatch in mismatches {
-        assert!(!same_account_successor(&parent, &mismatch));
+    ] {
+        assert!(!worker_identity_allowed(&parent_metadata, &mismatch));
     }
-    assert!(!same_account_successor(
-        &Identity {
-            elevated: true,
-            ..parent
-        },
-        &child
-    ));
 }
 
 #[test]
-fn prepared_child_requires_commit_and_parent_exit_and_cancellation_wins() {
-    for exited in [false, true] {
+fn prepared_input_worker_requires_live_parent_and_commit_and_cancellation_wins() {
+    for parent_alive in [false, true] {
         for committed in [false, true] {
             for cancelled in [false, true] {
                 assert_eq!(
-                    child_may_start(exited, committed, cancelled),
-                    (exited, committed, cancelled) == (true, true, false)
+                    child_may_start(parent_alive, committed, cancelled),
+                    parent_alive && committed && !cancelled
                 );
             }
         }
@@ -274,37 +271,61 @@ fn prepared_child_requires_commit_and_parent_exit_and_cancellation_wins() {
 }
 
 #[test]
-fn roots_digest_preserves_unicode_and_path_boundaries_without_writing() {
-    let roots = DataRoots {
-        durable: PathBuf::from(r"C:\BlockPetFixtures\펫 😶\Saved Games\Block Pet"),
-        local: PathBuf::from(r"C:\BlockPetFixtures\펫 😶\AppData\Local\Block Pet"),
+fn worker_entry_is_exact_and_retired_handoffs_never_open_a_profile() {
+    let nonce = "a9".repeat(32);
+    let value = format!("120:1000:{nonce}");
+    let args = |values: &[&str]| {
+        values
+            .iter()
+            .map(|value| std::ffi::OsString::from(*value))
+            .collect::<Vec<_>>()
     };
-    let digest = roots_digest(&roots);
-    assert!(valid_ticket(&digest));
-    assert_eq!(digest, roots_digest(&roots.clone()));
-    assert_ne!(
-        digest,
-        roots_digest(&DataRoots {
-            durable: roots.local.clone(),
-            local: roots.durable.clone()
-        })
+    assert_eq!(invocation(&[]), Invocation::Ordinary);
+    assert_eq!(
+        invocation(&args(&[ARGUMENT, &value])),
+        Invocation::Worker(value.clone())
     );
-    assert_ne!(
-        digest,
-        roots_digest(&DataRoots {
-            durable: PathBuf::from(r"C:\BlockPetFixtures\펫\Saved Games\Block Pet"),
-            ..roots
-        })
+    for values in [
+        vec![RETIRED_ARGUMENT, value.as_str()],
+        vec!["ordinary", RETIRED_ARGUMENT],
+        vec![ARGUMENT],
+        vec![ARGUMENT, "invalid"],
+        vec!["ordinary", ARGUMENT, value.as_str()],
+        vec![ARGUMENT, value.as_str(), "extra"],
+    ] {
+        assert_eq!(invocation(&args(&values)), Invocation::Rejected);
+    }
+}
+
+#[test]
+fn worker_rendezvous_acl_only_names_originating_user_and_administrators() {
+    let sid = "S-1-5-21-111-222-333-1002";
+    assert_eq!(
+        security_descriptor(sid),
+        format!("D:P(A;;GA;;;{sid})(A;;GA;;;BA)")
     );
-    let split_a = DataRoots {
-        durable: PathBuf::from("ab"),
-        local: PathBuf::from("c"),
-    };
-    let split_b = DataRoots {
-        durable: PathBuf::from("a"),
-        local: PathBuf::from("bc"),
-    };
-    assert_ne!(roots_digest(&split_a), roots_digest(&split_b));
+    for broad in [";;;WD)", ";;;AU)", ";;;BU)"] {
+        assert!(!security_descriptor(sid).contains(broad));
+    }
+}
+
+#[test]
+fn ready_and_active_acknowledgements_bind_protocol_nonce_and_phase() {
+    let nonce = "a9".repeat(32);
+    let ready = ready_message(&nonce);
+    let encoded = serde_json::to_vec(&ready).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Handshake>(&encoded).unwrap(),
+        ready
+    );
+    assert_ne!(active_message(&nonce), ready);
+    assert_ne!(ready_message(&"b1".repeat(32)), ready);
+    assert!(
+        serde_json::from_str::<Handshake>(
+            r#"{"phase":"ready","protocol":1,"nonce":"n","path":"C:\\other"}"#
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -353,7 +374,7 @@ fn released_or_failed_save_barrier_never_signals_commit() {
 }
 
 #[test]
-fn commit_signal_failure_does_not_authorize_parent_exit() {
+fn commit_signal_failure_does_not_authorize_worker_activation() {
     let stages = RefCell::new(Vec::new());
     let result = commit_sequence(
         || true,
@@ -524,11 +545,7 @@ fn fixture_exchange(payload: Vec<u8>, capacity: usize) -> (Result<u32, String>, 
 
 #[test]
 fn named_pipe_roundtrip_authenticates_kernel_peer_and_ready_bytes() {
-    let roots = DataRoots {
-        durable: PathBuf::from(r"C:\fixture\펫 😶\durable"),
-        local: PathBuf::from(r"C:\fixture\펫 😶\local"),
-    };
-    let expected = ready_message(&"a9".repeat(32), &roots);
+    let expected = serde_json::to_vec(&ready_message(&"a9".repeat(32))).unwrap();
     let (read, received) = fixture_exchange(expected.clone(), expected.len());
     assert_eq!(read.unwrap() as usize, expected.len());
     assert_eq!(received, expected);
@@ -560,4 +577,165 @@ fn pending_pipe_connection_is_cancelled_and_drained_when_peer_exits() {
     });
     assert_eq!(result.unwrap_err(), "ELEVATION_CHILD_NOT_READY");
     assert!(started.elapsed() < Duration::from_secs(3));
+}
+
+/// In-process peers exercise the same native IPC without UAC, storage, or app
+/// startup. Each owns a real process wait handle and the shared cancel event.
+pub(crate) fn transport_pair() -> (Transport, Transport) {
+    let (server, name) = fixture_pipe();
+    let cancel = Handle(unsafe { CreateEventW(std::ptr::null(), 1, 0, std::ptr::null()) });
+    assert!(!cancel.0.is_null());
+    let client_cancel = clone_handle(cancel.0).unwrap();
+    let client_peer = clone_handle(unsafe { GetCurrentProcess() }).unwrap();
+    let server_peer = clone_handle(unsafe { GetCurrentProcess() }).unwrap();
+    assert_eq!(
+        unsafe { WaitForSingleObject(server_peer.0, 0) },
+        WAIT_TIMEOUT
+    );
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let raw = unsafe {
+            CreateFileW(
+                wide(&name).as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                0,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION,
+                std::ptr::null_mut(),
+            )
+        };
+        assert_ne!(raw, INVALID_HANDLE_VALUE);
+        sender
+            .send(Transport::new(Handle(raw), client_peer, client_cancel).unwrap())
+            .unwrap();
+    });
+    pipe_io(server.0, server_peer.0, true, |overlapped| unsafe {
+        ConnectNamedPipe(server.0, overlapped)
+    })
+    .unwrap();
+    let transport = Transport::new(server, server_peer, cancel).unwrap();
+    let client = receiver.recv_timeout(Duration::from_secs(3)).unwrap();
+    worker.join().unwrap();
+    (transport, client)
+}
+
+#[test]
+fn administrator_transport_is_duplex_and_preserves_frame_boundaries() {
+    let (server, client) = transport_pair();
+    client.send(&ready_message("first")).unwrap();
+    client.send(&ready_message("second")).unwrap();
+    assert_eq!(
+        server.receive::<Handshake>().unwrap(),
+        ready_message("first")
+    );
+    assert_eq!(
+        server.receive::<Handshake>().unwrap(),
+        ready_message("second")
+    );
+    server.send(&active_message("reply")).unwrap();
+    assert_eq!(
+        client.receive::<Handshake>().unwrap(),
+        active_message("reply")
+    );
+    assert!(server.alive());
+    client.cancel();
+    assert!(!server.alive());
+}
+
+#[test]
+fn administrator_transport_cancel_interrupts_and_drains_a_pending_read() {
+    let (server, client) = transport_pair();
+    let (done, received) = std::sync::mpsc::channel();
+    let waiting = server.clone();
+    let worker =
+        std::thread::spawn(move || done.send(waiting.receive_for::<Handshake>(5_000)).unwrap());
+    client.cancel();
+    assert!(
+        received
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .is_err()
+    );
+    worker.join().unwrap();
+    assert!(!server.alive());
+    assert!(server.send(&ready_message("late")).is_err());
+}
+
+#[test]
+fn administrator_transport_rejects_unexpected_rpc_and_cancels_both_peers() {
+    let (server, client) = transport_pair();
+    client
+        .send(&serde_json::json!({"program": "cmd.exe", "arguments": ["arbitrary"]}))
+        .unwrap();
+    assert!(server.receive::<Handshake>().is_err());
+    assert!(!client.alive());
+}
+
+#[test]
+fn input_disable_requires_saved_false_and_preserves_readback_and_shutdown_failures() {
+    let called = Cell::new(false);
+    assert_eq!(
+        disable_after_saved_choice(
+            || Ok(true),
+            || {
+                called.set(true);
+                Ok(())
+            }
+        ),
+        Err("ELEVATION_PREFERENCE_CHANGED".into())
+    );
+    assert!(!called.get());
+    assert_eq!(
+        disable_after_saved_choice(
+            || Err("ELEVATION_PREFERENCE_UNAVAILABLE".into()),
+            || {
+                called.set(true);
+                Ok(())
+            }
+        ),
+        Err("ELEVATION_PREFERENCE_UNAVAILABLE".into())
+    );
+    assert!(!called.get());
+    assert_eq!(
+        disable_after_saved_choice(
+            || Ok(false),
+            || {
+                called.set(true);
+                Err("ELEVATION_CHILD_NOT_READY".into())
+            }
+        ),
+        Err("ELEVATION_CHILD_NOT_READY".into())
+    );
+    assert!(called.get());
+    let order = RefCell::new(Vec::new());
+    disable_after_saved_choice(
+        || {
+            order.borrow_mut().push("readback");
+            Ok(false)
+        },
+        || {
+            order.borrow_mut().push("disable");
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(*order.borrow(), ["readback", "disable"]);
+}
+
+#[test]
+fn cancelling_a_transport_does_not_prove_the_peer_process_exited() {
+    let (server, client) = transport_pair();
+    assert_eq!(
+        server.wait_for_peer_exit(0),
+        Err("ELEVATION_CHILD_NOT_READY".into())
+    );
+    client.cancel();
+    assert!(!server.alive());
+    // Both fixture endpoints belong to this still-live test process. The real
+    // process wait must not mistake the cancellation event for process exit.
+    assert_eq!(
+        server.wait_for_peer_exit(0),
+        Err("ELEVATION_CHILD_NOT_READY".into())
+    );
 }

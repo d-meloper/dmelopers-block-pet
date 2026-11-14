@@ -6,18 +6,14 @@ import { useI18n } from 'vue-i18n'
 const props = defineProps<{
   open: boolean
   showDismiss?: boolean
-  showOnce?: boolean
   reminderDismissed?: boolean
-  restartConfirmation?: boolean
   busy?: boolean
-  action?: 'once' | 'always' | 'dismiss' | 'settings'
-  phase?: 'saving' | 'preparing' | 'restarting'
-  feedback?: 'cancelled' | 'failed' | 'saveFailed'
+  action?: 'enable' | 'disable' | 'dismiss'
+  phase?: 'saving' | 'preparing' | 'restarting' | 'disabling'
+  feedback?: 'cancelled' | 'failed' | 'saveFailed' | 'identityMismatch' | 'disableFailed' | 'requiresNormalLaunch'
 }>()
 defineEmits<{
-  restart: []
-  confirmRestart: []
-  always: []
+  enable: []
   reminderDismissedChange: [enabled: boolean]
   continue: []
   afterClose: []
@@ -34,12 +30,12 @@ const statusMessage = computed(() => props.feedback ?? (props.phase === 'saving'
     :keyboard="!busy"
     :mask-closable="false"
     :open="open"
-    :title="t(`adminLaunchReminder.${restartConfirmation ? 'restartConfirmationTitle' : 'title'}`)"
+    :title="t('adminLaunchReminder.title')"
     :width="540"
     @cancel="!busy && $emit('continue')"
   >
     <p class="admin-launch-message">
-      {{ t(`adminLaunchReminder.${restartConfirmation ? 'restartConfirmationMessage' : 'message'}`) }}
+      {{ t('adminLaunchReminder.message') }}
     </p>
     <p
       v-if="statusMessage"
@@ -49,7 +45,7 @@ const statusMessage = computed(() => props.feedback ?? (props.phase === 'saving'
       {{ t(`adminLaunchReminder.${statusMessage}`) }}
     </p>
     <div
-      v-if="!restartConfirmation && showDismiss !== false"
+      v-if="showDismiss !== false"
       class="admin-launch-reminder-option"
     >
       <Checkbox
@@ -74,30 +70,12 @@ const statusMessage = computed(() => props.feedback ?? (props.phase === 'saving'
           {{ t('adminLaunchReminder.continue') }}
         </Button>
         <Button
-          v-if="!restartConfirmation && showOnce !== false"
           :disabled="busy"
-          :loading="busy && action === 'once'"
-          @click="$emit('restart')"
-        >
-          {{ t('adminLaunchReminder.restart') }}
-        </Button>
-        <Button
-          v-if="!restartConfirmation"
-          :disabled="busy"
-          :loading="busy && action === 'always'"
+          :loading="busy && action === 'enable'"
           type="primary"
-          @click="$emit('always')"
+          @click="$emit('enable')"
         >
           {{ t('adminLaunchReminder.always') }}
-        </Button>
-        <Button
-          v-if="restartConfirmation"
-          :disabled="busy"
-          :loading="busy"
-          type="primary"
-          @click="$emit('confirmRestart')"
-        >
-          {{ t('adminLaunchReminder.confirmRestart') }}
         </Button>
       </Flex>
     </template>

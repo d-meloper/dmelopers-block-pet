@@ -578,15 +578,11 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
       :open="elevation.open.value"
       :phase="elevation.phase.value"
       :reminder-dismissed="generalStore.app.administratorReminderDismissed"
-      :restart-confirmation="elevation.restartConfirmation.value"
       :show-dismiss="elevation.showDismiss.value"
-      :show-once="elevation.showDismiss.value"
       @after-close="prompts.finishAdmin"
-      @always="elevation.restartAlways"
-      @confirm-restart="elevation.confirmRestart"
       @continue="elevation.continueNormally"
+      @enable="elevation.enable"
       @reminder-dismissed-change="elevation.setReminderDismissed"
-      @restart="elevation.restart"
     />
     <SkinLibrary
       v-if="innerView === 'skin-library'"

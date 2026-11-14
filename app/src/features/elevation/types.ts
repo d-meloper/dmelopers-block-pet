@@ -1,6 +1,8 @@
 export interface ElevationStatus {
   supported: boolean
   elevated: boolean
+  /** The input worker is elevated; the UI and data owner can remain ordinary. */
+  inputElevated?: boolean
   startupAttempt?: 'notAttempted' | 'cancelled' | 'failed'
   alwaysRunAsAdministrator?: boolean | null
   administratorReminderDismissed?: boolean | null
@@ -14,6 +16,7 @@ export function isElevationStatus(value: unknown): value is ElevationStatus {
   if (!value || typeof value !== 'object') return false
   const status = value as Partial<ElevationStatus>
   return typeof status.supported === 'boolean' && typeof status.elevated === 'boolean'
+    && (status.inputElevated === undefined || typeof status.inputElevated === 'boolean')
     && (status.startupAttempt === undefined || ['notAttempted', 'cancelled', 'failed'].includes(status.startupAttempt))
     && (status.alwaysRunAsAdministrator === undefined || status.alwaysRunAsAdministrator === null || typeof status.alwaysRunAsAdministrator === 'boolean')
     && (status.administratorReminderDismissed === undefined || status.administratorReminderDismissed === null || typeof status.administratorReminderDismissed === 'boolean')

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Button, message, Modal, Select, Switch } from 'ant-design-vue'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { PreferenceElevation } from '@/features/elevation/preferenceElevation'
@@ -32,13 +32,14 @@ const resetting = ref(false)
 const elevationDisabled = computed(() => !props.elevation?.canManage.value || resetting.value || autostartBusy.value)
 const elevationMessage = computed(() => props.elevation?.feedback.value
   ?? (props.elevation?.phase.value === 'saving' ? undefined : props.elevation?.phase.value))
-async function changeElevation(value: boolean | string | number) {
-  if (elevationDisabled.value) return
-  try {
-    await props.elevation?.setAlways(value === true)
-  } catch {
-    message.error(t('adminLaunchReminder.saveFailed'))
-  }
+const elevationState = computed(() => props.elevation?.checking.value
+  ? 'checking'
+  : !props.elevation?.status.value
+      ? 'unknown'
+      : props.elevation.isActive.value ? 'active' : 'inactive')
+const warningButtonStyle = {
+  backgroundColor: 'var(--ant-color-warning)',
+  borderColor: 'var(--ant-color-warning)',
 }
 const autostartDisabled = computed(() => !autostart.value || autostartBusy.value
   || (autostart.value.enabled ? !autostart.value.canDisable : !autostart.value.canEnable))
@@ -74,6 +75,23 @@ onBeforeUnmount(() => {
   disposed = true
   window.removeEventListener('focus', refreshAutostart)
 })
+
+function confirmDisableElevation() {
+  if (disposed || elevationDisabled.value || !props.elevation?.isActive.value) return
+  Modal.confirm({
+    direction: typeof document !== 'undefined' && document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr',
+    title: t('administratorSettings.disableTitle'),
+    width: 540,
+    content: h('p', { style: { whiteSpace: 'pre-line', margin: 0 } }, t('administratorSettings.disableMessage')),
+    okText: t('administratorSettings.disable'),
+    cancelText: t('adminLaunchReminder.continue'),
+    okButtonProps: { type: 'primary', style: warningButtonStyle },
+    onOk: async () => {
+      if (disposed || elevationDisabled.value || !props.elevation?.isActive.value) return
+      await props.elevation.disable()
+    },
+  })
+}
 
 function confirmGeneralReset() {
   if (disposed || autostartBusy.value || resetting.value || props.elevation?.busy.value) return
@@ -129,6 +147,61 @@ function confirmGeneralReset() {
       :title="$t('pages.preference.general.labels.appSettings')"
     >
       <ProListItem
+        :description="t('administratorSettings.hint')"
+        :title="t('administratorSettings.title')"
+      >
+        <template #title>
+          <span class="administrator-status-heading">
+            {{ t('administratorSettings.title') }}
+            <span
+              aria-live="polite"
+              class="administrator-status"
+              :class="`administrator-status-${elevationState}`"
+              role="status"
+            >
+              <span
+                aria-hidden="true"
+                :class="elevationState === 'active' ? 'i-lucide:shield-check' : elevationState === 'inactive' ? 'i-lucide:triangle-alert' : 'i-lucide:circle-help'"
+              />
+              {{ t(`administratorSettings.${elevationState}`) }}
+            </span>
+          </span>
+        </template>
+        <div class="administrator-status-controls">
+          <Button
+            v-if="elevationState === 'active' && elevation?.status.value?.supported === true"
+            class="administrator-disable"
+            :disabled="elevationDisabled"
+            :loading="elevation?.action.value === 'disable'"
+            @click="confirmDisableElevation"
+          >
+            {{ t('administratorSettings.disable') }}
+          </Button>
+          <Button
+            v-if="elevationState === 'inactive' && elevation?.status.value?.supported === true"
+            :disabled="elevationDisabled"
+            @click="elevation?.requestEnable()"
+          >
+            {{ t('adminLaunchReminder.always') }}
+          </Button>
+          <span
+            v-if="elevation?.status.value?.supported === false"
+            class="text-xs text-color-3"
+          >
+            {{ t('administratorSettings.unsupported') }}
+          </span>
+        </div>
+      </ProListItem>
+
+      <p
+        v-if="elevationMessage"
+        aria-live="polite"
+        role="status"
+      >
+        {{ t(`adminLaunchReminder.${elevationMessage}`) }}
+      </p>
+
+      <ProListItem
         :description="$t('pages.preference.general.hints.launchOnStartup')"
         :title="$t('pages.preference.general.labels.launchOnStartup')"
       >
@@ -147,28 +220,6 @@ function confirmGeneralReset() {
           />
         </span>
       </ProListItem>
-
-      <ProListItem
-        :description="t('administratorSettings.hint')"
-        :title="t('administratorSettings.title')"
-      >
-        <Switch
-          :aria-description="elevation?.status.value?.supported === false ? t('administratorSettings.unsupported') : undefined"
-          :aria-label="t('administratorSettings.title')"
-          :checked="generalStore.app.alwaysRunAsAdministrator"
-          :disabled="elevationDisabled"
-          :loading="elevation?.phase.value === 'saving'"
-          @change="value => changeElevation(value)"
-        />
-      </ProListItem>
-
-      <p
-        v-if="elevationMessage"
-        aria-live="polite"
-        role="status"
-      >
-        {{ t(`adminLaunchReminder.${elevationMessage}`) }}
-      </p>
 
       <ProListItem
         :description="$t('pages.preference.general.hints.showTaskbarIcon')"
@@ -210,3 +261,36 @@ function confirmGeneralReset() {
     </ProList>
   </PreferenceSections>
 </template>
+
+<style scoped>
+.administrator-status-heading {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.administrator-status-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.administrator-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ant-color-text-secondary);
+}
+
+.administrator-status-active {
+  color: var(--ant-color-primary);
+}
+
+.administrator-status-inactive {
+  color: var(--ant-color-warning-text);
+}
+</style>

@@ -620,23 +620,33 @@ pub(crate) fn transport_pair() -> (Transport, Transport) {
     (transport, client)
 }
 
+fn transport_nonce_fixture<const LENGTH: usize>() -> String {
+    let mut random = [0u8; LENGTH];
+    getrandom::fill(&mut random).expect("transport fixture entropy unavailable");
+    random.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 #[test]
 fn administrator_transport_is_duplex_and_preserves_frame_boundaries() {
     let (server, client) = transport_pair();
-    client.send(&ready_message("first")).unwrap();
-    client.send(&ready_message("second")).unwrap();
+    // Distinct payload lengths exercise message boundaries in both directions.
+    let first = transport_nonce_fixture::<32>();
+    let second = transport_nonce_fixture::<33>();
+    let reply = transport_nonce_fixture::<34>();
+    client.send(&ready_message(&first)).unwrap();
+    client.send(&ready_message(&second)).unwrap();
     assert_eq!(
         server.receive::<Handshake>().unwrap(),
-        ready_message("first")
+        ready_message(&first)
     );
     assert_eq!(
         server.receive::<Handshake>().unwrap(),
-        ready_message("second")
+        ready_message(&second)
     );
-    server.send(&active_message("reply")).unwrap();
+    server.send(&active_message(&reply)).unwrap();
     assert_eq!(
         client.receive::<Handshake>().unwrap(),
-        active_message("reply")
+        active_message(&reply)
     );
     assert!(server.alive());
     client.cancel();
@@ -659,7 +669,7 @@ fn administrator_transport_cancel_interrupts_and_drains_a_pending_read() {
     );
     worker.join().unwrap();
     assert!(!server.alive());
-    assert!(server.send(&ready_message("late")).is_err());
+    assert!(server.send(&ready_message(&transport_nonce_fixture::<32>())).is_err());
 }
 
 #[test]

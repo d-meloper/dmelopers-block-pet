@@ -81,6 +81,7 @@
     "keyboardBaseZOffset": 0,
     "keyboardScalePercent": 100,
     "keyboardLegendLanguage": "ko",
+    "keyboardKeycapInputEnabled": true,
     "keyboardColor": "#d5d8dc",
     "keyboardKeycapColor": "#f7f3e8",
     "keyboardLegendColor": "#31343a",
@@ -102,6 +103,8 @@
   "general": {
     "app": {
       "autostart": false,
+      "alwaysRunAsAdministrator": false,
+      "administratorReminderDismissed": false,
       "taskbarVisible": false,
       "autoUpdateCheck": true,
       "updateReminderHiddenUntil": 0,
@@ -129,6 +132,7 @@
     "showDisplayArea": "",
     "mouseEnabled": "",
     "keepInScreen": "",
-    "hideOnHover": ""
+    "hideOnHover": "",
+    "keyboardKeycapInputEnabled": ""
   }
 }

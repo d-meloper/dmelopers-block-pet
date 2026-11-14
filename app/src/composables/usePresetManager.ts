@@ -680,7 +680,7 @@ export function usePresetManager(
       if (payload.key === 'sceneRotationOffsetDegrees') commitArmControlOrderRotation(payload.value)
       return
     }
-    const request = payload as { toggleVisibility?: unknown, desktopVisible?: unknown, visible?: unknown, opacity?: unknown, mirror?: unknown, showDisplayArea?: unknown, keepInScreen?: unknown, alwaysOnTop?: unknown }
+    const request = payload as { toggleVisibility?: unknown, desktopVisible?: unknown, visible?: unknown, opacity?: unknown, mirror?: unknown, showDisplayArea?: unknown, keepInScreen?: unknown, alwaysOnTop?: unknown, toggleKeyboardKeycapInput?: unknown }
     let manuallyShown = false
     if (request.toggleVisibility === true) {
       store.window.visible = toggledBasicVisibility(store.window.visible, general.broadcast, foregroundHidingSuppressed.value)
@@ -705,6 +705,9 @@ export function usePresetManager(
     } else if (typeof request.opacity === 'number' && [25, 50, 75, 100].includes(request.opacity)) {
       markPresetUserEdit()
       store.window.opacity = request.opacity
+    } else if (request.toggleKeyboardKeycapInput === true) {
+      markPresetUserEdit()
+      store.activePet3dPreset.keyboardKeycapInputEnabled = !store.activePet3dPreset.keyboardKeycapInputEnabled
     }
     if (manuallyShown) void showForegroundHidingVisit().catch(() => reportDiagnostic('warn', 'foreground_hiding.manual_show'))
   }

@@ -21,6 +21,18 @@ function fixture() {
 }
 
 describe('broadcast settings and projection', () => {
+  it('projects both keycap feedback choices without changing character input settings', () => {
+    const { block } = fixture()
+    const before = captureBroadcastScene(block)
+    for (const enabled of [true, false]) {
+      block.activePet3dPreset.keyboardKeycapInputEnabled = enabled
+      assert.deepEqual(captureBroadcastScene(block), {
+        ...before,
+        preset: { ...before.preset, keyboardKeycapInputEnabled: enabled },
+      })
+    }
+  })
+
   it('projects approved animation and arm choices without changing their meanings', () => {
     const { block } = fixture()
     for (const mode of ['default', 'headbutt'] as const) {
@@ -128,7 +140,7 @@ describe('broadcast settings and projection', () => {
     Object.assign(block.customization3d.preset.dmeloperEyebrows, { legacyPrivateName: 'private-name' })
     Object.assign(block.customization3d.preset.lighting.key, { legacyPrivateName: 'private-light-name' })
     assert.deepEqual(captureBroadcastScene(block), before)
-    assert.equal(Object.keys(before.preset).length, 51)
+    assert.equal(Object.keys(before.preset).length, 52)
     assert.equal('pixelFilterEnabled' in before.preset, false)
     assert.equal('antialiasEnabled' in before.preset, false)
     assert.equal(before.preset.showDisplayArea, false)

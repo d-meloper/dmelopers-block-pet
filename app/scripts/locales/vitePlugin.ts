@@ -3,8 +3,8 @@ import type { Plugin } from 'vite'
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { checkContentLock } from './contentLock'
-import { checkProject, cleanCatalog, createPseudoCatalog, readCatalog, readRegistry } from './core'
+import { checkReleaseLocales } from './contentLock'
+import { cleanCatalog, createPseudoCatalog, readCatalog, readRegistry } from './core'
 import { INCLUSION_POLICY_PATH } from './inclusionPolicy'
 
 export const LOCALE_MODULE = 'virtual:block-pet-locales'
@@ -51,9 +51,8 @@ export function localePlugin(root: string): Plugin {
       this.addWatchFile(resolve(projectRoot, INCLUSION_POLICY_PATH))
       for (const code of Object.keys(registry.locales)) this.addWatchFile(resolve(projectRoot, `src/locales/${code}.json`))
       if (!development) {
-        const report = checkProject(projectRoot, { release: true })
+        const report = checkReleaseLocales(projectRoot)
         if (!report.ok) throw new Error(`Locale release check failed:\n${report.errors.join('\n')}`)
-        checkContentLock(projectRoot)
       }
     },
     resolveId(id) {

@@ -14,6 +14,27 @@ import { PRESET_SETTING_KEYS } from './types'
 
 const fixture = readFileSync(new URL('./fixtures/portable-v1.json', import.meta.url))
 
+it('converts the legacy keycap flag only in executable settings and re-exports raw fields unchanged', () => {
+  for (const fields of [
+    {},
+    { keyboardKeycapInputDisabled: true },
+    { keyboardKeycapInputDisabled: false },
+    { keyboardKeycapInputEnabled: false, keyboardKeycapInputDisabled: false },
+    { keyboardKeycapInputEnabled: true, keyboardKeycapInputDisabled: true },
+    { keyboardKeycapInputDisabled: 'true' },
+    { keyboardKeycapInputEnabled: null, keyboardKeycapInputDisabled: false },
+  ]) {
+    const document = JSON.parse(fixture.toString())
+    Object.assign(document.settings.preset, fields, { retainedUnknown: { explicitFalse: false, value: null } })
+    const bytes = new TextEncoder().encode(JSON.stringify(document))
+    const parsed = parsePortablePreset(bytes)
+    assert.deepEqual(parsed.sourceSettings, document.settings)
+    assert.equal('keyboardKeycapInputDisabled' in parsed.settings.preset, false)
+    assert.deepEqual(JSON.parse(serializePortablePreset(parsed)), document)
+    assert.deepEqual(parsePortablePreset(bytes), parsed)
+  }
+})
+
 it('reads the frozen native/frontend v1 fixture with exactly the preset settings allowlist', () => {
   const doc = parsePortablePreset(fixture)
   assert.equal(doc.settings.preset.dmeloperEyebrows.depthPercent, 100)

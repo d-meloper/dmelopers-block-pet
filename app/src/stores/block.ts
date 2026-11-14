@@ -25,6 +25,7 @@ import {
   DMELOPER_EYEBROW_LIMITS,
   migrateDmeloperEyebrowDepth,
 } from '@/config/dmeloperEyebrows'
+import { migrateKeyboardKeycapInput, normalizeKeyboardKeycapInput } from '@/config/keyboardKeycapInput'
 import { createDefaultLightingSettings, migratePresetLighting, normalizeLightingSettings } from '@/config/lighting'
 import { DEFAULT_PET_MODEL_ID, getPetModelOption, MODEL_3D_CONFIG } from '@/config/model3d'
 import { DEFAULT_PERFORMANCE_SETTINGS, MAX_FPS, MIN_FPS, normalizeShadowQuality } from '@/config/performance'
@@ -69,6 +70,7 @@ export interface Pet3dPreset extends PetArmPoseSettings, PetMotionSettings, Devi
   keyboardBaseZOffset: number
   keyboardScalePercent: number
   keyboardLegendLanguage: KeyboardLanguageSelection
+  keyboardKeycapInputEnabled: boolean
   dmeloperEyebrows: DmeloperEyebrowPreset
   dmeloperPalmColor: string
 }
@@ -191,6 +193,7 @@ const PET_3D_PRESET_KEYS = [
   'keyboardBaseZOffset',
   'keyboardScalePercent',
   'keyboardLegendLanguage',
+  'keyboardKeycapInputEnabled',
   'dmeloperEyebrows',
   'dmeloperPalmColor',
 ] as const satisfies readonly (keyof Pet3dPreset)[]
@@ -263,7 +266,7 @@ export function preparePetStateForSync(state: Record<string, unknown>): Record<s
     && 'preset' in customization && customization.preset && typeof customization.preset === 'object'
     && !Array.isArray(customization.preset)) {
     customization = { ...customization, preset: {
-      ...migratePetMotionSettings(migrateDeskSettings(customization.preset)),
+      ...migratePetMotionSettings(migrateDeskSettings(migrateKeyboardKeycapInput(customization.preset as Record<string, unknown>, false))),
       ...('petAnimationMode' in customization.preset ? {} : { petAnimationMode: DEFAULT_PET_PRESET.petAnimationMode }),
       ...('petShoulderTorsoConnected' in customization.preset ? {} : { petShoulderTorsoConnected: DEFAULT_PET_PRESET.petShoulderTorsoConnected }),
       ...('petRightArmDisabled' in customization.preset ? {} : { petRightArmDisabled: DEFAULT_PET_PRESET.petRightArmDisabled }),
@@ -562,6 +565,7 @@ export const useBlockStore = defineStore(BLOCK_STORE_ID, () => {
       petRightArmDisabled: source.petRightArmDisabled === true,
       petLeftArmDisabled: source.petLeftArmDisabled === true,
       mouseEnabled: source.mouseEnabled !== false,
+      keyboardKeycapInputEnabled: normalizeKeyboardKeycapInput(source as unknown as Record<string, unknown>),
       showDisplayArea: source.showDisplayArea === true,
       autoViewportEnabled: source.autoViewportEnabled !== false,
       autoViewportPaddingPixels: normalizeAutoViewportPadding(source.autoViewportPaddingPixels),
@@ -862,6 +866,7 @@ export const useBlockStore = defineStore(BLOCK_STORE_ID, () => {
       keyboardBaseZOffset: defaults.keyboardBaseZOffset,
       keyboardScalePercent: defaults.keyboardScalePercent,
       keyboardLegendLanguage: defaults.keyboardLegendLanguage,
+      keyboardKeycapInputEnabled: defaults.keyboardKeycapInputEnabled,
     })
   }
 

@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { checkContentLock } from './locales/contentLock'
+import { checkReleaseLocales } from './locales/contentLock'
 import { addLocale, checkProject, flattenCatalog, readCatalog, readRegistry, reviewKeys, syncCatalogs } from './locales/core'
 
 export function runLocaleCommand(root: string, args: string[], output: (value: string) => void = console.log): number {
@@ -40,20 +40,15 @@ export function runLocaleCommand(root: string, args: string[], output: (value: s
     return 0
   }
   if (!['sync', 'report', 'check'].includes(command)) throw new Error('Usage: pnpm locale <add|sync|report|review|check|preview>')
-  const report = command === 'sync' ? syncCatalogs(root) : checkProject(root, { release: args.includes('--release') })
-  if (command === 'check' && args.includes('--release') && report.ok) {
-    try {
-      checkContentLock(root, { committed: args.includes('--committed') })
-    } catch (error) {
-      report.ok = false
-      report.errors.push((error as Error).message)
-    }
-  }
+  const report = command === 'sync' ? syncCatalogs(root)
+    : command === 'check' && args.includes('--release') ? checkReleaseLocales(root, { committed: args.includes('--committed'), contentLock: args.includes('--content-lock') })
+      : checkProject(root, { release: args.includes('--release') })
   if (args.includes('--json')) {
     output(JSON.stringify(report, null, 2))
   } else {
     for (const locale of report.locales) output(`${locale.code} [${locale.status}]: ${locale.translated}/${locale.total}; missing ${locale.missing.length}, empty ${locale.empty.length}, invalid ${locale.invalid.length}, review ${locale.stale.length}, obsolete ${locale.obsolete.length}`)
     for (const error of report.errors) output(error)
+    if (report.contentLock) output(`Historical content lock: ${report.contentLock.status}.`)
     if (command === 'check' && report.ok) output('Locale check passed.')
   }
   return command === 'check' && !report.ok ? 1 : 0

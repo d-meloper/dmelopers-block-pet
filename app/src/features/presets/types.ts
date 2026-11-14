@@ -78,6 +78,7 @@ export const PRESET_SETTING_KEYS = [
   'keyboardBaseZOffset',
   'keyboardScalePercent',
   'keyboardLegendLanguage',
+  'keyboardKeycapInputEnabled',
 ] as const satisfies readonly (keyof Pet3dPreset)[]
 
 export interface PresetSnapshot {

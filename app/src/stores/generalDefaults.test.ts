@@ -321,7 +321,9 @@ describe('general defaults and real two-window Pinia persistence', () => {
   it('restores, synchronizes and saves legacy shortcut keys across real plugin instances', async () => {
     const h = await seededHarness()
     const persisted = h.backend.get('shortcut')!
+    delete persisted.keyboardKeycapInputEnabled
     persisted.visibleCat = 'Control+KeyB'
+    persisted.cycleZoom = 'Control+KeyZ'
     persisted.retained = { empty: '', explicitNull: null }
     const main = h.window('main')
     const preference = h.window('preference')
@@ -331,6 +333,10 @@ describe('general defaults and real two-window Pinia persistence', () => {
       await preference.initialize()
       assert.equal(shortcuts(main).visibleBlock, 'Control+KeyB')
       assert.equal(shortcuts(preference).visibleBlock, 'Control+KeyB')
+      assert.equal(shortcuts(main).keyboardKeycapInputEnabled, '')
+      assert.equal(shortcuts(preference).keyboardKeycapInputEnabled, '')
+      assert.equal(shortcuts(main).cycleZoom, 'Control+KeyZ')
+      assert.equal(shortcuts(preference).cycleZoom, 'Control+KeyZ')
       assert.equal('visibleCat' in shortcuts(preference), false)
       preference.freeze(true)
       shortcuts(preference).visibleBlock = 'F9'
@@ -339,17 +345,23 @@ describe('general defaults and real two-window Pinia persistence', () => {
       assert.equal(shortcuts(main).visibleBlock, 'Control+KeyB')
       preference.freeze(false)
       shortcuts(preference).visibleBlock = 'F10'
+      shortcuts(preference).keyboardKeycapInputEnabled = 'Control+KeyM'
       await settle()
       assert.equal(shortcuts(main).visibleBlock, 'F10')
+      assert.equal(shortcuts(main).keyboardKeycapInputEnabled, 'Control+KeyM')
       await preference.save()
       await main.save()
       assert.equal(h.backend.get('shortcut')!.visibleCat, 'F10')
+      assert.equal(h.backend.get('shortcut')!.keyboardKeycapInputEnabled, 'Control+KeyM')
+      assert.equal(h.backend.get('shortcut')!.cycleZoom, 'Control+KeyZ')
       assert.equal('visibleBlock' in h.backend.get('shortcut')!, false)
       assert.deepEqual(h.backend.get('shortcut')!.retained, { empty: '', explicitNull: null })
       const restarted = h.window('restart')
       try {
         await restarted.initialize()
         assert.equal(shortcuts(restarted).visibleBlock, 'F10')
+        assert.equal(shortcuts(restarted).keyboardKeycapInputEnabled, 'Control+KeyM')
+        assert.equal(shortcuts(restarted).cycleZoom, 'Control+KeyZ')
         assert.equal('visibleCat' in shortcuts(restarted), false)
       } finally {
         restarted.dispose()
@@ -1068,7 +1080,49 @@ it('full reset restores every authored field through both real Pinia windows and
   }
 })
 
-it('preserves ko/en/ja/system keycaps through real two-window sync, save/reload and category/full reset', async () => {
+it('migrates stored keycap flags before real plugin default merging in both windows and after save/reload', async () => {
+  for (const [fields, expected] of [
+    [{}, true],
+    [{ keyboardKeycapInputDisabled: true }, false],
+    [{ keyboardKeycapInputDisabled: false }, true],
+    [{ keyboardKeycapInputEnabled: false }, false],
+    [{ keyboardKeycapInputEnabled: true, keyboardKeycapInputDisabled: true }, true],
+    [{ keyboardKeycapInputEnabled: false, keyboardKeycapInputDisabled: false }, false],
+    [{ keyboardKeycapInputEnabled: null, keyboardKeycapInputDisabled: true }, true],
+    [{ keyboardKeycapInputDisabled: 'true' }, true],
+  ] as const) {
+    const h = await seededHarness()
+    const raw = h.backend.get('cat')!
+    delete raw.customization3d.preset.keyboardKeycapInputEnabled
+    Object.assign(raw.customization3d.preset, fields)
+    const main = h.window('main')
+    const preference = h.window('preference')
+    const preset = (window: typeof main) => window.stores.find(store => store.$id === 'cat')!.$state.customization3d.preset
+    try {
+      await main.initialize()
+      await preference.initialize()
+      assert.equal(preset(main).keyboardKeycapInputEnabled, expected, JSON.stringify(fields))
+      assert.equal(preset(preference).keyboardKeycapInputEnabled, expected)
+      assert.equal('keyboardKeycapInputDisabled' in preset(main), false)
+      await preference.save()
+      await main.save()
+      assert.equal(h.backend.get('cat')!.customization3d.preset.keyboardKeycapInputEnabled, expected)
+      assert.equal('keyboardKeycapInputDisabled' in h.backend.get('cat')!.customization3d.preset, false)
+      const restarted = h.window('restart')
+      try {
+        await restarted.initialize()
+        assert.equal(preset(restarted).keyboardKeycapInputEnabled, expected)
+      } finally {
+        restarted.dispose()
+      }
+    } finally {
+      main.dispose()
+      preference.dispose()
+    }
+  }
+})
+
+it('preserves keyboard language and keycap feedback through real two-window sync, save/reload and category/full reset', async () => {
   const h = await seededHarness()
   const preference = h.window('preference')
   const main = h.window('main')
@@ -1077,22 +1131,29 @@ it('preserves ko/en/ja/system keycaps through real two-window sync, save/reload 
   try {
     await preference.initialize()
     await main.initialize()
-    for (const choice of ['ko', 'en', 'ja', 'system'] as const) {
+    assert.equal(block.$state.customization3d.preset.keyboardKeycapInputEnabled, true)
+    for (const [index, choice] of (['ko', 'en', 'ja', 'system'] as const).entries()) {
+      const enabled = index % 2 === 0
       block.$state.customization3d.preset.keyboardLegendLanguage = choice
+      block.$state.customization3d.preset.keyboardKeycapInputEnabled = enabled
       await settle()
       await preference.save()
       assert.equal(mainBlock.$state.customization3d.preset.keyboardLegendLanguage, choice)
       assert.equal(h.backend.get('cat')!.customization3d.preset.keyboardLegendLanguage, choice)
+      assert.equal(mainBlock.$state.customization3d.preset.keyboardKeycapInputEnabled, enabled)
+      assert.equal(h.backend.get('cat')!.customization3d.preset.keyboardKeycapInputEnabled, enabled)
       const reloaded = h.window('reloaded')
       try {
         await reloaded.initialize()
         assert.equal(reloaded.stores.find(store => store.$id === 'cat')!.$state.customization3d.preset.keyboardLegendLanguage, choice)
+        assert.equal(reloaded.stores.find(store => store.$id === 'cat')!.$state.customization3d.preset.keyboardKeycapInputEnabled, enabled)
       } finally {
         reloaded.dispose()
       }
     }
     for (const reset of [block.resetKeyboard3d, block.resetAllSettings]) {
       block.$state.customization3d.preset.keyboardLegendLanguage = 'ja'
+      block.$state.customization3d.preset.keyboardKeycapInputEnabled = false
       await settle()
       await preference.save()
       reset()
@@ -1101,6 +1162,9 @@ it('preserves ko/en/ja/system keycaps through real two-window sync, save/reload 
       assert.equal(block.$state.customization3d.preset.keyboardLegendLanguage, 'ko')
       assert.equal(mainBlock.$state.customization3d.preset.keyboardLegendLanguage, 'ko')
       assert.equal(h.backend.get('cat')!.customization3d.preset.keyboardLegendLanguage, 'ko')
+      assert.equal(block.$state.customization3d.preset.keyboardKeycapInputEnabled, true)
+      assert.equal(mainBlock.$state.customization3d.preset.keyboardKeycapInputEnabled, true)
+      assert.equal(h.backend.get('cat')!.customization3d.preset.keyboardKeycapInputEnabled, true)
     }
   } finally {
     main.dispose()

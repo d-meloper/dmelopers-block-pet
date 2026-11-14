@@ -42,6 +42,7 @@ const DEFAULT_SCENE: PresetSnapshot = {
     keyboardBaseZOffset: 0,
     keyboardColor: '#d5d8dc',
     keyboardKeycapColor: '#f7f3e8',
+    keyboardKeycapInputEnabled: true,
     keyboardLegendColor: '#31343a',
     keyboardLegendLanguage: 'ko',
     keyboardPressedColor: '#f2b36d',

@@ -3,12 +3,14 @@ import { Button, message, Modal, Select, Switch } from 'ant-design-vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import type { PreferenceElevation } from '@/features/elevation/preferenceElevation'
 import type { AutostartStatus } from '@/services/autostart'
 
 import PreferenceSections from '@/components/preference-sections/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
 import { getPublicLanguageOptions } from '@/locales/registry'
+import { saveAppSettings } from '@/plugins/process'
 import { getAutostartStatus, setAutostartEnabled } from '@/services/autostart'
 import { reportDiagnostic } from '@/services/diagnostics'
 import { useBlockStore } from '@/stores/block'
@@ -18,6 +20,7 @@ import BroadcastSettings from './components/broadcast-settings/index.vue'
 import ForegroundHiding from './components/foreground-hiding/index.vue'
 import ThemeMode from './components/theme-mode/index.vue'
 
+const props = defineProps<{ elevation?: PreferenceElevation }>()
 const blockStore = useBlockStore()
 const generalStore = useGeneralStore()
 const { t } = useI18n()
@@ -26,6 +29,17 @@ const languageOptions = getPublicLanguageOptions()
 const autostart = ref<AutostartStatus>()
 const autostartBusy = ref(false)
 const resetting = ref(false)
+const elevationDisabled = computed(() => !props.elevation?.canManage.value || resetting.value || autostartBusy.value)
+const elevationMessage = computed(() => props.elevation?.feedback.value
+  ?? (props.elevation?.phase.value === 'saving' ? undefined : props.elevation?.phase.value))
+async function changeElevation(value: boolean | string | number) {
+  if (elevationDisabled.value) return
+  try {
+    await props.elevation?.setAlways(value === true)
+  } catch {
+    message.error(t('adminLaunchReminder.saveFailed'))
+  }
+}
 const autostartDisabled = computed(() => !autostart.value || autostartBusy.value
   || (autostart.value.enabled ? !autostart.value.canDisable : !autostart.value.canEnable))
 const autostartHint = computed(() => t(`autostartStatus.${autostart.value?.state ?? 'unknown'}`))
@@ -62,13 +76,13 @@ onBeforeUnmount(() => {
 })
 
 function confirmGeneralReset() {
-  if (disposed || autostartBusy.value || resetting.value) return
+  if (disposed || autostartBusy.value || resetting.value || props.elevation?.busy.value) return
   Modal.confirm({
     direction: typeof document !== 'undefined' && document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr',
     title: t('pages.preference.general.confirm.reset'),
     okType: 'danger',
     onOk: async () => {
-      if (disposed || autostartBusy.value || resetting.value) return
+      if (disposed || autostartBusy.value || resetting.value || props.elevation?.busy.value) return
       resetting.value = true
       autostartBusy.value = true
       let failure = 'resetPreflight'
@@ -87,9 +101,11 @@ function confirmGeneralReset() {
         }
         if (disposed) return
         failure = 'resetPartial'
+        props.elevation?.continueNormally()
         blockStore.resetGeneralSettings()
         generalStore.reset()
         await generalStore.init()
+        await saveAppSettings(() => !disposed)
       } catch (error) {
         reportDiagnostic('error', 'settings.reset_general', error)
         if (!disposed) message.error(t(`pages.preference.general.errors.${failure}`))
@@ -133,6 +149,28 @@ function confirmGeneralReset() {
       </ProListItem>
 
       <ProListItem
+        :description="t('administratorSettings.hint')"
+        :title="t('administratorSettings.title')"
+      >
+        <Switch
+          :aria-description="elevation?.status.value?.supported === false ? t('administratorSettings.unsupported') : undefined"
+          :aria-label="t('administratorSettings.title')"
+          :checked="generalStore.app.alwaysRunAsAdministrator"
+          :disabled="elevationDisabled"
+          :loading="elevation?.phase.value === 'saving'"
+          @change="value => changeElevation(value)"
+        />
+      </ProListItem>
+
+      <p
+        v-if="elevationMessage"
+        aria-live="polite"
+        role="status"
+      >
+        {{ t(`adminLaunchReminder.${elevationMessage}`) }}
+      </p>
+
+      <ProListItem
         :description="$t('pages.preference.general.hints.showTaskbarIcon')"
         :title="$t('pages.preference.general.labels.showTaskbarIcon')"
       >
@@ -163,7 +201,7 @@ function confirmGeneralReset() {
 
       <Button
         block
-        :disabled="autostartBusy"
+        :disabled="autostartBusy || elevation?.busy.value"
         :loading="resetting"
         @click="confirmGeneralReset"
       >

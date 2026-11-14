@@ -278,27 +278,43 @@ pub fn storage_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
         .setup(|app, _| {
             let expected = durable_root(app)?.join("tauri-plugin-pinia");
             let config = app.path().app_config_dir()?.join("tauri-plugin-pinia");
-            crate::state_safety::check_path(&config)?;
-            // 0.12.1 chooses its filename by debug_assertions, not tauri::is_dev().
-            // Unused historical metadata is preserved and cannot redirect this collection.
-            let meta = config.join(if cfg!(debug_assertions) {
-                "meta.dev.tauristore"
-            } else {
-                "meta.tauristore"
-            });
-            if meta.try_exists()? {
-                validate_pinia_metadata(&read_limited(&meta)?, &expected)?;
-            }
-            crate::state_safety::check_path(&expected)?;
-            // Validate all existing entries before Pinia reads or rewrites any of them.
-            if expected.exists() {
-                for entry in fs::read_dir(&expected)? {
-                    crate::state_safety::check_path(&entry?.path())?;
-                }
-            }
+            validate_storage_paths(&expected, &config)?;
             Ok(())
         })
         .build()
+}
+
+/// The bootstrap reader must validate the same collection before Pinia exists.
+pub(crate) fn validate_startup_storage(roots: &DataRoots) -> Result<(), String> {
+    let config = known_folder(&FOLDERID_RoamingAppData)?
+        .join(crate::application_context::native_identifier())
+        .join("tauri-plugin-pinia");
+    validate_storage_paths(&roots.durable.join("tauri-plugin-pinia"), &config)
+}
+
+fn validate_storage_paths(expected: &Path, config: &Path) -> Result<(), String> {
+    crate::state_safety::check_path(config)?;
+    // 0.12.1 chooses its filename by debug_assertions, not tauri::is_dev().
+    // Unused historical metadata is preserved and cannot redirect this collection.
+    let meta = config.join(if cfg!(debug_assertions) {
+        "meta.dev.tauristore"
+    } else {
+        "meta.tauristore"
+    });
+    if meta
+        .try_exists()
+        .map_err(|_| "STORE_METADATA_UNAVAILABLE")?
+    {
+        validate_pinia_metadata(&read_limited(&meta)?, &expected)?;
+    }
+    crate::state_safety::check_path(&expected)?;
+    // Validate all existing entries before Pinia reads or rewrites any of them.
+    if expected.try_exists().map_err(|_| "STORAGE_UNAVAILABLE")? {
+        for entry in fs::read_dir(expected).map_err(|_| "STORAGE_UNAVAILABLE")? {
+            crate::state_safety::check_path(&entry.map_err(|_| "STORAGE_UNAVAILABLE")?.path())?;
+        }
+    }
+    Ok(())
 }
 fn validate_pinia_metadata(bytes: &[u8], expected: &Path) -> Result<(), String> {
     let meta: serde_json::Value =

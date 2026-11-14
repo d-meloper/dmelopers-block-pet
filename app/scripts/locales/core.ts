@@ -43,12 +43,15 @@ export interface LocaleReport {
   stale: string[]
   invalid: string[]
 }
+export type LocaleProductionPolicy = 'allow-validated' | 'require-human-ready' | 'explicit-maintainer-approval'
+
 export interface ProjectReport {
   ok: boolean
   sourceLocale: string
   fallbackLocale: string
   errors: string[]
   locales: LocaleReport[]
+  contentLock?: { status: 'NOT_CHECKED' | 'PASS' | 'FAIL' }
 }
 
 interface MessageNode {
@@ -61,6 +64,7 @@ interface MessageNode {
   body?: MessageNode
   items?: MessageNode[]
   cases?: MessageNode[]
+  loc?: { start: { offset: number }, end: { offset: number } }
 }
 const require = createRequire(import.meta.url)
 const vueRequire = createRequire(require.resolve('vue-i18n'))
@@ -81,6 +85,16 @@ export function readInclusionPolicy(root: string) {
   const policy = readJson(root, INCLUSION_POLICY_PATH)
   assertInclusionPolicy(policy)
   return policy
+}
+
+/** Public exports omit private operations; their offline default is validated catalogs. */
+export function readProductionPolicy(root: string): LocaleProductionPolicy {
+  const path = '_Development/Translation/Config/manifest.json'
+  if (!existsSync(projectPath(root, path, true))) return 'allow-validated'
+  const manifest = readJson(root, path)
+  const policy = object(manifest) ? manifest.aiProductionPolicy : undefined
+  if (!['allow-validated', 'require-human-ready', 'explicit-maintainer-approval'].includes(String(policy))) throw new Error('LOCALE_PRODUCTION_POLICY_INVALID')
+  return policy as LocaleProductionPolicy
 }
 
 export function inclusionSourceHash(root: string): string {
@@ -234,6 +248,7 @@ export function readReviews(root: string, sourceLocale: string): Reviews {
 }
 
 export function messageSignature(message: string) {
+  if (message.includes('\0')) throw new Error('Message syntax: NUL_CHARACTER')
   const errors: string[] = []
   let ast: MessageNode
   try {
@@ -256,21 +271,87 @@ export function messageSignature(message: string) {
   return { ast, parameters: [...parameters].sort(), links: [...links].sort(), forms: ast.body?.cases?.length ?? 1 }
 }
 
-export function checkProject(root: string, options: { release?: boolean } = {}): ProjectReport {
+interface RuntimeMessageForm {
+  named: Record<string, number>
+  list: Record<string, number>
+  escapes: Record<string, number>
+  literals: string[]
+  text: string
+}
+// Public, offline projection of the source message contract. Operations and
+// provider evidence are deliberately not dependencies of the runtime checker.
+function runtimeMessageContract(message: string, signature: ReturnType<typeof messageSignature>) {
+  const add = (counts: Record<string, number>, token: string) => { counts[token] = (counts[token] ?? 0) + 1 }
+  const forms = (signature.ast.body?.cases ?? [signature.ast.body]).map(form => {
+    if (!form) throw new Error('MESSAGE_AST_INVALID')
+    const text = form.loc ? message.slice(form.loc.start.offset, form.loc.end.offset) : message
+    const result: RuntimeMessageForm = { named: Object.create(null), list: Object.create(null), escapes: Object.create(null), literals: [], text }
+    const walk = (node: MessageNode) => {
+      if (node.type === 4 && typeof node.key === 'string') add(result.named, node.key)
+      if (node.type === 5) add(result.list, String(node.index))
+      for (const child of node.items ?? []) walk(child)
+      for (const child of node.cases ?? []) walk(child)
+      if (node.body) walk(node.body)
+    }
+    walk(form)
+    for (let index = 0; index < text.length; index++) {
+      const rest = text.slice(index)
+      if (rest.startsWith('\\\\')) { add(result.escapes, 'literal-backslash'); index++; continue }
+      if (rest.startsWith('\\r\\n')) { add(result.escapes, 'literal-crlf'); index += 3; continue }
+      if (/^\\[nrt]/.test(rest)) { add(result.escapes, `literal-${rest[1]}`); index++; continue }
+      if (rest.startsWith('\r\n')) { add(result.escapes, 'control-crlf'); index++; continue }
+      const kind = ({ '\n': 'control-lf', '\r': 'control-cr', '\t': 'control-tab', '\u0085': 'control-nel', '\u2028': 'control-ls', '\u2029': 'control-ps', '\\': 'backslash' } as Record<string, string>)[text[index]]
+      if (kind) add(result.escapes, kind)
+    }
+    result.literals = [...new Set(text.match(/DMeloper's Block Pet|\bBlock Pet\b|Minecraft|WebView2|\bOBS\b|\bLoc_[A-Za-z0-9_]+\b|\b(?:[A-Z][A-Z0-9]+_[A-Z0-9_]+)\b|https?:\/\/[^\s"'<>]+|(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|@Resources[\\/])[^\s"'<>]+|\b[\w.-]+\.(?:json|exe|dll|png|glb|petpreset|ts|vue|msi|txt|zip|ps1)\b/g) ?? [])].sort()
+    return result
+  })
+  return { forms, links: signature.links }
+}
+
+function assertRuntimeMessageContract(source: ReturnType<typeof runtimeMessageContract>, target: ReturnType<typeof runtimeMessageContract>) {
+  const counts = (value: Record<string, number>) => JSON.stringify(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+  const identity = (form: RuntimeMessageForm) => JSON.stringify([counts(form.named), counts(form.list), counts(form.escapes), form.literals])
+  if (JSON.stringify(source.links) !== JSON.stringify(target.links)) throw new Error('LINKED_MESSAGE_MISMATCH')
+  const uniform = source.forms.every(form => identity(form) === identity(source.forms[0]))
+  if (!uniform && source.forms.length !== target.forms.length) throw new Error('EXPLICIT_PLURAL_CONTRACT_REQUIRED')
+  for (const [index, after] of target.forms.entries()) {
+    const before = source.forms[uniform ? 0 : index]
+    if (counts(before.named) !== counts(after.named)) throw new Error('NAMED_PARAMETER_COUNT_MISMATCH')
+    if (counts(before.list) !== counts(after.list)) throw new Error('LIST_PARAMETER_COUNT_MISMATCH')
+    if (counts(before.escapes) !== counts(after.escapes)) throw new Error('CONTROL_OR_ESCAPE_COUNT_MISMATCH')
+    for (const literal of before.literals) {
+      if (before.text.split(literal).length !== after.text.split(literal).length) throw new Error('REQUIRED_LITERAL_MISMATCH')
+    }
+  }
+}
+
+export function checkProject(root: string, options: { release?: boolean, productionPolicy?: LocaleProductionPolicy } = {}): ProjectReport {
   const registry = readRegistry(root)
   const source = flattenCatalog(readCatalog(root, registry.sourceLocale))
+  let pivot = source
+  try { pivot = flattenCatalog(readCatalog(root, registry.fallbackLocale)) }
+  catch { /* The fallback locale's ordinary report retains its parse error. */ }
   const reviews = readReviews(root, registry.sourceLocale)
   const errors: string[] = []
   const locales: LocaleReport[] = []
-  const inclusions = options.release ? readInclusionPolicy(root) : undefined
+  const policy = options.productionPolicy ?? (options.release ? readProductionPolicy(root) : 'allow-validated')
+  if (!['allow-validated', 'require-human-ready', 'explicit-maintainer-approval'].includes(policy)) throw new Error('LOCALE_PRODUCTION_POLICY_INVALID')
+  const inclusions = options.release && policy === 'explicit-maintainer-approval' ? readInclusionPolicy(root) : undefined
   const sourceInputsSha256 = inclusions ? inclusionSourceHash(root) : undefined
   const signatures: Record<string, ReturnType<typeof messageSignature>> = Object.create(null)
+  const sourceContracts: Record<string, ReturnType<typeof runtimeMessageContract>> = Object.create(null)
+  const pivotContracts: typeof sourceContracts = Object.create(null)
   for (const [key, text] of Object.entries(source)) {
     try {
       signatures[key] = messageSignature(text)
+      sourceContracts[key] = runtimeMessageContract(text, signatures[key])
     } catch (error) {
       errors.push(`${registry.sourceLocale}/${key}: ${(error as Error).message}`)
     }
+    try {
+      if (pivot[key] !== undefined) pivotContracts[key] = runtimeMessageContract(pivot[key], messageSignature(pivot[key]))
+    } catch { /* The fallback locale reports invalid current source grammar. */ }
   }
   for (const [code, metadata] of Object.entries(registry.locales)) {
     const report: LocaleReport = { code, status: metadata.status, total: Object.keys(source).length, translated: 0, missing: [], empty: [], obsolete: [], stale: [], invalid: [] }
@@ -298,6 +379,8 @@ export function checkProject(root: string, options: { release?: boolean } = {}):
         for (const link of signature.links) {
           if (!(link in target) && !(link in source)) throw new Error(`Unknown linked message: ${link}`)
         }
+        const contract = code === registry.sourceLocale || code === registry.fallbackLocale ? sourceContracts[key] : pivotContracts[key]
+        if (contract) assertRuntimeMessageContract(contract, runtimeMessageContract(text, signature))
       } catch (error) {
         report.invalid.push(`${key}: ${(error as Error).message}`)
       }
@@ -309,7 +392,7 @@ export function checkProject(root: string, options: { release?: boolean } = {}):
       for (const key of report.missing) errors.push(`${code}/${key}: missing`)
       for (const key of report.empty) errors.push(`${code}/${key}: empty`)
       for (const issue of report.invalid) errors.push(`${code}/${issue}`)
-      if (options.release) {
+      if (options.release && policy !== 'allow-validated') {
         const inclusion = inclusions?.inclusions.find(entry => entry.locale === code)
         const approved = inclusion && inclusion.sourceInputsSha256 === sourceInputsSha256 && inclusion.catalogSha256 === hashText(readFileSync(projectPath(root, `src/locales/${code}.json`), 'utf8'))
         if (!approved) {

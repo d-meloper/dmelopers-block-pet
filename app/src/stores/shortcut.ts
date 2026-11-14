@@ -4,7 +4,7 @@ import { ref } from 'vue'
 import { DEFAULT_SHORTCUT_SETTINGS } from '@/config/defaultSettings'
 import { restoreShortcutState, serializeShortcutState } from '@/config/persistedNames'
 
-export type HotKey = 'visibleBlock' | 'mirrorMode' | 'cycleZoom' | 'cycleRotation' | 'penetrable' | 'alwaysOnTop' | 'visiblePreference' | 'toggleBroadcast' | 'showDisplayArea' | 'mouseEnabled' | 'keepInScreen' | 'hideOnHover'
+export type HotKey = 'visibleBlock' | 'mirrorMode' | 'cycleZoom' | 'cycleRotation' | 'penetrable' | 'alwaysOnTop' | 'visiblePreference' | 'toggleBroadcast' | 'showDisplayArea' | 'mouseEnabled' | 'keepInScreen' | 'hideOnHover' | 'keyboardKeycapInputEnabled'
 
 export const useShortcutStore = defineStore('shortcut', () => {
   const visibleBlock = ref(DEFAULT_SHORTCUT_SETTINGS.visibleBlock)
@@ -20,6 +20,7 @@ export const useShortcutStore = defineStore('shortcut', () => {
   const mouseEnabled = ref(DEFAULT_SHORTCUT_SETTINGS.mouseEnabled)
   const keepInScreen = ref(DEFAULT_SHORTCUT_SETTINGS.keepInScreen)
   const hideOnHover = ref(DEFAULT_SHORTCUT_SETTINGS.hideOnHover)
+  const keyboardKeycapInputEnabled = ref(DEFAULT_SHORTCUT_SETTINGS.keyboardKeycapInputEnabled)
 
   const reset = () => {
     toggleBroadcast.value = DEFAULT_SHORTCUT_SETTINGS.toggleBroadcast
@@ -34,6 +35,7 @@ export const useShortcutStore = defineStore('shortcut', () => {
     cycleRotation.value = DEFAULT_SHORTCUT_SETTINGS.cycleRotation
     penetrable.value = DEFAULT_SHORTCUT_SETTINGS.penetrable
     alwaysOnTop.value = DEFAULT_SHORTCUT_SETTINGS.alwaysOnTop
+    keyboardKeycapInputEnabled.value = DEFAULT_SHORTCUT_SETTINGS.keyboardKeycapInputEnabled
   }
 
   return {
@@ -49,6 +51,7 @@ export const useShortcutStore = defineStore('shortcut', () => {
     cycleRotation,
     penetrable,
     alwaysOnTop,
+    keyboardKeycapInputEnabled,
     reset,
   }
 }, {

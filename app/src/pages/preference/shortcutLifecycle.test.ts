@@ -141,7 +141,19 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
   const nativeCaptionColors: boolean[] = []
   let nativeThemeRequest: () => Promise<void> = async () => {}
   const classes = new Set<string>()
-  const testWindow = {}
+  const windowListeners = new Map<string, Set<() => void>>()
+  const testWindow = {
+    addEventListener: (event: string, handler: () => void) => {
+      const handlers = windowListeners.get(event) ?? new Set()
+      handlers.add(handler)
+      windowListeners.set(event, handlers)
+    },
+    removeEventListener: (event: string, handler: () => void) => {
+      const handlers = windowListeners.get(event)
+      handlers?.delete(handler)
+      if (!handlers?.size) windowListeners.delete(event)
+    },
+  }
   const domListeners = new Map<string, Array<(event?: { target: object }) => void>>()
   const document = {
     hidden: false,
@@ -354,6 +366,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
         getElevationStatus: async () => ({ supported: false, elevated: false }),
         prepareElevatedRestart: unexpectedElevation,
         cancelElevatedRestart: unexpectedElevation,
+        disableElevatedInput: unexpectedElevation,
       }
     }
     if (id === '@/composables/usePreferenceUpdates') {
@@ -554,6 +567,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     invalidatePresetSelection: () => selectionListeners.forEach(handler => handler()),
     emitNative: (event: string, payload: unknown) => nativeListeners.get(event)?.({ payload }),
     hasNativeListener: (event: string) => nativeListeners.has(event),
+    hasWindowListener: (event: string) => windowListeners.has(event),
     finishAntialiasSubscription: () => finishAntialiasSubscription?.(),
     holdAntialiasReplies: () => {
       automaticAntialiasReply = false
@@ -632,6 +646,8 @@ describe('preference tab identities', () => {
     const h = mountPreferences()
     try {
       await flush()
+      assert.equal(h.hasWindowListener('focus'), true)
+      assert.equal(h.hasNativeListener('admin-input-status'), true)
       const tabs = () => h.nodes().filter(node => node.props.role === 'tab')
       const tabNames = ['block', 'scene', 'environment', 'presets', 'performance', 'general', 'shortcut', 'about']
       tabs().forEach((tab, index) => {
@@ -694,6 +710,8 @@ describe('preference tab identities', () => {
     } finally {
       h.app.unmount()
       await flush()
+      assert.equal(h.hasWindowListener('focus'), false)
+      assert.equal(h.hasNativeListener('admin-input-status'), false)
     }
   })
 })

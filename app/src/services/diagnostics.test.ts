@@ -60,6 +60,52 @@ describe('failure diagnostics', () => {
     assert.equal(diagnosticCode({ code: 'AUTOSTART_PRIVATE_USER_TOKEN' }), 'unclassified_failure')
   })
 
+  it('preserves the actual elevation and caption failure codes through supported error shapes', () => {
+    const sources = [
+      '../../src-tauri/src/core/elevation.rs',
+      './elevation.ts',
+      '../composables/usePreferenceElevation.ts',
+      '../../src-tauri/src/plugins/window/src/commands/windows.rs',
+      '../../src-tauri/src/windows_process.rs',
+      '../../src-tauri/src/core/elevation/transport.rs',
+      '../../src-tauri/src/core/device/admin_input.rs',
+      '../plugins/process.ts',
+    ]
+    const sourceTexts = sources.map(path => readFileSync(new URL(path, import.meta.url), 'utf8'))
+    const emitted = new Set(sourceTexts.flatMap(source => [...source
+      .matchAll(/['"](ELEVATION_[A-Z_]+|PROCESS_(?:IDENTITY|IMAGE)_UNAVAILABLE|CAPTION_COLOR_UNAVAILABLE|INPUT_ADMIN_(?:UNAVAILABLE|ALREADY_ACTIVE|PROTOCOL_INVALID|DISCONNECTED))['"]/g)].map(match => match[1])))
+    assert.ok(emitted.has('ELEVATION_IDENTITY_MISMATCH'))
+    assert.ok(emitted.has('ELEVATION_INVALID_PREPARATION'))
+    assert.ok(emitted.has('ELEVATION_PREFERENCE_UNCONFIRMED'))
+    assert.ok(emitted.has('CAPTION_COLOR_UNAVAILABLE'))
+    for (const [helper, code] of [
+      ['creation_time', 'PROCESS_IDENTITY_UNAVAILABLE'],
+      ['user_sid', 'PROCESS_IDENTITY_UNAVAILABLE'],
+      ['executable', 'PROCESS_IMAGE_UNAVAILABLE'],
+    ]) {
+      const helperSource = sourceTexts[4].match(new RegExp(`pub fn ${helper}\\(process: HANDLE\\)[\\s\\S]*?\\n\\}`))?.[0]
+      assert.ok(helperSource?.includes(`return Err("${code}".into());`))
+      assert.ok(emitted.has(code))
+    }
+    for (const code of emitted) {
+      for (const error of [code, new Error(code), { code, message: 'private user; nonce=secret' }, { error: { message: code, ticket: 'secret' } }]) {
+        for (const operation of ['elevation.prepare', 'elevation.restart', 'elevation.save']) {
+          const result = createDiagnostic('warn', operation, error, 'preference')
+          assert.equal(result.message.code, code)
+          assert.equal(result.message.operation, operation)
+          assert.equal(result.message.source, 'preference')
+          assert.doesNotMatch(JSON.stringify(result), /private|secret|nonce|ticket/)
+        }
+      }
+      assert.equal(diagnosticCode(`${code}: private user`), 'unclassified_failure')
+      assert.equal(diagnosticCode(`C:\\Users\\${code}\\private.bin`), 'unclassified_failure')
+    }
+    for (const code of ['ELEVATION_PRIVATE_USER_TOKEN', 'ELEVATION_IDENTITY_MISMATCH_PRIVATE', 'PROCESS_PRIVATE_USER_TOKEN', 'PROCESS_IDENTITY_UNAVAILABLE_PRIVATE', 'CAPTION_PRIVATE_USER_TOKEN']) {
+      assert.equal(diagnosticCode(code), 'unclassified_failure')
+      assert.equal(diagnosticCode({ code, message: 'private payload' }), 'unclassified_failure')
+    }
+  })
+
   it('accepts only known console operation text and safe application locations', () => {
     assert.equal(consoleOperation('warn', 'IPC custom protocol failed, Tauri will now use the postMessage interface instead'), 'ipc.protocol_fallback')
     assert.equal(consoleOperation('warn', '[TAURI] Couldn\'t find callback id 1234. This might happen when the app is reloaded while Rust is running an asynchronous operation.'), 'ipc.callback_missing')
@@ -141,13 +187,18 @@ describe('failure diagnostics', () => {
     exports.reportDiagnostic!('error', 'autostart.apply', { code: 'AUTOSTART_WRITE_FAILED', message: 'private registry path' })
     error('The pet renderer failed unexpectedly.', new Error('private model'))
     warn('The scene viewport acknowledgement timed out.')
+    exports.reportDiagnostic!('warn', 'elevation.prepare', 'ELEVATION_IDENTITY_MISMATCH')
+    exports.reportDiagnostic!('warn', 'elevation.restart', { error: { message: 'ELEVATION_COMMIT_FAILED' } })
+    exports.reportDiagnostic!('warn', 'elevation.save', Object.assign(new Error('private settings'), { code: 'ELEVATION_PREFERENCE_UNCONFIRMED' }))
+    exports.reportDiagnostic!('error', 'theme.apply', new Error('CAPTION_COLOR_UNAVAILABLE'))
     await Promise.resolve()
-    assert.equal(calls.length, 8)
-    assert.deepEqual(calls.map(call => call.args.level), [4, 5, 5, 5, 4, 5, 5, 4])
+    assert.equal(calls.length, 12)
+    assert.deepEqual(calls.map(call => call.args.level), [4, 5, 5, 5, 4, 5, 5, 4, 4, 4, 4, 5])
     const records = calls.map(call => JSON.parse(call.args.message))
-    assert.deepEqual(records.map(record => record.operation), ['renderer.model_load', 'viewport.fallback', 'application.uncaught', 'application.unhandled_rejection', 'updates.check', 'autostart.apply', 'renderer.runtime_failure', 'viewport.acknowledgement_timeout'])
+    assert.deepEqual(records.map(record => record.operation), ['renderer.model_load', 'viewport.fallback', 'application.uncaught', 'application.unhandled_rejection', 'updates.check', 'autostart.apply', 'renderer.runtime_failure', 'viewport.acknowledgement_timeout', 'elevation.prepare', 'elevation.restart', 'elevation.save', 'theme.apply'])
     assert.equal(records[4].code, 'UPDATE_SIGNATURE_INVALID')
     assert.equal(records[5].code, 'AUTOSTART_WRITE_FAILED')
+    assert.deepEqual(records.slice(8).map(record => record.code), ['ELEVATION_IDENTITY_MISMATCH', 'ELEVATION_COMMIT_FAILED', 'ELEVATION_PREFERENCE_UNCONFIRMED', 'CAPTION_COLOR_UNAVAILABLE'])
     assert.ok(records.every(record => record.source === 'preference'))
     assert.ok(calls.every(call => call.command === 'plugin:log|log' && Object.keys(call.args).length === 2))
     assert.doesNotMatch(JSON.stringify(calls), /private/)

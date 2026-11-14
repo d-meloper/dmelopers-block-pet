@@ -388,6 +388,52 @@ fn delayed_raw_mouse_is_excluded_after_a_generation_boundary_but_key_release_sur
 }
 
 #[test]
+fn queued_hook_messages_use_the_physical_consumer_cutoff_after_a_remote_configuration() {
+    use super::super::{BROADCAST_CUTOFFS, BROADCAST_INPUT, DESKTOP_CUTOFFS, DESKTOP_INPUT, next_consumer_word};
+    use std::sync::atomic::Ordering;
+    struct Restore([u64; 6]);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            for (atomic, value) in [
+                (&DESKTOP_INPUT, self.0[0]), (&BROADCAST_INPUT, self.0[1]),
+                (&DESKTOP_CUTOFFS.keyboard, self.0[2]), (&DESKTOP_CUTOFFS.mouse, self.0[3]),
+                (&BROADCAST_CUTOFFS.keyboard, self.0[4]), (&BROADCAST_CUTOFFS.mouse, self.0[5]),
+            ] { atomic.store(value, Ordering::SeqCst); }
+        }
+    }
+    let _restore = Restore([
+        DESKTOP_INPUT.load(Ordering::SeqCst), BROADCAST_INPUT.load(Ordering::SeqCst),
+        DESKTOP_CUTOFFS.keyboard.load(Ordering::SeqCst), DESKTOP_CUTOFFS.mouse.load(Ordering::SeqCst),
+        BROADCAST_CUTOFFS.keyboard.load(Ordering::SeqCst), BROADCAST_CUTOFFS.mouse.load(Ordering::SeqCst),
+    ]);
+    let on = next_consumer_word(0, Some(true));
+    let resumed = next_consumer_word(next_consumer_word(on, Some(false)), Some(true));
+    DESKTOP_INPUT.store(resumed, Ordering::SeqCst);
+    BROADCAST_INPUT.store(on, Ordering::SeqCst);
+    DESKTOP_CUTOFFS.keyboard.store(10, Ordering::SeqCst);
+    DESKTOP_CUTOFFS.mouse.store(100, Ordering::SeqCst);
+    BROADCAST_CUTOFFS.keyboard.store(10, Ordering::SeqCst);
+    BROADCAST_CUTOFFS.mouse.store(10, Ordering::SeqCst);
+    let (sender, events) = mpsc::channel();
+    let mut state = CallbackState::new(sender, 7);
+    state.mouse_enabled = true;
+    state.publish_at(EventType::KeyRelease(Key::KeyA), 90, false, 120);
+    let key = received(&events).pop().unwrap();
+    assert_eq!(key.2.desktop, resumed, "mouse toggles preserve keyboard releases");
+    state.publish_at(EventType::ButtonRelease(Button::Left), 90, false, 120);
+    let mouse = received(&events).pop().unwrap();
+    assert_eq!(mouse.2.desktop, 0, "queued hook input cannot revive desktop mouse state");
+    assert_eq!(mouse.2.broadcast, on, "the independent browser source keeps its input");
+    state.publish_at(EventType::ButtonRelease(Button::Left), 90, true, 120);
+    assert!(received(&events).is_empty(), "the later Raw copy is still deduplicated");
+    DESKTOP_CUTOFFS.keyboard.store(100, Ordering::SeqCst);
+    state.publish_at(EventType::KeyRelease(Key::KeyA), 95, false, 120);
+    assert_eq!(received(&events).pop().unwrap().2.desktop, 0);
+    state.publish_at(EventType::ButtonRelease(Button::Left), 101, false, 120);
+    assert_eq!(received(&events).pop().unwrap().2.desktop, resumed);
+}
+
+#[test]
 fn only_invalid_hook_handles_retire_after_failed_removal() {
     assert!(unhook_error(1, || panic!("successful unhook must not read last error")).is_none());
     for code in [

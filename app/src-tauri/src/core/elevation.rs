@@ -1,12 +1,11 @@
-//! Optional administrator execution. The working application exits only after a
-//! same-account successor has authenticated and the existing save barrier passes.
+//! Administrator input runs in a narrowly scoped headless worker. The GUI and
+//! all durable-state writers retain the original account and process lifetime.
 use crate::{
     data_paths::DataRoots,
     native_operation::OperationLease,
     windows_process::{Handle, wide},
 };
-use serde::Serialize;
-use sha2::{Digest, Sha256};
+use serde::{Deserialize, Serialize};
 use std::{
     fs,
     io::Read,
@@ -19,9 +18,9 @@ use std::{
 use tauri::Manager;
 use windows_sys::Win32::{
     Foundation::{
-        ERROR_ALREADY_EXISTS, ERROR_CANCELLED, ERROR_IO_PENDING, ERROR_PIPE_CONNECTED,
-        GENERIC_READ, GENERIC_WRITE, GetLastError, HANDLE, INVALID_HANDLE_VALUE, LocalFree,
-        WAIT_OBJECT_0, WAIT_TIMEOUT,
+        DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_ALREADY_EXISTS, ERROR_CANCELLED,
+        ERROR_IO_PENDING, ERROR_PIPE_CONNECTED, GENERIC_READ, GENERIC_WRITE, GetLastError, HANDLE,
+        INVALID_HANDLE_VALUE, LocalFree, WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
     Security::{
         Authorization::{ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1},
@@ -30,8 +29,7 @@ use windows_sys::Win32::{
     },
     Storage::FileSystem::{
         CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, OPEN_EXISTING,
-        PIPE_ACCESS_DUPLEX, ReadFile, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT, SYNCHRONIZE,
-        WriteFile,
+        PIPE_ACCESS_DUPLEX, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT, SYNCHRONIZE,
     },
     System::{
         Com::{COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize},
@@ -41,10 +39,11 @@ use windows_sys::Win32::{
             GetNamedPipeServerProcessId, PIPE_READMODE_MESSAGE, PIPE_REJECT_REMOTE_CLIENTS,
             PIPE_TYPE_MESSAGE, PIPE_WAIT,
         },
+        RemoteDesktop::ProcessIdToSessionId,
         Threading::{
-            CreateEventW, GetCurrentProcess, GetProcessId, OpenEventW, OpenProcess,
-            OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, SetEvent,
-            WaitForMultipleObjects, WaitForSingleObject,
+            CreateEventW, EVENT_MODIFY_STATE, GetCurrentProcess, GetProcessId, OpenEventW,
+            OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+            SetEvent, WaitForMultipleObjects, WaitForSingleObject,
         },
     },
     UI::{
@@ -52,18 +51,27 @@ use windows_sys::Win32::{
             SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
             ShellExecuteExW,
         },
-        WindowsAndMessaging::SW_SHOWNORMAL,
+        WindowsAndMessaging::SW_HIDE,
     },
 };
 
-const ARGUMENT: &str = "--block-pet-elevated-restart-parent";
+#[path = "elevation/dpi.rs"]
+mod dpi;
+#[path = "elevation/transport.rs"]
+mod transport;
+pub(crate) use transport::Transport;
+
+#[cfg(test)]
+use windows_sys::Win32::Storage::FileSystem::{ReadFile, WriteFile};
+
+const ARGUMENT: &str = "--block-pet-administrator-input-parent";
+const RETIRED_ARGUMENT: &str = "--block-pet-elevated-restart-parent";
 const HANDSHAKE_MS: u32 = 10_000;
 const READY_TTL: Duration = Duration::from_secs(60);
 const CHILD_WAIT_MS: u32 = 90_000;
 static PREPARED: Mutex<Option<Prepared>> = Mutex::new(None);
 static STARTUP_CHECKED: AtomicBool = AtomicBool::new(false);
 static STARTUP_ATTEMPT: AtomicU8 = AtomicU8::new(0);
-static AUTHENTICATED_SUCCESSOR: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -86,6 +94,7 @@ fn startup_attempt() -> StartupAttempt {
 pub struct ElevationStatus {
     supported: bool,
     elevated: bool,
+    input_elevated: bool,
     startup_attempt: StartupAttempt,
     always_run_as_administrator: Option<bool>,
     administrator_reminder_dismissed: Option<bool>,
@@ -134,9 +143,8 @@ fn supported_here() -> bool {
     let development = tauri::is_dev();
     // Keep development-only environment reads out of packaged execution.
     let independent_frontend = development
-        && (AUTHENTICATED_SUCCESSOR.load(Ordering::Acquire)
-            || (std::env::var("DMELOPER_DEV_ELEVATION_PROTOCOL").as_deref() == Ok("1")
-                && std::env::var("DMELOPER_DEV_RESTART_PROTOCOL").as_deref() == Ok("1")));
+        && std::env::var("DMELOPER_DEV_ELEVATION_PROTOCOL").as_deref() == Ok("1")
+        && std::env::var("DMELOPER_DEV_RESTART_PROTOCOL").as_deref() == Ok("1");
     supported(
         development,
         crate::distribution::channel(),
@@ -208,31 +216,67 @@ fn identity(process: HANDLE) -> Result<Identity, String> {
     })
 }
 
-fn same_account_successor(parent: &Identity, child: &Identity) -> bool {
+// Never query a different administrator's token from the standard parent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ProcessIdentity {
+    pid: u32,
+    created: u64,
+    session: u32,
+    image: PathBuf,
+}
+impl From<&Identity> for ProcessIdentity {
+    fn from(value: &Identity) -> Self {
+        Self {
+            pid: value.pid,
+            created: value.created,
+            session: value.session,
+            image: value.image.clone(),
+        }
+    }
+}
+fn process_identity(process: HANDLE) -> Result<ProcessIdentity, String> {
+    let pid = unsafe { GetProcessId(process) };
+    let mut session = 0;
+    if pid == 0 || unsafe { ProcessIdToSessionId(pid, &mut session) } == 0 {
+        return Err("ELEVATION_IDENTITY_UNAVAILABLE".into());
+    }
+    Ok(ProcessIdentity {
+        pid,
+        created: crate::windows_process::creation_time(process)?,
+        session,
+        image: fs::canonicalize(crate::windows_process::executable(process)?)
+            .map_err(|_| "ELEVATION_IMAGE_UNAVAILABLE")?,
+    })
+}
+fn valid_worker_successor(parent: &ProcessIdentity, child: &ProcessIdentity) -> bool {
     parent.pid != child.pid
         && parent.created < child.created
-        && !parent.elevated
-        && child.elevated
-        && parent.sid == child.sid
         && parent.session == child.session
         && parent.image == child.image
+}
+fn worker_identity_allowed(parent: &ProcessIdentity, child: &Identity) -> bool {
+    child.elevated && valid_worker_successor(parent, &ProcessIdentity::from(child))
 }
 
 #[tauri::command]
 pub fn elevation_status(window: tauri::Window) -> Result<ElevationStatus, String> {
     require_visible_preference(&window)?;
+    current_status(window.app_handle())
+}
+
+fn current_status(app: &tauri::AppHandle) -> Result<ElevationStatus, String> {
     let (elevated, _) = token_fields(unsafe { GetCurrentProcess() })?;
     Ok(ElevationStatus {
         supported: supported_here(),
         elevated,
+        input_elevated: crate::core::device::elevated_input_active(),
         startup_attempt: startup_attempt(),
-        always_run_as_administrator: window
-            .app_handle()
+        always_run_as_administrator: app
             .try_state::<DataRoots>()
             .and_then(|roots| read_startup_preference(roots.inner()).ok()),
-        administrator_reminder_dismissed: window.app_handle().try_state::<DataRoots>().and_then(
-            |roots| read_saved_preference(roots.inner(), "administratorReminderDismissed").ok(),
-        ),
+        administrator_reminder_dismissed: app.try_state::<DataRoots>().and_then(|roots| {
+            read_saved_preference(roots.inner(), "administratorReminderDismissed").ok()
+        }),
     })
 }
 
@@ -323,8 +367,7 @@ fn startup_attempt_with<T>(
         return Ok(StartupAttempt::Cancelled);
     };
     commit(prepared)?;
-    // In production a successful commit exits. Returning here supports an
-    // isolated transaction fixture without ever exiting its test process.
+    // The original GUI account and process continue after worker activation.
     Ok(StartupAttempt::NotAttempted)
 }
 
@@ -360,12 +403,7 @@ pub(crate) fn try_startup_elevation(roots: &DataRoots) {
                             Err("ELEVATION_PREFERENCE_CHANGED".into())
                         }
                     },
-                    |lease| {
-                        lease.commit_exit();
-                        // Keep bootstrap locks until OS process teardown. The successor
-                        // waits for this exact process, then acquires its normal locks.
-                        std::process::exit(0);
-                    },
+                    crate::core::device::activate_elevated_input,
                 )
             },
         )
@@ -401,15 +439,18 @@ fn pipe_name(pid: u32, nonce: &str) -> String {
     format!(r"\\.\pipe\DMeloper.BlockPet.Elevation.{pid}.{nonce}")
 }
 
-/// Restrict rendezvous objects to the current user. In particular, entering a
-/// different administrator's credentials cannot redirect that account's data.
+/// Only the originating user and elevated Administrators may rendezvous.
+/// Exact kernel peer PID, image and session validation remains mandatory.
+fn security_descriptor(sid: &str) -> String {
+    format!("D:P(A;;GA;;;{sid})(A;;GA;;;BA)")
+}
 struct UserSecurity(PSECURITY_DESCRIPTOR);
 impl UserSecurity {
     fn new(sid: &str) -> Result<Self, String> {
         let mut raw = std::ptr::null_mut();
         if unsafe {
             ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                wide(&format!("D:P(A;;GA;;;{sid})")).as_ptr(),
+                wide(&security_descriptor(sid)).as_ptr(),
                 SDDL_REVISION_1,
                 &mut raw,
                 std::ptr::null_mut(),
@@ -449,7 +490,7 @@ fn create_event(name: &str, security: &SECURITY_ATTRIBUTES) -> Result<Handle, St
 }
 
 fn open_event(name: &str) -> Result<Handle, String> {
-    let raw = unsafe { OpenEventW(SYNCHRONIZE, 0, wide(name).as_ptr()) };
+    let raw = unsafe { OpenEventW(SYNCHRONIZE | EVENT_MODIFY_STATE, 0, wide(name).as_ptr()) };
     if raw.is_null() {
         Err("ELEVATION_HANDOFF_UNAVAILABLE".into())
     } else {
@@ -481,11 +522,17 @@ fn pipe_io(
             return Ok(0);
         }
         if error != ERROR_IO_PENDING {
+            #[cfg(test)]
+            eprintln!("pipe_io begin failed: Win32={error}");
             return Err("ELEVATION_CHILD_NOT_READY".into());
         }
         let handles = [event.0, peer];
-        if unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, HANDSHAKE_MS) } != WAIT_OBJECT_0
-        {
+        let wait_result = unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, HANDSHAKE_MS) };
+        if wait_result != WAIT_OBJECT_0 {
+            #[cfg(test)]
+            eprintln!("pipe_io wait failed: wait={wait_result} Win32={}", unsafe {
+                GetLastError()
+            });
             unsafe {
                 CancelIoEx(pipe, &overlapped);
                 let mut drained = 0;
@@ -496,68 +543,50 @@ fn pipe_io(
     }
     let mut transferred = 0;
     if unsafe { GetOverlappedResult(pipe, &overlapped, &mut transferred, 0) } == 0 {
+        #[cfg(test)]
+        eprintln!("pipe_io completion failed: Win32={}", unsafe {
+            GetLastError()
+        });
         Err("ELEVATION_CHILD_NOT_READY".into())
     } else {
         Ok(transferred)
     }
 }
 
-fn roots_digest(roots: &DataRoots) -> String {
-    let mut hash = Sha256::new();
-    for path in [&roots.durable, &roots.local] {
-        let units: Vec<_> = path.as_os_str().encode_wide().collect();
-        hash.update((units.len() as u64).to_le_bytes());
-        for unit in units {
-            hash.update(unit.to_le_bytes());
-        }
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "phase", rename_all = "camelCase", deny_unknown_fields)]
+enum Handshake {
+    Ready { protocol: u8, nonce: String },
+    Active { protocol: u8, nonce: String },
+}
+fn ready_message(nonce: &str) -> Handshake {
+    Handshake::Ready {
+        protocol: 1,
+        nonce: nonce.into(),
     }
-    format!("{:x}", hash.finalize())
 }
-
-fn readonly_child_preflight(image: &Path) -> Result<DataRoots, String> {
-    let marker = image
-        .parent()
-        .ok_or("ELEVATION_IMAGE_UNAVAILABLE")?
-        .join(".block-pet-installing");
-    if marker
-        .try_exists()
-        .map_err(|_| "ELEVATION_PREFLIGHT_FAILED")?
-    {
-        return Err("ELEVATION_PREFLIGHT_FAILED".into());
+fn active_message(nonce: &str) -> Handshake {
+    Handshake::Active {
+        protocol: 1,
+        nonce: nonce.into(),
     }
-    if !tauri::webview_version().is_ok_and(|version| {
-        version
-            .split('.')
-            .next()
-            .and_then(|part| part.parse::<u32>().ok())
-            .is_some_and(|major| major >= 120)
-    }) {
-        return Err("ELEVATION_PREFLIGHT_FAILED".into());
-    }
-    // Resolve only: initialize(), store plugins and WebViews stay behind commit.
-    let roots = DataRoots::resolve().map_err(|_| "ELEVATION_PREFLIGHT_FAILED")?;
-    crate::data_paths::validate_startup_storage(&roots)?;
-    Ok(roots)
+}
+fn child_may_start(parent_alive: bool, committed: bool, cancelled: bool) -> bool {
+    parent_alive && committed && !cancelled
 }
 
-fn ready_message(nonce: &str, roots: &DataRoots) -> Vec<u8> {
-    format!("READY:1:{nonce}:{}", roots_digest(roots)).into_bytes()
-}
-
-fn child_may_start(parent_exited: bool, committed: bool, cancelled: bool) -> bool {
-    parent_exited && committed && !cancelled
-}
-
-fn child_handoff(value: &str) -> Result<bool, String> {
-    // runas does not inherit the launcher's custom environment. A development
-    // child is instead authorized by the exact parent/image/nonce handshake
-    // below, before any startup state or frontend can be initialized.
+fn child_handoff(value: &str) -> Result<(), String> {
+    // This entry is before profiles, storage, logs, Tauri and WebView creation.
     if !supported(tauri::is_dev(), crate::distribution::channel(), true)
         || cfg!(feature = "channel-store")
     {
         return Err("ELEVATION_UNSUPPORTED".into());
     }
     let (pid, created, nonce) = handoff_fields(value)?;
+    let own = identity(unsafe { GetCurrentProcess() })?;
+    if !own.elevated {
+        return Err("ELEVATION_IDENTITY_MISMATCH".into());
+    }
     let raw = unsafe {
         OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
@@ -569,78 +598,86 @@ fn child_handoff(value: &str) -> Result<bool, String> {
         return Err("ELEVATION_PARENT_UNAVAILABLE".into());
     }
     let parent_handle = Handle(raw);
-    let parent = identity(parent_handle.0)?;
-    let child = identity(unsafe { GetCurrentProcess() })?;
+    let parent = process_identity(parent_handle.0)?;
     if parent.created != created
-        || !same_account_successor(&parent, &child)
+        || !worker_identity_allowed(&parent, &own)
         || unsafe { WaitForSingleObject(parent_handle.0, 0) } != WAIT_TIMEOUT
     {
         return Err("ELEVATION_IDENTITY_MISMATCH".into());
     }
     let commit = open_event(&object_name(pid, nonce, "Commit"))?;
     let cancel = open_event(&object_name(pid, nonce, "Cancel"))?;
-    let raw_pipe = unsafe {
+    let raw = unsafe {
         CreateFileW(
             wide(&pipe_name(pid, nonce)).as_ptr(),
             GENERIC_READ | GENERIC_WRITE,
             0,
             std::ptr::null(),
             OPEN_EXISTING,
-            // Never allow the medium-integrity pipe server to impersonate this
-            // elevated token. Authentication uses kernel peer PID, not impersonation.
             FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION,
             std::ptr::null_mut(),
         )
     };
-    if raw_pipe == INVALID_HANDLE_VALUE {
+    if raw == INVALID_HANDLE_VALUE {
         return Err("ELEVATION_HANDOFF_UNAVAILABLE".into());
     }
-    let pipe = Handle(raw_pipe);
+    let pipe = Handle(raw);
     let mut server_pid = 0;
     if unsafe { GetNamedPipeServerProcessId(pipe.0, &mut server_pid) } == 0 || server_pid != pid {
         return Err("ELEVATION_IDENTITY_MISMATCH".into());
     }
-    let roots = readonly_child_preflight(&child.image)?;
-    let message = ready_message(nonce, &roots);
-    let written = pipe_io(pipe.0, parent_handle.0, false, |overlapped| unsafe {
-        WriteFile(
-            pipe.0,
-            message.as_ptr(),
-            message.len() as u32,
-            std::ptr::null_mut(),
-            overlapped,
+    let transport = Transport::new(pipe, parent_handle, cancel)?;
+    transport.send(&ready_message(nonce))?;
+    let waits = [transport.cancel_handle(), transport.peer_handle(), commit.0];
+    let signalled = unsafe { WaitForMultipleObjects(3, waits.as_ptr(), 0, CHILD_WAIT_MS) };
+    if signalled != WAIT_OBJECT_0 + 2
+        || !child_may_start(
+            transport.alive(),
+            unsafe { WaitForSingleObject(commit.0, 0) } == WAIT_OBJECT_0,
+            unsafe { WaitForSingleObject(transport.cancel_handle(), 0) } != WAIT_TIMEOUT,
         )
-    })?;
-    if written as usize != message.len() {
+    {
         return Err("ELEVATION_CHILD_NOT_READY".into());
     }
-    let handles = [cancel.0, parent_handle.0];
-    let wait = unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, CHILD_WAIT_MS) };
-    Ok(child_may_start(
-        wait == WAIT_OBJECT_0 + 1,
-        unsafe { WaitForSingleObject(commit.0, 0) } == WAIT_OBJECT_0,
-        unsafe { WaitForSingleObject(cancel.0, 0) } != WAIT_TIMEOUT,
-    ))
+    // The GUI normally initializes DPI through Tao; this worker skips that
+    // event loop, so establish the same physical coordinate system explicitly.
+    dpi::initialize();
+    transport.send(&active_message(nonce))?;
+    crate::core::device::admin_input::serve(transport)
 }
 
-/// Called before ordinary bootstrap. A rejected/cancelled prepared child exits
-/// quietly; it must never show a startup prompt or initialize a different profile.
+#[derive(Debug, PartialEq)]
+enum Invocation {
+    Ordinary,
+    Worker(String),
+    Rejected,
+}
+fn invocation(args: &[std::ffi::OsString]) -> Invocation {
+    if args.iter().any(|arg| arg == RETIRED_ARGUMENT) {
+        return Invocation::Rejected;
+    }
+    let Some(index) = args.iter().position(|arg| arg == ARGUMENT) else {
+        return Invocation::Ordinary;
+    };
+    if index != 0 || args.len() != 2 {
+        return Invocation::Rejected;
+    }
+    match args[1].to_str() {
+        Some(value) if handoff_fields(value).is_ok() => Invocation::Worker(value.into()),
+        _ => Invocation::Rejected,
+    }
+}
+/// Worker/retired invocations always exit before normal profile bootstrap.
 pub(crate) fn wait_for_parent() -> bool {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let Some(index) = args.iter().position(|arg| arg == ARGUMENT) else {
-        return true;
-    };
-    if args.len() != 2 || index != 0 {
-        return false;
+    match invocation(&args) {
+        Invocation::Ordinary => true,
+        Invocation::Worker(value) => {
+            let _ = child_handoff(&value);
+            false
+        }
+        Invocation::Rejected => false,
     }
-    let accepted = args[1]
-        .to_str()
-        .and_then(|value| child_handoff(value).ok())
-        .unwrap_or(false);
-    if accepted {
-        AUTHENTICATED_SUCCESSOR.store(true, Ordering::Release);
-    }
-    accepted
 }
 
 struct ComApartment;
@@ -684,7 +721,7 @@ fn launch_elevated(parent: &Identity, nonce: &str, owner: usize) -> Result<Optio
         lpVerb: verb.as_ptr(),
         lpFile: image.as_ptr(),
         lpParameters: parameters.as_ptr(),
-        nShow: SW_SHOWNORMAL,
+        nShow: SW_HIDE,
         ..Default::default()
     };
     // Windows owns the consent UI. No application timeout runs while it is open.
@@ -717,11 +754,12 @@ struct Prepared {
     ticket: String,
     ready: Instant,
     child: PreparedChild,
-    // Drop the cancelled child before releasing the operation lease on failure.
-    lease: OperationLease,
+    // Cancel the worker before releasing the operation lease on failure.
+    _lease: OperationLease,
 }
 
 struct PreparedChild {
+    transport: Option<Transport>,
     process: Handle,
     commit: Handle,
     cancel: Handle,
@@ -735,10 +773,12 @@ impl Drop for PreparedChild {
             self.expiry.changed.notify_one();
         }
         if !self.committed {
+            if let Some(transport) = &self.transport {
+                transport.cancel();
+            }
             unsafe {
                 SetEvent(self.cancel.0);
-                // The child runs only this bounded handoff until commit. Do not
-                // terminate arbitrary or already running elevated applications.
+                // This handle refers only to the worker created by this request.
                 WaitForSingleObject(self.process.0, 5_000);
             }
         }
@@ -750,8 +790,9 @@ fn prepare_child(
     owner: usize,
     lease: OperationLease,
 ) -> Result<Option<Prepared>, String> {
+    crate::data_paths::validate_startup_storage(&roots)?;
     let parent = identity(unsafe { GetCurrentProcess() })?;
-    if parent.elevated {
+    if parent.elevated || crate::core::device::elevated_input_active() {
         return Err("ELEVATION_ALREADY_ELEVATED".into());
     }
     let mut random = [0u8; 32];
@@ -785,6 +826,7 @@ fn prepare_child(
         ticket,
         ready: Instant::now(),
         child: PreparedChild {
+            transport: None,
             process: child,
             commit,
             cancel,
@@ -794,10 +836,10 @@ fn prepare_child(
             }),
             committed: false,
         },
-        lease,
+        _lease: lease,
     };
-    let child = identity(prepared.child.process.0)?;
-    if !same_account_successor(&parent, &child) {
+    let child = process_identity(prepared.child.process.0)?;
+    if !valid_worker_successor(&ProcessIdentity::from(&parent), &child) {
         return Err("ELEVATION_IDENTITY_MISMATCH".into());
     }
     pipe_io(
@@ -812,30 +854,39 @@ fn prepare_child(
     {
         return Err("ELEVATION_IDENTITY_MISMATCH".into());
     }
-    let expected = ready_message(&prepared.ticket, &roots);
-    let mut actual = vec![0u8; expected.len()];
-    let read = pipe_io(
-        pipe.0,
-        prepared.child.process.0,
-        false,
-        |overlapped| unsafe {
-            ReadFile(
-                pipe.0,
-                actual.as_mut_ptr(),
-                actual.len() as u32,
-                std::ptr::null_mut(),
-                overlapped,
-            )
-        },
+    let transport = Transport::new(
+        pipe,
+        clone_handle(prepared.child.process.0)?,
+        clone_handle(prepared.child.cancel.0)?,
     )?;
-    if read as usize != expected.len()
-        || actual != expected
-        || unsafe { WaitForSingleObject(prepared.child.process.0, 0) } != WAIT_TIMEOUT
-    {
+    prepared.child.transport = Some(transport.clone());
+    let actual: Handshake = transport.receive_for(HANDSHAKE_MS)?;
+    if actual != ready_message(&prepared.ticket) || !transport.alive() {
         return Err("ELEVATION_CHILD_NOT_READY".into());
     }
+
     prepared.ready = Instant::now();
     Ok(Some(prepared))
+}
+
+fn clone_handle(raw: HANDLE) -> Result<Handle, String> {
+    let mut duplicate = std::ptr::null_mut();
+    let process = unsafe { GetCurrentProcess() };
+    if unsafe {
+        DuplicateHandle(
+            process,
+            raw,
+            process,
+            &mut duplicate,
+            0,
+            0,
+            DUPLICATE_SAME_ACCESS,
+        )
+    } == 0
+    {
+        return Err("ELEVATION_HANDOFF_UNAVAILABLE".into());
+    }
+    Ok(Handle(duplicate))
 }
 
 fn take_prepared(ticket: &str) -> Result<Option<Prepared>, String> {
@@ -942,6 +993,52 @@ pub async fn cancel_elevated_restart(window: tauri::Window, ticket: String) -> R
     .map_err(|_| "ELEVATION_HANDOFF_FAILED")?
 }
 
+// A saved false choice is verified before touching the active worker. A failed
+// readback or shutdown never becomes a successful disable acknowledgement.
+fn disable_after_saved_choice(
+    read_enabled: impl FnOnce() -> Result<bool, String>,
+    disable: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if read_enabled()? {
+        return Err("ELEVATION_PREFERENCE_CHANGED".into());
+    }
+    disable()
+}
+
+#[tauri::command]
+pub async fn disable_elevated_input(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+) -> Result<ElevationStatus, String> {
+    require_visible_preference(&window)?;
+    if !supported_here() {
+        return Err("ELEVATION_UNSUPPORTED".into());
+    }
+    let lease = crate::native_operation::try_acquire("elevation-disable")?;
+    let roots = app
+        .try_state::<DataRoots>()
+        .ok_or("ELEVATION_STARTUP_INCOMPLETE")?
+        .inner()
+        .clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _lease = lease;
+        disable_after_saved_choice(
+            || {
+                require_visible_preference(&window)?;
+                let enabled = read_startup_preference(&roots)?;
+                require_visible_preference(&window)?;
+                Ok(enabled)
+            },
+            crate::core::device::deactivate_elevated_input,
+        )?;
+        // This is the real GUI token. A manually elevated GUI remains elevated
+        // even after its optional input worker has been retired.
+        current_status(&app)
+    })
+    .await
+    .map_err(|_| "ELEVATION_HANDOFF_FAILED")?
+}
+
 fn commit_sequence(
     child_ready: impl Fn() -> bool,
     barrier: impl FnOnce() -> Result<(), String>,
@@ -962,7 +1059,7 @@ fn commit_sequence(
 fn commit_prepared(
     mut prepared: Prepared,
     barrier: impl FnOnce() -> Result<(), String>,
-    exit: impl FnOnce(OperationLease),
+    activate: impl FnOnce(Transport) -> Result<(), String>,
 ) -> Result<(), String> {
     let child_ready = || {
         prepared.ready.elapsed() < READY_TTL
@@ -976,11 +1073,27 @@ fn commit_prepared(
             Ok(())
         }
     })?;
-    // No await, fallible work or renderer acknowledgement between commit and
-    // exit. On earlier failure, field order cancels the child before the lease.
+    let transport = prepared
+        .child
+        .transport
+        .as_ref()
+        .ok_or("ELEVATION_CHILD_NOT_READY")?
+        .clone();
+    let acknowledgement: Handshake = transport.receive_for(HANDSHAKE_MS)?;
+    if acknowledgement != active_message(&prepared.ticket) || !transport.alive() {
+        return Err("ELEVATION_CHILD_NOT_READY".into());
+    }
+    // Activation acknowledges the current consumer configuration before success.
+    // Failure still cancels this exact worker; no parent exit is authorized.
+    activate(transport)?;
     prepared.child.committed = true;
-    exit(prepared.lease);
     Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(tag = "outcome", rename_all = "camelCase")]
+pub enum InputElevationOutcome {
+    InputReady,
 }
 
 #[tauri::command]
@@ -989,7 +1102,7 @@ pub async fn restart_elevated_application(
     window: tauri::Window,
     request_id: String,
     ticket: String,
-) -> Result<(), String> {
+) -> Result<InputElevationOutcome, String> {
     require_visible_preference(&window)?;
     if !valid_ticket(&ticket) {
         return Err("ELEVATION_TICKET_INVALID".into());
@@ -1007,11 +1120,9 @@ pub async fn restart_elevated_application(
                 )?;
                 require_visible_preference(&window)
             },
-            |lease| {
-                lease.commit_exit();
-                app.exit(0);
-            },
-        )
+            crate::core::device::activate_elevated_input,
+        )?;
+        Ok(InputElevationOutcome::InputReady)
     })
     .await
     .map_err(|_| "ELEVATION_HANDOFF_FAILED")?
@@ -1020,3 +1131,6 @@ pub async fn restart_elevated_application(
 #[cfg(test)]
 #[path = "elevation_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+pub(crate) use tests::transport_pair as test_transport_pair;

@@ -37,7 +37,7 @@ function quitHarness(ownerSubscriptionFailures = 0, actualRuntime = false) {
   let timerId = 0
   let now = 1000
   let ready = true
-  let failure: 'read' | 'save' | 'verify' | 'exit' | 'restart' | undefined
+  let failure: 'read' | 'save' | 'verify' | 'exit' | 'restart' | 'activation' | undefined
   let backendHold: ReturnType<typeof deferred> | undefined
   let subscribeHold: ReturnType<typeof deferred> | undefined
   const frontend = { opacity: 75, presetCollection: { activeId: 'edited', opacity: 75 } }
@@ -61,6 +61,7 @@ function quitHarness(ownerSubscriptionFailures = 0, actualRuntime = false) {
         if (command === 'restart_application' || command === 'restart_elevated_application') {
           if (failure === 'restart') throw new Error('restart unavailable')
           disk = structuredClone(backend)
+          if (command === 'restart_elevated_application') return { outcome: failure === 'activation' ? 'unknown' : 'inputReady' }
         }
         if (command === 'cancel_elevated_restart') cancelledTickets.push(args!.ticket!)
         if (command === 'begin_state_quiescence') {
@@ -348,6 +349,9 @@ describe('preference-owned administrator restart', () => {
     assert.equal(h.calls.includes('restart_application'), false)
     assert.equal(h.calls.includes('exit'), false)
     assert.deepEqual(h.cancelledTickets, [])
+    assert.equal(h.nativeLease(), undefined)
+    assert.equal(h.locked.value, false)
+    await h.preference.saveAppSettings()
     for (const runtime of h.runtimes) runtime.disposeStateSafety()
     h.stop()
   })
@@ -357,6 +361,21 @@ describe('preference-owned administrator restart', () => {
     await assert.rejects(h.main.restartAppAsAdministrator(ticket), /FORBIDDEN/)
     await assert.rejects(h.preference.restartAppAsAdministrator('invalid'), /INVALID/)
     assert.deepEqual(h.calls, [])
+    h.stop()
+  })
+
+  it('requires the worker activation acknowledgement and resumes settings on an invalid reply', async () => {
+    const h = quitHarness(0, true)
+    await Promise.all(h.runtimes.map(runtime => runtime.initializeStateSafety()))
+    h.fail('activation')
+    await assert.rejects(h.preference.restartAppAsAdministrator(ticket))
+    assert.equal(h.nativeLease(), undefined)
+    assert.equal(h.locked.value, false)
+    assert.equal(h.calls.includes('exit'), false)
+    assert.deepEqual(h.cancelledTickets, [ticket])
+    h.fail(undefined)
+    await h.preference.saveAppSettings()
+    for (const runtime of h.runtimes) runtime.disposeStateSafety()
     h.stop()
   })
 
@@ -372,7 +391,9 @@ describe('preference-owned administrator restart', () => {
       assert.deepEqual(h.cancelledTickets, [ticket])
       h.fail(undefined)
       await h.preference.restartAppAsAdministrator(ticket)
-      assert.equal(h.calls.at(-1), 'restart_elevated_application')
+      assert.ok(h.calls.includes('restart_elevated_application'))
+      assert.equal(h.nativeLease(), undefined)
+      assert.equal(h.locked.value, false)
       for (const runtime of h.runtimes) runtime.disposeStateSafety()
       h.stop()
     }

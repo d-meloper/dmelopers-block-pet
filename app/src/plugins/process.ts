@@ -43,7 +43,7 @@ function guarded(action: ProcessAction): boolean {
   return action === 'restart-elevated' || action === 'save-settings'
 }
 
-/** UAC preparation has already completed; only the save/commit phase is timed. */
+/** UAC preparation has completed; activate input without replacing the data owner. */
 export function restartAppAsAdministrator(ticket: string, isCurrent: () => boolean = () => true): Promise<void> {
   if (getCurrentWebviewWindow().label !== 'preference') return Promise.reject(new Error('APP_PROCESS_FORBIDDEN'))
   if (!isElevationTicket(ticket)) return Promise.reject(new Error('APP_PROCESS_INVALID'))
@@ -183,9 +183,16 @@ export function registerAppProcessOwner(ready: () => boolean): () => void {
         check()
         return
       }
-      if (payload.action === 'restart-elevated') await invoke('restart_elevated_application', { requestId: payload.requestId, ticket: payload.ticket })
-      else if (payload.action === 'restart') await invoke('restart_application', { requestId: payload.requestId })
-      else await exit(0)
+      if (payload.action === 'restart-elevated') {
+        const result = await invoke<{ outcome?: unknown } | null>('restart_elevated_application', { requestId: payload.requestId, ticket: payload.ticket })
+        if (result?.outcome !== 'inputReady') throw new Error('ELEVATION_INVALID_ACTIVATION')
+        await releaseEditors(payload.requestId)
+        return
+      } else if (payload.action === 'restart') {
+        await invoke('restart_application', { requestId: payload.requestId })
+      } else {
+        await exit(0)
+      }
       exited = true
     }
     try {

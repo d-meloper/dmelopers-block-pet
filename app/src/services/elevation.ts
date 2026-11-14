@@ -20,3 +20,10 @@ export async function prepareElevatedRestart(): Promise<ElevatedRestartPreparati
 export async function cancelElevatedRestart(ticket: string): Promise<void> {
   await invoke('cancel_elevated_restart', { ticket })
 }
+
+/** Retires the approved input worker; the UI remains in the original account. */
+export async function disableElevatedInput(): Promise<ElevationStatus> {
+  const result = await invoke<unknown>('disable_elevated_input')
+  if (!isElevationStatus(result)) throw new Error('ELEVATION_INVALID_STATUS')
+  return result
+}

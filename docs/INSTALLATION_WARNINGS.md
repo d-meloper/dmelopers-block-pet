@@ -26,7 +26,7 @@ The program does not have a publisher signature identifying its developer, so a 
 
 ## Q2. Why is the program not code-signed?
 
-**A. Code signing involves recurring costs**, so this free program has been distributed without code signing. To reduce these warnings, [**Azure Artifact Signing**](https://azure.microsoft.com/en-us/products/artifact-signing/) is being considered as of October 8, 2026. Eligibility must first be checked, and setting up a website and completing the review process are expected to take at least about a month. Warnings may continue to appear until then.
+**A. Code signing involves recurring costs**, so this free program has been distributed without code signing.
 
 If you are uncomfortable with the workarounds below, install the program through the [official DMeloper’s Block Pet Microsoft Store page](https://apps.microsoft.com/detail/9PLKW6NBMKQ7?hl=en-US). These warnings do not appear when installing through this route.
 

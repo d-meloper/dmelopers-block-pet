@@ -9,6 +9,7 @@ import { build } from 'vite'
 import { runLocaleCommand } from '../locales'
 import { addLocale, checkProject, createPseudoCatalog, flattenCatalog, hashText, messageSignature, readCatalog, readRegistry, readReviews, reviewKeys, seedImportedReviews, syncCatalogs } from './core'
 import { createLocaleModule, localePlugin } from './vitePlugin'
+import { checkContentLock, checkReleaseLocales } from './contentLock'
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'block-pet-locales-'))
@@ -41,7 +42,7 @@ function lockFixture(root: string) {
   writeFileSync(join(root, 'src/locales/content-lock.json'), JSON.stringify({ ...body, lockSha256: hashText(canonical(body)) }))
 }
 
-it('imports the operating baseline once, and invalidates source and target changes until explicit review', () => {
+it('imports the operating baseline once and reports source and target review freshness without rewriting it', () => {
   const f = fixture()
   seedImportedReviews(f.root)
   assert.equal(checkProject(f.root, { release: true }).ok, true)
@@ -56,6 +57,8 @@ it('imports the operating baseline once, and invalidates source and target chang
   f.en.greeting = 'Welcome {name}'
   f.write('en-US', f.en)
   assert.deepEqual(checkProject(f.root, { release: true }).locales[1].stale, ['greeting'])
+  assert.equal(checkProject(f.root, { release: true }).ok, true)
+  assert.equal(checkProject(f.root, { release: true, productionPolicy: 'require-human-ready' }).ok, false)
   reviewKeys(f.root, 'en-US', ['greeting'])
   assert.equal(readReviews(f.root, 'ko-KR').locales['en-US'].greeting.kind, 'reviewed')
 })
@@ -171,7 +174,11 @@ it('enforces the release gate and excludes draft text through a real Vite bundle
   assert.ok(!code.includes('ar-XB'))
   f.en.greeting = 'Changed {name}'
   f.write('en-US', f.en)
-  await assert.rejects(bundle(), /review required/)
+  assert.ok((await bundle()).includes('Changed'))
+  assert.throws(() => checkContentLock(f.root), /FILE_DRIFT/)
+  f.en.greeting = 'Changed {wrong}'
+  f.write('en-US', f.en)
+  await assert.rejects(bundle(), /Incompatible interpolation/)
 })
 
 it('requires explicit reviewed-key selection and gives an isolated development preview URL', () => {
@@ -211,4 +218,106 @@ it('rejects a linked draft catalog without touching the destination', (context) 
   }
   assert.throws(() => addLocale(f.root, 'ja-JP'), /ordinary/)
   assert.equal(readFileSync(destination, 'utf8'), 'original')
+})
+
+it('normal complete catalogs retain stale review observations and leave historical locks unclaimed', () => {
+  const f = fixture()
+  seedImportedReviews(f.root)
+  lockFixture(f.root)
+  const originalLock = readFileSync(join(f.root, 'src/locales/content-lock.json'))
+  f.en.greeting = 'Valid new translation {name}'
+  f.write('en-US', f.en)
+  const report = checkReleaseLocales(f.root)
+  assert.equal(report.ok, true)
+  assert.equal(report.contentLock?.status, 'NOT_CHECKED')
+  assert.deepEqual(report.locales[1].stale, ['greeting'])
+  assert.equal(runLocaleCommand(f.root, ['check', '--release'], () => {}), 0)
+  assert.equal(runLocaleCommand(f.root, ['check', '--release', '--content-lock'], () => {}), 1)
+  assert.throws(() => checkContentLock(f.root), /FILE_DRIFT/)
+  assert.deepEqual(readFileSync(join(f.root, 'src/locales/content-lock.json')), originalLock)
+  for (const policy of ['require-human-ready', 'explicit-maintainer-approval']) {
+    mkdirSync(join(f.root, '_Development/Translation/Config'), { recursive: true })
+    writeFileSync(join(f.root, '_Development/Translation/Config/manifest.json'), JSON.stringify({ aiProductionPolicy: policy }))
+    assert.equal(checkReleaseLocales(f.root).ok, false)
+    assert.equal(runLocaleCommand(f.root, ['check', '--release'], () => {}), 1)
+  }
+})
+
+it('normal ready contributor catalogs need valid complete messages without manufacturing review evidence', () => {
+  const f = fixture()
+  seedImportedReviews(f.root)
+  addLocale(f.root, 'fr-FR', { nativeName: 'Français', antdLocale: 'fr_FR' })
+  f.write('fr-FR', f.en)
+  const registry = readRegistry(f.root)
+  registry.locales['fr-FR'].status = 'ready'
+  f.write('registry', registry)
+  const reviews = readFileSync(join(f.root, 'src/locales/reviews.json'))
+  const report = checkReleaseLocales(f.root)
+  assert.equal(report.ok, true)
+  assert.equal(report.contentLock?.status, 'NOT_CHECKED')
+  assert.equal(report.locales.find(locale => locale.code === 'fr-FR')!.stale.length, 3)
+  for (const invalid of ['', 'Broken {name', 'Hello {other}', '@:missing']) {
+    f.write('fr-FR', { ...f.en, greeting: invalid })
+    assert.equal(checkReleaseLocales(f.root).ok, false)
+  }
+  assert.deepEqual(readFileSync(join(f.root, 'src/locales/reviews.json')), reviews)
+})
+
+it('normal release and the Vite consumer enforce complete current message contracts without private operations', async () => {
+  const f = fixture()
+  const entry = join(f.root, 'entry.ts')
+  writeFileSync(entry, "export { messages } from 'virtual:block-pet-locales';")
+  const bundle = () => build({
+    configFile: false, root: f.root, publicDir: false, logLevel: 'silent',
+    plugins: [localePlugin(f.root)],
+    build: { write: false, minify: false, lib: { entry, formats: ['es'] }, rollupOptions: { external: id => id.startsWith('ant-design-vue/') } },
+  })
+  const cases = [
+    { source: 'Hello {name}\nHelp', target: 'Hello {name} Help', finding: /CONTROL_OR_ESCAPE_COUNT_MISMATCH/ },
+    { source: 'Hello {name}, again {name}', target: 'Hello {name}', finding: /NAMED_PARAMETER_COUNT_MISMATCH/ },
+    { source: 'Hello {constructor}, again {constructor}', target: 'Hello {constructor}', finding: /NAMED_PARAMETER_COUNT_MISMATCH/ },
+    { source: 'Item {0}, again {0}', target: 'Item {0}', finding: /LIST_PARAMETER_COUNT_MISMATCH/ },
+    { source: 'Install WebView2 then open settings.json', target: 'Install then open settings.json', finding: /REQUIRED_LITERAL_MISMATCH/ },
+    { source: 'Help\\nNext', target: 'Help Next', finding: /CONTROL_OR_ESCAPE_COUNT_MISMATCH/ },
+    { source: '@:group.word', target: '@:quantity', finding: /LINKED_MESSAGE_MISMATCH/ },
+  ]
+  for (const { source, target, finding } of cases) {
+    f.ko.greeting = source
+    f.en.greeting = source
+    f.write('ko-KR', f.ko)
+    f.write('en-US', f.en)
+    assert.equal(checkReleaseLocales(f.root).ok, true)
+    f.en.greeting = target
+    f.write('en-US', f.en)
+    const report = checkReleaseLocales(f.root)
+    assert.equal(report.ok, false, `${source} -> ${target}`)
+    assert.equal(report.contentLock?.status, 'NOT_CHECKED')
+    assert.match(report.errors.join('\n'), finding)
+    await assert.rejects(bundle(), finding)
+  }
+})
+
+it('applies source contracts separately to every configured plural form and ready contributor catalog', () => {
+  const f = fixture()
+  f.ko.greeting = '항목 {name}\nWebView2'
+  f.en.greeting = 'Item {name}\nWebView2 | Items {name}\nWebView2'
+  f.write('ko-KR', f.ko)
+  f.write('en-US', f.en)
+  addLocale(f.root, 'fr-FR', { nativeName: 'Français', antdLocale: 'fr_FR', pluralCategories: ['one', 'other'] })
+  const registry = readRegistry(f.root)
+  registry.locales['fr-FR'].status = 'ready'
+  f.write('registry', registry)
+  f.write('fr-FR', f.en)
+  assert.equal(checkReleaseLocales(f.root).ok, true)
+  for (const [greeting, finding] of [
+    ['Item {name}\nWebView2 | Items {name} WebView2', /CONTROL_OR_ESCAPE_COUNT_MISMATCH/],
+    ['Item {name}\nWebView2 | Items {name} {name}\nWebView2', /NAMED_PARAMETER_COUNT_MISMATCH/],
+    ['Item {name}\nWebView2 | Items {name}\nOther', /REQUIRED_LITERAL_MISMATCH/],
+    ['Item {name}\nWebView2 | Items {name}\nWebView2 | Many {name}\nWebView2', /Expected 2 plural forms/],
+  ] as const) {
+    f.write('fr-FR', { ...f.en, greeting })
+    const report = checkReleaseLocales(f.root)
+    assert.equal(report.ok, false)
+    assert.match(report.locales.find(locale => locale.code === 'fr-FR')!.invalid.join('\n'), finding)
+  }
 })

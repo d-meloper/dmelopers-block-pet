@@ -43,6 +43,7 @@ import type { PetArmPoseSettings } from '@/config/petArmPose'
 import type { TypingMotionSettings } from '@/config/typingMotion'
 import type { KeyboardContact, SemanticInputEvent } from '@/features/input/types'
 
+import { DEFAULT_PET_PRESET } from '@/config/defaultSettings'
 import { DEFAULT_DESK_SETTINGS, normalizeDeskSettings } from '@/config/desk'
 import { DEFAULT_DEVICE_COLORS, DEVICE_COLOR_KEYS, normalizeDeviceColors } from '@/config/deviceColors'
 import { createDefaultDmeloperEyebrowPreset } from '@/config/dmeloperEyebrows'
@@ -145,6 +146,7 @@ export class Three3DRenderer {
   private lightingSettings = createDefaultLightingSettings()
   private lightingBoundsDirty = true
   private keyboard?: KeyboardGroupResult
+  private keyboardKeycapInputEnabled = DEFAULT_PET_PRESET.keyboardKeycapInputEnabled
   private mouse?: MouseGroupResult
   private petAnimator?: PetAnimator
   private petAnimationMode: PetAnimationMode = 'default'
@@ -1128,6 +1130,13 @@ export class Three3DRenderer {
     this.keyboard?.setLegendLanguage(language)
   }
 
+  setKeyboardKeycapInputEnabled(enabled: boolean): void {
+    if (enabled === this.keyboardKeycapInputEnabled) return
+    this.noteActivity()
+    this.keyboardKeycapInputEnabled = enabled
+    this.keyboard?.setKeycapInputEnabled(enabled)
+  }
+
   setDeviceColors(colors: DeviceColorSettings): void {
     const normalized = normalizeDeviceColors(colors)
     if (DEVICE_COLOR_KEYS.every(key => normalized[key] === this.deviceColors[key])) return
@@ -1359,6 +1368,7 @@ export class Three3DRenderer {
     this.keyboard = keyboard
     keyboard.setColors(this.deviceColors)
     keyboard.setLegendLanguage(this.keyboardLegendLanguage)
+    keyboard.setKeycapInputEnabled(this.keyboardKeycapInputEnabled)
     this.mouse = mouse
     mouse.setColors(this.deviceColors)
     this.generatedGroupDisposers.push(

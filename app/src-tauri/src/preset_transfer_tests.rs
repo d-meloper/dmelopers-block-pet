@@ -17,6 +17,7 @@ fn historical_current_settings(source: &Value) -> Value {
     let additions = json!({
         "petAnimationMode":"default", "petShoulderTorsoConnected":false,
         "petRightArmDisabled":false, "petLeftArmDisabled":false,
+        "keyboardKeycapInputEnabled":true,
         "petHeadbuttRecoilEnabled":true, "petHeadbuttRecoilStrengthPercent":50,
         "petHeadbuttRecoilWobblePercent":50, "petTypingHandLiftPercent":100,
         "petTypingBodyMotionPercent":100, "petTypingReturnSpeedPercent":100,
@@ -50,6 +51,37 @@ fn historical_released_fixtures_load_with_matching_ts_migrations() {
                 scenario["portable"]);
             assert_eq!(serde_json::to_vec(&scenario["portable"]).unwrap(), bytes);
         }
+    }
+}
+
+#[test]
+fn keycap_input_settings_survive_native_file_readback() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("keycap-input.petpreset");
+    let original: Value = serde_json::from_str(include_str!(
+        "../../src/features/presets/fixtures/portable-v1.json"
+    )).unwrap();
+    for (fields, expected, valid) in [
+        (json!({}), json!(true), true),
+        (json!({"keyboardKeycapInputDisabled":true}), json!(false), true),
+        (json!({"keyboardKeycapInputDisabled":false}), json!(true), true),
+        (json!({"keyboardKeycapInputEnabled":false}), json!(false), true),
+        (json!({"keyboardKeycapInputEnabled":true}), json!(true), true),
+        (json!({"keyboardKeycapInputEnabled":false,"keyboardKeycapInputDisabled":false}), json!(false), true),
+        (json!({"keyboardKeycapInputEnabled":true,"keyboardKeycapInputDisabled":true}), json!(true), true),
+        (json!({"keyboardKeycapInputDisabled":"true"}), json!("true"), false),
+        (json!({"keyboardKeycapInputEnabled":null,"keyboardKeycapInputDisabled":false}), Value::Null, false),
+    ] {
+        let mut document = original.clone();
+        document["settings"]["preset"].as_object_mut().unwrap().extend(fields.as_object().unwrap().clone());
+        let bytes = serde_json::to_vec(&document).unwrap();
+        write_preset_file(&path, &bytes).unwrap();
+        let disk = read_preset_file(&path).unwrap();
+        let parsed = validate_document(disk.as_bytes()).unwrap();
+        assert_eq!(parsed.settings, document["settings"]);
+        assert_eq!(crate::preset_compatibility::valid_executable(&parsed.settings), valid);
+        assert_eq!(crate::preset_compatibility::migrate(&parsed.settings)["preset"]["keyboardKeycapInputEnabled"], expected);
+        assert_eq!(disk.as_bytes(), bytes);
     }
 }
 

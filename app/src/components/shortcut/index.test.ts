@@ -180,14 +180,32 @@ function mountShortcuts(mirrorMode = 'Control+B') {
 }
 
 describe('shortcut recording conflicts', () => {
+  it('preserves unknown and null legacy values while recording the added keycap action', async () => {
+    const h = mountShortcuts()
+    const retained = { empty: '', explicitNull: null }
+    try {
+      h.store.$patch({ retained, visiblePreference: null } as unknown as Partial<typeof h.store.$state>)
+      await flush()
+      await h.record(1, [['Control', 'ControlLeft'], ['m', 'KeyM']])
+      assert.equal(h.store.keyboardKeycapInputEnabled, 'Control+M')
+      assert.equal(h.store.visibleBlock, 'Control+Shift+A')
+      assert.equal(h.store.mirrorMode, 'Control+B')
+      assert.equal(h.store.visiblePreference, null)
+      assert.deepEqual((h.store.$state as unknown as Record<string, unknown>).retained, retained)
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
+  })
+
   it('keeps the previous binding and reports a duplicate even when modifiers were pressed in a different order', async () => {
     const h = mountShortcuts()
     try {
-      await h.record(5, [['Shift', 'ShiftLeft'], ['Control', 'ControlLeft'], ['a', 'KeyA']])
+      await h.record(6, [['Shift', 'ShiftLeft'], ['Control', 'ControlLeft'], ['a', 'KeyA']])
       assert.equal(h.store.mirrorMode, 'Control+B')
       assert.equal(h.store.visibleBlock, 'Control+Shift+A')
       assert.equal(h.errors().length, 1)
-      await h.record(5, [['Control', 'ControlLeft'], ['c', 'KeyC']])
+      await h.record(6, [['Control', 'ControlLeft'], ['c', 'KeyC']])
       assert.equal(h.store.mirrorMode, 'Control+C')
       assert.equal(h.errors().length, 0)
     } finally {
@@ -198,7 +216,7 @@ describe('shortcut recording conflicts', () => {
   it('allows recording the same binding for its own action without rewriting other stored shortcuts', async () => {
     const h = mountShortcuts()
     try {
-      await h.record(5, [['Control', 'ControlLeft'], ['b', 'KeyB']])
+      await h.record(6, [['Control', 'ControlLeft'], ['b', 'KeyB']])
       assert.equal(h.store.mirrorMode, 'Control+B')
       assert.equal(h.store.visibleBlock, 'Control+Shift+A')
       assert.equal(h.errors().length, 0)
@@ -218,12 +236,12 @@ describe('native shortcut actions during recording', () => {
       const h = mountShortcuts()
       try {
         await flush()
-        h.focus(5)
-        h.keyDown(5, 'Shift', 'ShiftLeft')
-        h.keyDown(5, 'Control', 'ControlLeft')
+        h.focus(6)
+        h.keyDown(6, 'Shift', 'ShiftLeft')
+        h.keyDown(6, 'Control', 'ControlLeft')
         if (delivery !== 'after blur') h.fire('Control+Shift+A')
         if (delivery === 'released before blur') h.fire('Control+Shift+A', 'Released')
-        h.keyDown(5, 'a', 'KeyA')
+        h.keyDown(6, 'a', 'KeyA')
         if (delivery === 'after blur') h.fire('Control+Shift+A')
         await flush()
         assert.deepEqual(h.calls, [])
@@ -243,7 +261,7 @@ describe('native shortcut actions during recording', () => {
     const h = mountShortcuts()
     try {
       await flush()
-      await h.record(5, [['Control', 'ControlLeft'], ['c', 'KeyC']])
+      await h.record(6, [['Control', 'ControlLeft'], ['c', 'KeyC']])
       await flush()
       assert.equal(h.store.mirrorMode, 'Control+C')
       h.fire('Control+C')
@@ -276,8 +294,8 @@ describe('native shortcut actions during recording', () => {
     const h = mountShortcuts()
     try {
       await flush()
-      h.focus(5)
-      h.keyDown(5, 'Control', 'ControlLeft')
+      h.focus(6)
+      h.keyDown(6, 'Control', 'ControlLeft')
       h.showPanel.value = false
       await flush()
       h.fire('Control+Shift+A')
@@ -292,8 +310,8 @@ describe('native shortcut actions during recording', () => {
     const h = mountShortcuts()
     try {
       await flush()
-      h.focus(5)
-      h.keyDown(5, 'Control', 'ControlLeft')
+      h.focus(6)
+      h.keyDown(6, 'Control', 'ControlLeft')
       h.cancelRecording()
       h.fire('Control+Shift+A')
       assert.equal(h.store.mirrorMode, 'Control+B')
@@ -308,7 +326,7 @@ describe('native shortcut actions during recording', () => {
     const h = mountShortcuts()
     try {
       await flush()
-      h.focus(5)
+      h.focus(6)
       h.fire('Control+Shift+A')
       h.store.visibleBlock = ''
       await flush()
@@ -330,18 +348,18 @@ describe('shortcut cancellation and complete panel', () => {
       const h = mountShortcuts()
       try {
         await flush()
-        h.focus(5)
-        h.keyDown(5, 'Control', 'ControlLeft')
-        h.keyDown(5, 'b', 'KeyB', composition)
+        h.focus(6)
+        h.keyDown(6, 'Control', 'ControlLeft')
+        h.keyDown(6, 'b', 'KeyB', composition)
         await flush()
-        assert.equal(h.inputs()[5].blurCount, 0)
+        assert.equal(h.inputs()[6].blurCount, 0)
         assert.equal(h.store.mirrorMode, 'Control+B')
-        h.keyDown(5, 'Escape', 'Escape', composition)
-        assert.equal(h.inputs()[5].blurCount, 0, 'IME Escape belongs to the composition')
-        h.keyDown(5, 'c', 'KeyC')
+        h.keyDown(6, 'Escape', 'Escape', composition)
+        assert.equal(h.inputs()[6].blurCount, 0, 'IME Escape belongs to the composition')
+        h.keyDown(6, 'c', 'KeyC')
         await flush()
         assert.equal(h.store.mirrorMode, 'Control+C', 'ordinary recording still commits')
-        assert.equal(h.inputs()[5].blurCount, 1)
+        assert.equal(h.inputs()[6].blurCount, 1)
       } finally {
         h.app.unmount()
         await flush()
@@ -354,8 +372,8 @@ describe('shortcut cancellation and complete panel', () => {
     try {
       await flush()
       assert.ok(h.text().includes('Ctrl MediaPlayPause'))
-      h.focus(5)
-      h.keyDown(5, 'Escape', 'Escape')
+      h.focus(6)
+      h.keyDown(6, 'Escape', 'Escape')
       await flush()
       assert.equal(h.store.mirrorMode, 'Control+MediaPlayPause')
       assert.ok(h.text().includes('Ctrl MediaPlayPause'))
@@ -365,12 +383,13 @@ describe('shortcut cancellation and complete panel', () => {
     }
   })
 
-  it('adds empty cycle defaults when restoring legacy shortcut state', () => {
+  it('adds empty cycle and keycap defaults when restoring legacy shortcut state', () => {
     setActivePinia(createPinia())
     const store = useShortcutStore()
     store.$patch({ visibleBlock: 'Control+A', mirrorMode: 'F2' })
     assert.equal(store.cycleZoom, '')
     assert.equal(store.cycleRotation, '')
+    assert.equal(store.keyboardKeycapInputEnabled, '')
     assert.equal(store.visibleBlock, 'Control+A')
     assert.equal(store.mirrorMode, 'F2')
   })
@@ -381,14 +400,14 @@ describe('shortcut cancellation and complete panel', () => {
       try {
         if (!existing) h.store.mirrorMode = ''
         await flush()
-        h.focus(5)
-        h.keyDown(5, 'Control', 'ControlLeft')
-        h.keyDown(5, 'Shift', 'ShiftLeft')
-        const event = h.keyDown(5, 'Escape', 'Escape')
+        h.focus(6)
+        h.keyDown(6, 'Control', 'ControlLeft')
+        h.keyDown(6, 'Shift', 'ShiftLeft')
+        const event = h.keyDown(6, 'Escape', 'Escape')
         await flush()
         assert.equal(event.prevented, true)
         assert.equal(event.stopped, true)
-        assert.equal(h.inputs()[5].blurCount, 1)
+        assert.equal(h.inputs()[6].blurCount, 1)
         assert.equal(h.store.mirrorMode, existing ? 'Control+B' : '')
         assert.equal(h.errors().length, 0)
         h.fire('Control+Shift+A')
@@ -397,7 +416,7 @@ describe('shortcut cancellation and complete panel', () => {
           h.fire('Control+B')
           assert.deepEqual(h.calls, ['visibleBlock', 'mirrorMode'])
         }
-        await h.record(5, [['Control', 'ControlLeft'], ['c', 'KeyC']])
+        await h.record(6, [['Control', 'ControlLeft'], ['c', 'KeyC']])
         await flush()
         assert.equal(h.store.mirrorMode, 'Control+C')
         h.fire('Control+C')
@@ -409,15 +428,16 @@ describe('shortcut cancellation and complete panel', () => {
     })
   }
 
-  it('labels all twelve recorder groups and checks new bindings against all other actions', async () => {
+  it('labels all thirteen recorder groups and checks new bindings against all other actions', async () => {
     const h = mountShortcuts()
-    const keys = ['visibleBlock', 'toggleBroadcast', 'visiblePreference', 'showDisplayArea', 'mouseEnabled', 'mirrorMode', 'cycleZoom', 'cycleRotation', 'keepInScreen', 'penetrable', 'hideOnHover', 'alwaysOnTop'] as const
+    const keys = ['visibleBlock', 'keyboardKeycapInputEnabled', 'toggleBroadcast', 'visiblePreference', 'showDisplayArea', 'mouseEnabled', 'mirrorMode', 'cycleZoom', 'cycleRotation', 'keepInScreen', 'penetrable', 'hideOnHover', 'alwaysOnTop'] as const
     try {
       assert.equal(h.inputs().length, keys.length)
       assert.ok(h.inputs().every(input => input.props.role === 'group'))
       assert.deepEqual(h.inputs().map(input => input.props['aria-label']), h.rows().map(row => row.props.title))
       assert.deepEqual(h.rows().map(row => row.props.description), [
         'pages.preference.shortcut.hints.toggleBlock',
+        'pages.preference.shortcut.hints.keyboardKeycapInputEnabled',
         'pages.preference.shortcut.hints.toggleBroadcast',
         'pages.preference.shortcut.hints.togglePreferences',
         'pages.preference.scene.hints.showDisplayArea',
@@ -431,21 +451,22 @@ describe('shortcut cancellation and complete panel', () => {
         'pages.preference.shortcut.hints.alwaysOnTop',
       ])
       for (const [index, key] of keys.entries()) {
-        await h.record(index, [[`F${index + 1}`, `F${index + 1}`]])
-        assert.equal(h.store[key], `F${index + 1}`)
+        const value = index < 12 ? `F${index + 1}` : 'Control+Z'
+        await h.record(index, index < 12 ? [[value, value]] : [['Control', 'ControlLeft'], ['z', 'KeyZ']])
+        assert.equal(h.store[key], value)
         const clear = walk(h.inputs()[index]).find(node => node.props['aria-label'] === 'components.shortcut.buttons.clear')
         assert.equal(clear?.props.type, 'button')
       }
-      await h.record(6, [['F8', 'F8']])
-      assert.equal(h.store.cycleZoom, 'F7')
+      await h.record(7, [['F9', 'F9']])
+      assert.equal(h.store.cycleZoom, 'F8')
       assert.equal(h.errors().length, 1)
-      await h.record(7, [['F7', 'F7']])
-      assert.equal(h.store.cycleRotation, 'F8')
+      await h.record(8, [['F8', 'F8']])
+      assert.equal(h.store.cycleRotation, 'F9')
       assert.equal(h.errors().length, 2)
-      await h.record(6, [['F7', 'F7']])
       await h.record(7, [['F8', 'F8']])
-      await h.record(1, [['F5', 'F5']])
-      assert.equal(h.store.toggleBroadcast, 'F2')
+      await h.record(8, [['F9', 'F9']])
+      await h.record(2, [['F6', 'F6']])
+      assert.equal(h.store.toggleBroadcast, 'F3')
       assert.equal(h.errors().length, 1)
       h.store.reset()
       await flush()

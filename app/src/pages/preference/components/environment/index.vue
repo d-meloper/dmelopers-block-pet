@@ -26,7 +26,7 @@ type PresetNumberKey = {
   [Key in keyof Pet3dPreset]: Pet3dPreset[Key] extends number ? Key : never
 }[keyof Pet3dPreset]
 
-type DeviceColorKey = typeof keyboardColorKeys[number] | typeof mouseColorKeys[number] | 'deskColor'
+type DeviceColorKey = typeof keyboardColorKeys[number] | typeof mouseColorKeys[number] | 'keyboardPressedColor' | 'deskColor'
 type DeskDimensionKey = typeof deskSizeKeys[number] | 'deskHeightOffset'
 
 const props = defineProps<{
@@ -36,7 +36,7 @@ const props = defineProps<{
   requestMouseEnabled: (enabled: boolean) => Promise<boolean>
   refreshMouseSetting: () => void
 }>()
-const keyboardColorKeys = ['keyboardColor', 'keyboardPressedColor', 'keyboardKeycapColor', 'keyboardLegendColor'] as const
+const keyboardColorKeys = ['keyboardColor', 'keyboardKeycapColor', 'keyboardLegendColor'] as const
 const mouseColorKeys = ['mouseColor', 'mousePressedColor'] as const
 const deskSizeKeys = ['deskWidthOffset', 'deskDepthOffset'] as const
 const blockStore = useBlockStore()
@@ -59,6 +59,7 @@ function applyColorSetting(key: DeviceColorKey, color: string) {
   if (editorsLocked.value) return
   if (key === 'deskColor' && activePet3dPreset.value.deskTransparent) return
   if ((key === 'mouseColor' || key === 'mousePressedColor') && mouseControlsDisabled.value) return
+  if (key === 'keyboardPressedColor' && !activePet3dPreset.value.keyboardKeycapInputEnabled) return
   if (color === activePet3dPreset.value[key]) return
   markPresetUserEdit()
   activePet3dPreset.value[key] = color
@@ -68,6 +69,12 @@ function updateDeskTransparent(value: boolean) {
   if (editorsLocked.value || value === activePet3dPreset.value.deskTransparent) return
   markPresetUserEdit()
   activePet3dPreset.value.deskTransparent = value
+}
+
+function updateKeyboardKeycapInputEnabled(value: boolean) {
+  if (editorsLocked.value || value === activePet3dPreset.value.keyboardKeycapInputEnabled) return
+  markPresetUserEdit()
+  activePet3dPreset.value.keyboardKeycapInputEnabled = value
 }
 
 function updateViewportSetting(
@@ -230,93 +237,134 @@ function confirmObjectReset(object: ObjectTab) {
           force-render
           :tab="$t('pages.preference.environment.detailTabs.keyboard')"
         >
-          <PreferenceOptionGroup>
-            <div class="grid grid-cols-2 gap-4">
+          <Flex
+            gap="middle"
+            vertical
+          >
+            <PreferenceOptionGroup>
               <ProListItem
-                v-for="key in keyboardColorKeys"
-                :key="key"
+                :description="$t('pages.preference.environment.hints.keyboardKeycapInputEnabled')"
                 plain
-                :title="$t(`pages.preference.environment.labels.${key}`)"
+                :title="$t('pages.preference.environment.labels.keyboardKeycapInputEnabled')"
               >
-                <ColorPicker
-                  :label="$t(`pages.preference.environment.labels.${key}`)"
-                  :value="activePet3dPreset[key]"
-                  @update:value="applyColorSetting(key, $event)"
+                <Switch
+                  :aria-label="$t('pages.preference.environment.labels.keyboardKeycapInputEnabled')"
+                  :checked="activePet3dPreset.keyboardKeycapInputEnabled"
+                  :disabled="editorsLocked"
+                  @update:checked="updateKeyboardKeycapInputEnabled"
                 />
               </ProListItem>
-            </div>
-
-            <ProListItem
-              :description="$t('pages.preference.environment.hints.keyboardLanguage')"
-              plain
-              :title="$t('pages.preference.environment.labels.keyboardLanguage')"
-            >
-              <Select
-                v-model:value="keyboardLanguage"
-                :disabled="editorsLocked"
-              >
-                <Select.Option value="ko">
-                  {{ $t('pages.preference.environment.options.keyboardKorean') }}
-                </Select.Option>
-                <Select.Option value="en">
-                  {{ $t('pages.preference.environment.options.keyboardEnglish') }}
-                </Select.Option>
-                <Select.Option value="ja">
-                  {{ $t('pages.preference.environment.options.keyboardJapanese') }}
-                </Select.Option>
-                <Select.Option value="system">
-                  {{ $t('pages.preference.environment.options.keyboardSystem') }}
-                </Select.Option>
-              </Select>
-            </ProListItem>
-
-            <div class="grid grid-cols-3 gap-4">
-              <ProListItem
-                plain
-                :title="$t('pages.preference.environment.labels.keyboardX')"
-                vertical
-              >
-                <DefaultSnapSlider
-                  class="m-[0]!"
-                  :default-value="defaultPet3dPreset.keyboardBaseXOffset"
-                  :max="presetRanges.preset.keyboardBaseXOffset.max"
-                  :min="presetRanges.preset.keyboardBaseXOffset.min"
-                  :value="activePet3dPreset.keyboardBaseXOffset"
-                  @update:value="updateViewportSetting('keyboardBaseXOffset', $event)"
-                />
-              </ProListItem>
+              <OptionTransition>
+                <div
+                  v-show="activePet3dPreset.keyboardKeycapInputEnabled"
+                  v-detail-height-option
+                >
+                  <ProListItem
+                    plain
+                    :title="$t('pages.preference.environment.labels.keyboardPressedColor')"
+                  >
+                    <ColorPicker
+                      :disabled="editorsLocked || !activePet3dPreset.keyboardKeycapInputEnabled"
+                      :label="$t('pages.preference.environment.labels.keyboardPressedColor')"
+                      :value="activePet3dPreset.keyboardPressedColor"
+                      @update:value="applyColorSetting('keyboardPressedColor', $event)"
+                    />
+                  </ProListItem>
+                </div>
+              </OptionTransition>
+            </PreferenceOptionGroup>
+            <PreferenceOptionGroup>
+              <div class="grid grid-cols-1 gap-4">
+                <ProListItem
+                  v-for="key in keyboardColorKeys"
+                  :key="key"
+                  plain
+                  :title="$t(`pages.preference.environment.labels.${key}`)"
+                >
+                  <ColorPicker
+                    :disabled="editorsLocked"
+                    :label="$t(`pages.preference.environment.labels.${key}`)"
+                    :value="activePet3dPreset[key]"
+                    @update:value="applyColorSetting(key, $event)"
+                  />
+                </ProListItem>
+              </div>
 
               <ProListItem
+                :description="$t('pages.preference.environment.hints.keyboardLanguage')"
                 plain
-                :title="$t('pages.preference.environment.labels.keyboardZ')"
-                vertical
+                :title="$t('pages.preference.environment.labels.keyboardLanguage')"
               >
-                <DefaultSnapSlider
-                  class="m-[0]!"
-                  :default-value="defaultPet3dPreset.keyboardBaseZOffset"
-                  :max="presetRanges.preset.keyboardBaseZOffset.max"
-                  :min="presetRanges.preset.keyboardBaseZOffset.min"
-                  :value="activePet3dPreset.keyboardBaseZOffset"
-                  @update:value="updateViewportSetting('keyboardBaseZOffset', $event)"
-                />
+                <Select
+                  v-model:value="keyboardLanguage"
+                  :disabled="editorsLocked"
+                >
+                  <Select.Option value="ko">
+                    {{ $t('pages.preference.environment.options.keyboardKorean') }}
+                  </Select.Option>
+                  <Select.Option value="en">
+                    {{ $t('pages.preference.environment.options.keyboardEnglish') }}
+                  </Select.Option>
+                  <Select.Option value="ja">
+                    {{ $t('pages.preference.environment.options.keyboardJapanese') }}
+                  </Select.Option>
+                  <Select.Option value="system">
+                    {{ $t('pages.preference.environment.options.keyboardSystem') }}
+                  </Select.Option>
+                </Select>
               </ProListItem>
 
-              <ProListItem
-                plain
-                :title="$t('pages.preference.environment.labels.keyboardScale')"
-                vertical
-              >
-                <DefaultSnapSlider
-                  class="m-[0]!"
-                  :default-value="defaultPet3dPreset.keyboardScalePercent"
-                  :max="200"
-                  :min="50"
-                  :value="activePet3dPreset.keyboardScalePercent"
-                  @update:value="updateViewportSetting('keyboardScalePercent', $event)"
-                />
-              </ProListItem>
-            </div>
-          </PreferenceOptionGroup>
+              <div class="grid grid-cols-3 gap-4">
+                <ProListItem
+                  plain
+                  :title="$t('pages.preference.environment.labels.keyboardX')"
+                  vertical
+                >
+                  <DefaultSnapSlider
+                    class="m-[0]!"
+                    :default-value="defaultPet3dPreset.keyboardBaseXOffset"
+                    :disabled="editorsLocked"
+                    :max="presetRanges.preset.keyboardBaseXOffset.max"
+                    :min="presetRanges.preset.keyboardBaseXOffset.min"
+                    :value="activePet3dPreset.keyboardBaseXOffset"
+                    @update:value="updateViewportSetting('keyboardBaseXOffset', $event)"
+                  />
+                </ProListItem>
+
+                <ProListItem
+                  plain
+                  :title="$t('pages.preference.environment.labels.keyboardZ')"
+                  vertical
+                >
+                  <DefaultSnapSlider
+                    class="m-[0]!"
+                    :default-value="defaultPet3dPreset.keyboardBaseZOffset"
+                    :disabled="editorsLocked"
+                    :max="presetRanges.preset.keyboardBaseZOffset.max"
+                    :min="presetRanges.preset.keyboardBaseZOffset.min"
+                    :value="activePet3dPreset.keyboardBaseZOffset"
+                    @update:value="updateViewportSetting('keyboardBaseZOffset', $event)"
+                  />
+                </ProListItem>
+
+                <ProListItem
+                  plain
+                  :title="$t('pages.preference.environment.labels.keyboardScale')"
+                  vertical
+                >
+                  <DefaultSnapSlider
+                    class="m-[0]!"
+                    :default-value="defaultPet3dPreset.keyboardScalePercent"
+                    :disabled="editorsLocked"
+                    :max="200"
+                    :min="50"
+                    :value="activePet3dPreset.keyboardScalePercent"
+                    @update:value="updateViewportSetting('keyboardScalePercent', $event)"
+                  />
+                </ProListItem>
+              </div>
+            </PreferenceOptionGroup>
+          </Flex>
         </TabPane>
         <TabPane
           key="desk"

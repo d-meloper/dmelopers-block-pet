@@ -12,6 +12,7 @@ import { useAppLocale } from '@/composables/useAppLocale'
 import { BROADCAST_CONTROLLER, useBroadcast } from '@/composables/useBroadcast'
 import { cancelShortcutRecording, useKeyPress } from '@/composables/useKeyPress'
 import { usePetRuntimeRecovery } from '@/composables/usePetRuntimeRecovery'
+import { usePreferenceElevation } from '@/composables/usePreferenceElevation'
 import { usePreferenceTheme } from '@/composables/usePreferenceTheme'
 import { providePreferenceUpdates } from '@/composables/usePreferenceUpdates'
 import { usePresetManager } from '@/composables/usePresetManager'
@@ -22,6 +23,7 @@ import { useTray } from '@/composables/useTray'
 import { appDarkAlgorithm, appLightAlgorithm } from '@/config/theme'
 import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
 import { APP_DISPLAY_NAME } from '@/constants/branding'
+import { createPreferencePromptPriority } from '@/features/elevation/preferencePrompts'
 import { isMouseSettingResponse } from '@/features/input/types'
 import { confirmPresetUserEdit, onPresetSelectionChange } from '@/features/presets/editIntent'
 import { beginPresetNativeEdit, beginPresetNativeQuery, presetOperationInProgress, presetResetInProgress } from '@/features/presets/operations'
@@ -39,6 +41,7 @@ import { useShortcutStore } from '@/stores/shortcut'
 import { captureViewportPointer } from '@/utils/viewportInteraction'
 
 import About from './components/about/index.vue'
+import AdminLaunchReminder from './components/AdminLaunchReminder.vue'
 import Block from './components/block/index.vue'
 import Environment from './components/environment/index.vue'
 import General from './components/general/index.vue'
@@ -72,14 +75,15 @@ watch([scrollTab, scrollContainer], ([tab, container]) => {
 }, { flush: 'post' })
 const { t } = useI18n()
 const { language, direction } = useAppLocale()
-const updates = providePreferenceUpdates()
+const elevation = usePreferenceElevation()
+const updates = providePreferenceUpdates(elevation.setVisible)
 usePetRuntimeRecovery(t)
 useTauriListen<{ action: 'quit' | 'restart' }>(APP_PROCESS_FAILED, ({ payload }) => {
   const action = payload?.action === 'restart' ? 'restart' : 'quit'
   message.error(t(`composables.useAppMenu.errors.${action}`), 8)
 })
 const blockStore = useBlockStore()
-const { visibleBlock, visiblePreference, mirrorMode, cycleZoom, cycleRotation, penetrable, alwaysOnTop, toggleBroadcast, showDisplayArea, mouseEnabled, keepInScreen, hideOnHover } = storeToRefs(useShortcutStore())
+const { visibleBlock, visiblePreference, mirrorMode, cycleZoom, cycleRotation, penetrable, alwaysOnTop, toggleBroadcast, showDisplayArea, mouseEnabled, keepInScreen, hideOnHover, keyboardKeycapInputEnabled } = storeToRefs(useShortcutStore())
 const generalStore = useGeneralStore()
 const performanceStore = usePerformanceStore()
 const appWindow = getCurrentWebviewWindow()
@@ -95,6 +99,16 @@ let mainEventQueue = Promise.resolve()
 useAntialiasSetting(emitMainEvent, reason => message.error(t(`pages.preference.performance.errors.${reason === 'failed' ? 'antialiasFailed' : 'antialiasUnconfirmed'}`)))
 const presetManager = usePresetManager(emitMainEvent)
 const tray = useTray(() => presetManager.ready.value && !presetManager.busy.value)
+const prompts = createPreferencePromptPriority({
+  broadcastOpen: tray.broadcastPromptOpen,
+  broadcastActive: tray.broadcastPromptActive,
+  updateVersion: updates.reminderVersion,
+  updateBusy: updates.busy,
+  updateHandoff: updates.handoffUnconfirmed,
+  adminOpen: elevation.open,
+  blockAdmin: elevation.setBlocked,
+})
+onBeforeUnmount(prompts.dispose)
 provide(BROADCAST_CONTROLLER, useBroadcast(presetManager.ready, presetManager.busy))
 // Global shortcuts belong to the window, which stays mounted across tabs and hide/show.
 useKeyPress(visibleBlock, () => {
@@ -134,6 +148,9 @@ useKeyPress(keepInScreen, () => {
 })
 useKeyPress(hideOnHover, () => {
   blockStore.window.hideOnHover = !blockStore.window.hideOnHover
+})
+useKeyPress(keyboardKeycapInputEnabled, () => {
+  void emitTo(WINDOW_LABEL.PREFERENCE, PRESET_EDIT_REQUEST, { toggleKeyboardKeycapInput: true })
 })
 const { editorsBusy: presetEditorsBusy, ready: presetReady } = presetManager
 const mousePending = ref(false)
@@ -511,7 +528,7 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
       :mask-closable="false"
       :ok-button-props="{ disabled: tray.broadcastRestoreDisabled.value }"
       :ok-text="t('pages.preference.broadcastRestore.enable')"
-      :open="tray.broadcastPromptOpen.value"
+      :open="prompts.broadcastOpen.value"
       :title="t('pages.preference.broadcastRestore.title')"
       @cancel="tray.cancelBroadcastRestore"
       @ok="tray.confirmBroadcastRestore"
@@ -543,15 +560,33 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
       </template>
     </Modal>
     <UpdateReminder
+      :after-close="prompts.finishUpdate"
       :busy="updates.busy.value"
       :can-cancel="updates.canCancel.value"
       :cancelling="updates.cancelling.value"
       :status="updates.phase.value ? t(`inAppUpdates.${updates.phase.value}`) : undefined"
-      :version="tray.broadcastPromptActive.value ? undefined : updates.reminderVersion.value"
+      :version="prompts.updateVersion.value"
       @cancel="updates.cancel"
       @close="updates.dismiss"
       @snooze="updates.snooze"
       @update="updates.update"
+    />
+    <AdminLaunchReminder
+      :action="elevation.action.value"
+      :busy="elevation.busy.value"
+      :feedback="elevation.feedback.value"
+      :open="elevation.open.value"
+      :phase="elevation.phase.value"
+      :reminder-dismissed="generalStore.app.administratorReminderDismissed"
+      :restart-confirmation="elevation.restartConfirmation.value"
+      :show-dismiss="elevation.showDismiss.value"
+      :show-once="elevation.showDismiss.value"
+      @after-close="prompts.finishAdmin"
+      @always="elevation.restartAlways"
+      @confirm-restart="elevation.confirmRestart"
+      @continue="elevation.continueNormally"
+      @reminder-dismissed-change="elevation.setReminderDismissed"
+      @restart="elevation.restart"
     />
     <SkinLibrary
       v-if="innerView === 'skin-library'"
@@ -619,7 +654,7 @@ const activeMenu = computed(() => menus.value.find(item => item.id === current.v
               viewportError,
               requestViewportMode,
               refreshViewport,
-            } : activeMenu?.component === Presets ? { manager: presetManager } : {}"
+            } : activeMenu?.component === Presets ? { manager: presetManager } : activeMenu?.component === General ? { elevation } : {}"
             v-on="activeMenu?.component === Block ? { openSkinLibrary } : {}"
           />
         </div>

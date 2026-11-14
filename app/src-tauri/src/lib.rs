@@ -26,6 +26,10 @@ mod locale_catalog;
 mod store_review;
 #[cfg(test)]
 mod settings_float_roundtrip_tests;
+#[cfg(test)]
+mod administrator_store_tests;
+#[cfg(test)]
+mod shortcut_store_tests;
 mod lighting_settings;
 mod skin_library;
 mod state_safety;
@@ -62,6 +66,10 @@ use core::{
     device::{
         set_device_input_active, set_device_mouse_enabled, start_device_listening,
         stop_device_listening,
+    },
+    elevation::{
+        cancel_elevated_restart, elevation_status, prepare_elevated_restart,
+        restart_elevated_application,
     },
     eyedropper::{cancel_screen_color_pick, pick_screen_color},
     prevent_default,
@@ -161,6 +169,10 @@ pub fn run() {
             set_device_mouse_enabled,
             stop_device_listening,
             restart_application,
+            elevation_status,
+            prepare_elevated_restart,
+            cancel_elevated_restart,
+            restart_elevated_application,
             prime_app_performance_sampler,
             sample_app_performance,
             fetch_minecraft_skin,

@@ -1,5 +1,6 @@
 #[path = "state_safety/shortcuts.rs"]
 mod shortcuts;
+#[path = "settings_defaults.rs"]
 mod settings_defaults;
 
 use serde_json::{Value, json};
@@ -14,7 +15,19 @@ fn shortcut_defaults_reach_real_pinia_and_disk_without_replacing_existing_values
     for initial in [
         json!({}),
         json!({"visibleCat":"F8","alwaysOnTop":"","mirrorMode":null,"legacy":{"kept":true}}),
+        json!({
+            "visibleCat":"Control+KeyA", "visiblePreference":"Control+KeyB",
+            "mirrorMode":"Control+KeyC", "cycleZoom":"Control+KeyK", "cycleRotation":"Control+KeyL",
+            "penetrable":"Control+KeyD", "alwaysOnTop":"Control+KeyE", "toggleBroadcast":"Control+KeyF",
+            "showDisplayArea":"Control+KeyG", "mouseEnabled":"Control+KeyH", "keepInScreen":"Control+KeyI",
+            "hideOnHover":"Control+KeyJ", "legacy":{"kept":true}
+        }),
+        json!({"visibleCat":"F8", "keyboardKeycapInputEnabled":"Control+KeyM", "futureShortcut":"F24"}),
     ] {
+        let expected_keycap = initial
+            .get("keyboardKeycapInputEnabled")
+            .cloned()
+            .unwrap_or(json!(""));
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join(if cfg!(debug_assertions) {
             "shortcut.dev.json"
@@ -58,6 +71,7 @@ fn shortcut_defaults_reach_real_pinia_and_disk_without_replacing_existing_values
                 .entry(key)
                 .or_insert(value);
         }
+        assert_eq!(expected["keyboardKeycapInputEnabled"], expected_keycap);
         assert_eq!(
             app.pinia().try_state::<Value>("shortcut").unwrap(),
             expected

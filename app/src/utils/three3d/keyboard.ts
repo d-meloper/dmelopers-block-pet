@@ -41,6 +41,7 @@ export interface KeyboardGroupResult {
   setColors: (colors: Pick<DeviceColorSettings, 'keyboardColor' | 'keyboardKeycapColor' | 'keyboardLegendColor' | 'keyboardPressedColor'>) => void
   setContactPressed: (contact: KeyboardContactAddress, pressed: boolean) => void
   setKeyPressed: (key: string, pressed: boolean) => void
+  setKeycapInputEnabled: (enabled: boolean) => void
   update: (deltaMilliseconds: number, timestamp: number) => void
   dispose: () => void
 }
@@ -491,6 +492,7 @@ export function createKeyboardGroup(): KeyboardGroupResult {
   }
 
   let disposed = false
+  let keycapInputEnabled = true
   const getContactId = (contact: KeyboardContactAddress) => (
     `${contact.row}:${contact.column}`
   )
@@ -541,6 +543,19 @@ export function createKeyboardGroup(): KeyboardGroupResult {
     legendBatches.forEach(batch => batch.flush())
   }
 
+  const setKeycapInputEnabled = (enabled: boolean) => {
+    if (disposed || enabled === keycapInputEnabled) return
+    keycapInputEnabled = enabled
+    if (enabled) return
+
+    keyAnimations.forEach((animationState) => {
+      animationState.minimumPressUntil = 0
+      if (animationState.progress === 0) return
+      animationState.progress = 0
+      applyKeyAppearance(animationState)
+    })
+  }
+
   const setKeyPressed = (key: string, pressed: boolean) => {
     if (disposed) return
 
@@ -548,7 +563,7 @@ export function createKeyboardGroup(): KeyboardGroupResult {
     if (!animationState || animationState.held === pressed) return
 
     animationState.held = pressed
-    if (pressed) {
+    if (pressed && keycapInputEnabled) {
       animationState.minimumPressUntil = performance.now() + interaction.minimumPressMs
     }
   }
@@ -563,13 +578,13 @@ export function createKeyboardGroup(): KeyboardGroupResult {
     if (!animationState || animationState.held === pressed) return
 
     animationState.held = pressed
-    if (pressed) {
+    if (pressed && keycapInputEnabled) {
       animationState.minimumPressUntil = performance.now() + interaction.minimumPressMs
     }
   }
 
   const update = (deltaMilliseconds: number, timestamp: number) => {
-    if (disposed) return
+    if (disposed || !keycapInputEnabled) return
 
     keyAnimations.forEach((animationState) => {
       const targetPressed = animationState.held
@@ -622,6 +637,7 @@ export function createKeyboardGroup(): KeyboardGroupResult {
     setLegendLanguage,
     setContactPressed,
     setKeyPressed,
+    setKeycapInputEnabled,
     update,
     dispose,
   }

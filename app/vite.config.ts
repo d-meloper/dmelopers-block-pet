@@ -12,10 +12,11 @@ import { localePlugin } from './scripts/locales/vitePlugin'
 const host = env.TAURI_DEV_HOST
 
 // https://vitejs.dev/config/
-export default defineConfig(async (): Promise<UserConfig> => ({
+export default defineConfig(async ({ mode }): Promise<UserConfig> => ({
   // No application feature consumes arbitrary local VITE_* configuration.
   envDir: false,
   envPrefix: [],
+  cacheDir: mode === 'administrator-test' ? 'node_modules/.cache/block-pet-admin-vite' : undefined,
   plugins: [localePlugin(__dirname), vue(), UnoCSS(), {
     name: 'reviewed-public-assets',
     apply: 'build',
@@ -44,14 +45,14 @@ export default defineConfig(async (): Promise<UserConfig> => ({
   clearScreen: false,
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
-    port: 1420,
+    port: mode === 'administrator-test' ? 1422 : 1420,
     strictPort: true,
     host: host || false,
     hmr: host
       ? {
           protocol: 'ws',
           host,
-          port: 1421,
+          port: mode === 'administrator-test' ? 1423 : 1421,
         }
       : undefined,
     watch: {

@@ -18,9 +18,17 @@ import { createPreferenceUpdateVisibility } from './preferenceUpdateVisibility'
 
 const PREFERENCE_UPDATES: InjectionKey<PreferenceUpdateRecovery> = Symbol('preference-updates')
 
-export function providePreferenceUpdates() {
+export function providePreferenceUpdates(observeVisibility?: (visible: boolean) => void | Promise<void>) {
   const general = useGeneralStore()
   const { t } = useI18n()
+  let hasVisibilityListener = false
+  const observe = async (visible: boolean) => {
+    try {
+      await observeVisibility?.(visible)
+    } catch (error) {
+      reportDiagnostic('warn', 'preference.visibility_observer', error)
+    }
+  }
   const updates = createPreferenceUpdateRecovery({
     channel: async () => (await getDistributionInfo()).channel,
     checkApp: checkAppUpdate,
@@ -36,10 +44,26 @@ export function providePreferenceUpdates() {
     },
   })
   const visibility = createPreferenceUpdateVisibility({
-    listen: accept => listen<boolean>('preference-visibility-changed', ({ payload }) => accept(payload === true)),
+    listen: async (accept) => {
+      const unlisten = await listen<boolean>('preference-visibility-changed', ({ payload }) => accept(payload === true))
+      hasVisibilityListener = true
+      return () => {
+        hasVisibilityListener = false
+        unlisten()
+      }
+    },
     read: () => getCurrentWebviewWindow().isVisible(),
-    accept: updates.setVisible,
+    accept: async (visible) => {
+      // Both observers receive the same accepted native show/hide observation.
+      // Start updates first so their reminder retains priority over other offers.
+      const update = updates.setVisible(visible)
+      await observe(visible && hasVisibilityListener)
+      await update
+    },
     report: (error) => {
+      // Unknown visibility cannot authorize a delayed elevated handoff. Update
+      // recovery keeps its existing fallback; other offers require a listener.
+      void observe(false)
       reportDiagnostic('warn', 'updates.window_visibility', error)
       updates.recordVisibilityFailure()
     },

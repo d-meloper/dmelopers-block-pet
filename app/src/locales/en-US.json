@@ -321,6 +321,7 @@
             "keyboardKeycapColor": "Keycap color",
             "keyboardLegendColor": "Legend color",
             "keyboardPressedColor": "Pressed key color",
+            "keyboardKeycapInputEnabled": "Enable keycap input",
             "mouseColor": "Mouse color",
             "mousePressedColor": "Pressed mouse color",
             "dmeloperPalmColor": "Palm color",
@@ -711,6 +712,7 @@
           "opacity": "Opacity",
           "mirrorMode": "Mirror",
           "keyboardLanguage": "Keycap Language",
+          "keyboardKeycapInputEnabled": "Enable keycap input",
           "cameraSettings": "Camera Settings",
           "sceneRotation": "Camera Rotation",
           "cameraHorizontal": "Camera Horizontal Position",
@@ -745,6 +747,7 @@
           "windowSize": "Adjust the size of the scene.",
           "mirrorMode": "Mirror the entire scene horizontally.",
           "keyboardLanguage": "Changes the keycap legends. Selecting System links them to the current system input language state.",
+          "keyboardKeycapInputEnabled": "Use keycap highlighting and press animations. Turning this off keeps the character's typing animation unchanged.",
           "sceneRotation": "Rotate the camera up to 360 degrees in either direction.",
           "cameraHorizontal": "Move the scene left or right in the viewport.",
           "cameraVertical": "Move the scene up or down in the viewport.",
@@ -890,6 +893,7 @@
         "title": "Shortcuts",
         "labels": {
           "toggleBlock": "Toggle Pet",
+          "keyboardKeycapInputEnabled": "Toggle Keycap Input",
           "toggleBroadcast": "Toggle Broadcast Output",
           "toggleMouse": "Toggle Mouse Input",
           "hideOnHover": "Hide on Hover",
@@ -902,6 +906,7 @@
         },
         "hints": {
           "toggleBlock": "Toggle the visibility of the pet window.",
+          "keyboardKeycapInputEnabled": "Turn keycap highlighting and press animations off or on. The character's typing animation stays the same.",
           "toggleBroadcast": "Turn broadcast output on or off.",
           "togglePreferences": "Toggle the visibility of the preferences window.",
           "mirrorMode": "Toggle the pet's mirror mode.",
@@ -1116,6 +1121,27 @@
         "leftSide": "Left Side"
       }
     }
+  },
+  "adminLaunchReminder": {
+    "title": "Run as administrator?",
+    "message": "If the pet doesn't react to keyboard or mouse input in some windows,\nyou can try running this app as administrator, but reactions\nmay still be limited depending on the window or environment.\n\nWould you like to run this app as administrator?\nYou can change this setting at any time.",
+    "restart": "Run once",
+    "continue": "Cancel",
+    "preparing": "Waiting for Windows permission approval.",
+    "restarting": "Saving settings and preparing to restart.",
+    "failed": "Could not restart as administrator. The current app and settings have been kept.",
+    "cancelled": "Permission approval was cancelled. The current app and settings have been kept.",
+    "always": "Always run",
+    "neverShow": "Don't show again",
+    "saveFailed": "Could not save settings. The app is still running. Check the saved setting before trying again.",
+    "restartConfirmationTitle": "Restart",
+    "restartConfirmationMessage": "The changes take effect after restarting the app.\nRestart now?",
+    "confirmRestart": "Restart now"
+  },
+  "administratorSettings": {
+    "title": "Run as administrator",
+    "hint": "Always run the app as administrator.",
+    "unsupported": "Administrator switching is not supported in this launch mode."
   },
   "updateReminder": {
     "title": "Update available",

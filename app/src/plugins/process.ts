@@ -7,8 +7,9 @@ import { cancelPresetNativeQueries } from '@/features/presets/operations'
 import { editorsLocked, quiesceEditors, releaseEditors } from '@/features/stateSafety'
 import { reportDiagnostic } from '@/services/diagnostics'
 
-type ProcessAction = 'quit' | 'restart'
-let pendingProcess: { action: ProcessAction, promise: Promise<void> } | undefined
+type ProcessAction = 'quit' | 'restart' | 'restart-elevated' | 'save-settings'
+let pendingProcess: { action: ProcessAction, ticket?: string, promise: Promise<void> } | undefined
+const elevationGuards = new Map<string, () => boolean>()
 let processOwnerGeneration = 0
 const PROCESS_REQUEST = 'app-process-request'
 const PROCESS_RESPONSE = 'app-process-response'
@@ -17,6 +18,7 @@ const PROCESS_TIMEOUT_MS = 30_000
 
 interface ProcessRequest {
   action: ProcessAction
+  ticket?: string
   requestId: string
   requester: string
   deadline: number
@@ -31,22 +33,64 @@ export function restartApp(): Promise<void> {
   return requestProcess('restart')
 }
 
-function requestProcess(action: ProcessAction): Promise<void> {
-  if (pendingProcess) return pendingProcess.action === action ? pendingProcess.promise : Promise.reject(new Error('APP_PROCESS_BUSY'))
-  const promise = requestProcessAction(action).finally(() => {
+/** Preferences' authoritative owner saves both windows without exiting. */
+export function saveAppSettings(isCurrent: () => boolean = () => true): Promise<void> {
+  if (getCurrentWebviewWindow().label !== 'preference') return Promise.reject(new Error('APP_PROCESS_FORBIDDEN'))
+  return requestProcess('save-settings', undefined, isCurrent)
+}
+
+function guarded(action: ProcessAction): boolean {
+  return action === 'restart-elevated' || action === 'save-settings'
+}
+
+/** UAC preparation has already completed; only the save/commit phase is timed. */
+export function restartAppAsAdministrator(ticket: string, isCurrent: () => boolean = () => true): Promise<void> {
+  if (getCurrentWebviewWindow().label !== 'preference') return Promise.reject(new Error('APP_PROCESS_FORBIDDEN'))
+  if (!isElevationTicket(ticket)) return Promise.reject(new Error('APP_PROCESS_INVALID'))
+  return requestProcess('restart-elevated', ticket, isCurrent)
+}
+
+function isElevationTicket(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value)
+}
+
+async function discardElevation(ticket: string) {
+  try {
+    await invoke('cancel_elevated_restart', { ticket })
+  } catch (error) {
+    reportDiagnostic('warn', 'elevation.cancel', error)
+  }
+}
+
+function requestProcess(action: ProcessAction, ticket?: string, isCurrent?: () => boolean): Promise<void> {
+  if (pendingProcess) {
+    if (pendingProcess.action === action && pendingProcess.ticket === ticket) return pendingProcess.promise
+    if (ticket) {
+      return discardElevation(ticket).then(() => {
+        throw new Error('APP_PROCESS_BUSY')
+      })
+    }
+    return Promise.reject(new Error('APP_PROCESS_BUSY'))
+  }
+  const promise = requestProcessAction(action, ticket, isCurrent).catch(async (error) => {
+    if (ticket) await discardElevation(ticket)
+    throw error
+  }).finally(() => {
     pendingProcess = undefined
   })
-  pendingProcess = { action, promise }
+  pendingProcess = { action, ticket, promise }
   return promise
 }
 
-async function requestProcessAction(action: ProcessAction): Promise<void> {
+async function requestProcessAction(action: ProcessAction, ticket?: string, isCurrent?: () => boolean): Promise<void> {
   const request: ProcessRequest = {
     action,
+    ...(ticket ? { ticket } : {}),
     requestId: crypto.randomUUID(),
     requester: getCurrentWebviewWindow().label,
     deadline: Date.now() + PROCESS_TIMEOUT_MS,
   }
+  if (guarded(action)) elevationGuards.set(request.requestId, isCurrent ?? (() => true))
   let active = true
   let stop: (() => void) | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -77,6 +121,7 @@ async function requestProcessAction(action: ProcessAction): Promise<void> {
       .catch(error => reportDiagnostic('warn', 'process.request_delivery', error)), completed])
     await completed
   } finally {
+    elevationGuards.delete(request.requestId)
     active = false
     if (timer !== undefined) clearTimeout(timer)
     stop?.()
@@ -95,9 +140,14 @@ export function registerAppProcessOwner(ready: () => boolean): () => void {
   const isOwner = () => active && generation === processOwnerGeneration
   const handleRequest = async ({ payload }: { payload: ProcessRequest }) => {
     if (!active || generation !== processOwnerGeneration || !payload || typeof payload.requestId !== 'string'
-      || !['quit', 'restart'].includes(payload.action)
+      || !['quit', 'restart', 'restart-elevated', 'save-settings'].includes(payload.action)
       || !['main', 'preference'].includes(payload.requester)
       || !Number.isFinite(payload.deadline) || payload.deadline > Date.now() + PROCESS_TIMEOUT_MS) {
+      return
+    }
+    if (guarded(payload.action)
+      && (payload.requester !== 'preference' || !elevationGuards.has(payload.requestId)
+        || (payload.action === 'restart-elevated' && !isElevationTicket(payload.ticket)))) {
       return
     }
     if (busy) return
@@ -107,6 +157,7 @@ export function registerAppProcessOwner(ready: () => boolean): () => void {
     let timer: ReturnType<typeof setTimeout> | undefined
     const check = () => {
       if (!active || !current || generation !== processOwnerGeneration || Date.now() >= payload.deadline) throw new Error('APP_PROCESS_CANCELLED')
+      if (guarded(payload.action) && !elevationGuards.get(payload.requestId)?.()) throw new Error('APP_PROCESS_CANCELLED')
     }
     const wait = async () => {
       await new Promise(resolve => setTimeout(resolve, 25))
@@ -127,7 +178,13 @@ export function registerAppProcessOwner(ready: () => boolean): () => void {
       await quiesceEditors(payload.requestId)
       check()
       if (!ready()) throw new Error('APP_PROCESS_CANCELLED')
-      if (payload.action === 'restart') await invoke('restart_application', { requestId: payload.requestId })
+      if (payload.action === 'save-settings') {
+        await releaseEditors(payload.requestId)
+        check()
+        return
+      }
+      if (payload.action === 'restart-elevated') await invoke('restart_elevated_application', { requestId: payload.requestId, ticket: payload.ticket })
+      else if (payload.action === 'restart') await invoke('restart_application', { requestId: payload.requestId })
       else await exit(0)
       exited = true
     }
@@ -141,7 +198,7 @@ export function registerAppProcessOwner(ready: () => boolean): () => void {
       await emitTo(payload.requester, PROCESS_RESPONSE, { ...payload, success: true }).catch(() => {})
     } catch (error) {
       if (isOwner() && (!(error instanceof Error) || !['APP_PROCESS_CANCELLED', 'APP_PROCESS_BUSY'].includes(error.message))) {
-        reportDiagnostic('error', payload.action === 'restart' ? 'process.restart' : 'process.quit', error)
+        reportDiagnostic('error', payload.action === 'save-settings' ? 'process.save' : payload.action === 'quit' ? 'process.quit' : 'process.restart', error)
       }
       current = false
       await releaseEditors(payload.requestId).catch(error => console.error('Process editor lease cleanup is pending.', error))
@@ -150,7 +207,7 @@ export function registerAppProcessOwner(ready: () => boolean): () => void {
     } finally {
       current = false
       if (timer !== undefined) clearTimeout(timer)
-      // Both successful actions keep writers frozen until the native Exit hook.
+      // Exit/restart keep writers frozen; save-only released its lease above.
       if (!exited) busy = false
     }
   }

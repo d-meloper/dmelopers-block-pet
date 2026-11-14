@@ -321,6 +321,7 @@
             "keyboardKeycapColor": "키캡 색상",
             "keyboardLegendColor": "각인 색상",
             "keyboardPressedColor": "키보드 입력 색상",
+            "keyboardKeycapInputEnabled": "키캡 입력 사용",
             "mouseColor": "마우스 색상",
             "mousePressedColor": "마우스 입력 색상",
             "dmeloperPalmColor": "손바닥 색상",
@@ -711,6 +712,7 @@
           "opacity": "투명도",
           "mirrorMode": "좌우 반전",
           "keyboardLanguage": "키캡 언어",
+          "keyboardKeycapInputEnabled": "키캡 입력 사용",
           "cameraSettings": "카메라 설정",
           "sceneRotation": "카메라 회전",
           "cameraHorizontal": "카메라 좌우 위치",
@@ -745,6 +747,7 @@
           "windowSize": "장면 크기를 조절합니다.",
           "mirrorMode": "전체 장면을 좌우로 반전합니다.",
           "keyboardLanguage": "키캡 문자를 변경합니다. 시스템을 선택하면 현재 시스템의 입력 언어 상태와 연동됩니다.",
+          "keyboardKeycapInputEnabled": "키캡의 입력 강조 색상과 눌림 동작을 사용합니다. 꺼도 캐릭터의 타이핑 동작은 그대로 유지됩니다.",
           "sceneRotation": "카메라를 좌우로 360도 회전합니다.",
           "cameraHorizontal": "장면을 화면에서 좌우로 이동합니다.",
           "cameraVertical": "장면을 화면에서 위아래로 이동합니다.",
@@ -890,6 +893,7 @@
         "title": "단축키",
         "labels": {
           "toggleBlock": "펫 표시 전환",
+          "keyboardKeycapInputEnabled": "키캡 입력 전환",
           "toggleBroadcast": "방송용 출력 전환",
           "toggleMouse": "마우스 사용 전환",
           "hideOnHover": "마우스를 옮기면 숨기기",
@@ -902,6 +906,7 @@
         },
         "hints": {
           "toggleBlock": "펫 창을 표시하거나 숨깁니다.",
+          "keyboardKeycapInputEnabled": "키캡의 입력 강조 색상과 눌림 동작을 끄거나 켭니다. 캐릭터의 타이핑 동작은 그대로 유지됩니다.",
           "toggleBroadcast": "방송용 출력을 켜거나 끕니다.",
           "togglePreferences": "환경설정 창을 표시하거나 숨깁니다.",
           "mirrorMode": "펫 장면의 좌우 반전을 전환합니다.",
@@ -1116,6 +1121,27 @@
         "leftSide": "좌측 측면"
       }
     }
+  },
+  "adminLaunchReminder": {
+    "title": "관리자 권한으로 실행할까요?",
+    "message": "일부 창에서 펫이 키보드와 마우스에 반응하지 않는다면 관리자 권한으로\n실행해 볼 수 있지만, 실행 후에도 창이나 환경에 따라 반응이 제한될 수\n있습니다.\n\n이 프로그램을 관리자 권한으로 실행할까요?\n이 설정은 언제든 변경할 수 있습니다.",
+    "restart": "이번만 실행",
+    "continue": "취소",
+    "preparing": "Windows 권한 승인을 기다리는 중입니다.",
+    "restarting": "설정을 저장하고 다시 시작을 준비하는 중입니다.",
+    "failed": "관리자 권한으로 다시 시작하지 못했습니다. 현재 앱과 설정은 유지됩니다.",
+    "cancelled": "권한 승인이 취소되었습니다. 현재 앱과 설정은 유지됩니다.",
+    "always": "항상 실행",
+    "neverShow": "다시 보지 않기",
+    "saveFailed": "설정을 저장하지 못했습니다. 현재 앱을 유지합니다. 저장 상태를 확인한 뒤 다시 시도해 주세요.",
+    "restartConfirmationTitle": "다시 시작",
+    "restartConfirmationMessage": "변경 사항은 프로그램을 다시 시작해야 적용됩니다.\n지금 다시 시작하시겠습니까?",
+    "confirmRestart": "지금 다시 시작하기"
+  },
+  "administratorSettings": {
+    "title": "관리자 권한으로 실행",
+    "hint": "앱을 항상 관리자 권한으로 실행합니다.",
+    "unsupported": "현재 실행 방식에서는 관리자 권한 전환을 지원하지 않습니다."
   },
   "updateReminder": {
     "title": "새 업데이트",

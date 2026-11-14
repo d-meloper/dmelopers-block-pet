@@ -1,6 +1,7 @@
 import { DEFAULT_MODEL_SETTINGS, DEFAULT_PET_PRESET, DEFAULT_WINDOW_SETTINGS } from '@/config/defaultSettings'
 import { migrateDeskSettings } from '@/config/desk'
 import { migrateDmeloperEyebrowDepth } from '@/config/dmeloperEyebrows'
+import { migrateKeyboardKeycapInput } from '@/config/keyboardKeycapInput'
 import { migratePresetLighting } from '@/config/lighting'
 import { migratePetMotionSettings, PET_TYPING_AND_RECOIL_SETTING_KEYS } from '@/config/petMotion'
 import contractData from '@/config/presetCompatibility.json'
@@ -92,7 +93,10 @@ export function migratedPresetSettings(source: PresetSourceSettings, contract = 
     if (contract.migrations.includes('pet-motion-controls-v1')) next.preset = migratePetMotionSettings(next.preset, PET_TYPING_AND_RECOIL_SETTING_KEYS)
     if (contract.migrations.includes('pet-headbutt-radius-v1')) next.preset = migratePetMotionSettings(next.preset, ['petHeadbuttMaxRadiusOffset'])
     if (contract.migrations.includes('pet-typing-radius-v1')) next.preset = migratePetMotionSettings(next.preset, ['petTypingMaxRadiusOffset'])
+    if (contract.migrations.includes('keyboard-keycap-input-enabled-v1')) next.preset = migrateKeyboardKeycapInput(next.preset as Record<string, unknown>)
     const preset = next.preset as Record<string, unknown>
+    // A retained pre-Enabled reader keeps its original missing-only migration.
+    if (!contract.migrations.includes('keyboard-keycap-input-enabled-v1') && contract.migrations.includes('keyboard-keycap-input-v1') && !('keyboardKeycapInputDisabled' in preset)) preset.keyboardKeycapInputDisabled = false
     if (contract.migrations.includes('pet-animation-v1') && !('petAnimationMode' in preset)) preset.petAnimationMode = DEFAULT_PET_PRESET.petAnimationMode
     if (contract.migrations.includes('pet-shoulder-connection-v1') && !('petShoulderTorsoConnected' in preset)) preset.petShoulderTorsoConnected = DEFAULT_PET_PRESET.petShoulderTorsoConnected
     if (contract.migrations.includes('pet-arm-visibility-v1')) {

@@ -15,6 +15,49 @@ function createStore() {
   return useBlockStore()
 }
 
+describe('positive keycap input state migration', () => {
+  it('migrates raw flags before Pinia merges defaults and preserves explicit new choices through restart', () => {
+    for (const [fields, expected] of [
+      [{}, true],
+      [{ keyboardKeycapInputDisabled: true }, false],
+      [{ keyboardKeycapInputDisabled: false }, true],
+      [{ keyboardKeycapInputEnabled: true }, true],
+      [{ keyboardKeycapInputEnabled: false }, false],
+      [{ keyboardKeycapInputEnabled: true, keyboardKeycapInputDisabled: true }, true],
+      [{ keyboardKeycapInputEnabled: false, keyboardKeycapInputDisabled: false }, false],
+      [{ keyboardKeycapInputEnabled: false, keyboardKeycapInputDisabled: 'invalid' }, false],
+      [{ keyboardKeycapInputDisabled: 'true' }, true],
+      [{ keyboardKeycapInputEnabled: 'false', keyboardKeycapInputDisabled: true }, true],
+      [{ keyboardKeycapInputEnabled: null, keyboardKeycapInputDisabled: true }, true],
+    ] as const) {
+      const incoming = { customization3d: { preset: { ...fields, keyboardPressedColor: '#123456' } } }
+      const original = JSON.stringify(incoming)
+      const store = createStore()
+      store.$patch(preparePetStateForSync(incoming))
+      store.init()
+      assert.equal(store.activePet3dPreset.keyboardKeycapInputEnabled, expected, original)
+      assert.equal(store.activePet3dPreset.keyboardPressedColor, '#123456')
+      assert.equal('keyboardKeycapInputDisabled' in store.activePet3dPreset, false)
+      assert.equal(JSON.stringify(incoming), original)
+      const restored = createStore()
+      restored.$patch(preparePetStateForSync(JSON.parse(JSON.stringify(store.$state))))
+      restored.init()
+      assert.equal(restored.activePet3dPreset.keyboardKeycapInputEnabled, expected)
+      store.resetKeyboard3d()
+      assert.equal(store.activePet3dPreset.keyboardKeycapInputEnabled, true)
+    }
+  })
+
+  it('keeps an unrelated partial synchronization from resetting the active input choice', () => {
+    const store = createStore()
+    store.activePet3dPreset.keyboardKeycapInputEnabled = false
+    const patch = preparePetStateForSync({ customization3d: { preset: { keyboardColor: '#123456' } } })
+    assert.equal('keyboardKeycapInputEnabled' in (patch.customization3d as { preset: object }).preset, false)
+    store.$patch(patch)
+    assert.equal(store.activePet3dPreset.keyboardKeycapInputEnabled, false)
+  })
+})
+
 describe('selective whole-program catalog reset', () => {
   for (const deleteSkins of [false, true]) {
     for (const resetPresets of [false, true]) {

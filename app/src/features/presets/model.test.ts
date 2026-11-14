@@ -61,6 +61,7 @@ describe('preset ownership and persistence', () => {
     source.activePet3dPreset.viewportModeRevision = 87
     source.activePet3dPreset.mouseEnabled = false
     source.activePet3dPreset.keyboardLegendLanguage = 'en'
+    source.activePet3dPreset.keyboardKeycapInputEnabled = true
     source.activePet3dPreset.cameraZoomPercent = 140
     const snapshot = capturePresetSnapshot(source)
     assert.equal('visible' in snapshot, false)
@@ -70,6 +71,7 @@ describe('preset ownership and persistence', () => {
     assert.equal(snapshot.preset.petAnimationMode, 'headbutt')
     assert.equal(snapshot.preset.mouseEnabled, false)
     assert.equal(snapshot.preset.keyboardLegendLanguage, 'en')
+    assert.equal(snapshot.preset.keyboardKeycapInputEnabled, true)
     assert.equal('viewportModeRevision' in snapshot.preset, false)
     assert.equal('windowScalePercent' in snapshot.preset, false)
     assert.equal('maxFPS' in snapshot, false)

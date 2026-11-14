@@ -16,16 +16,19 @@ import * as Vue from 'vue'
 import { createI18n } from 'vue-i18n'
 import { compileScript, parse } from 'vue/compiler-sfc'
 
+import { createPreferenceUpdateRecovery } from '@/composables/preferenceUpdateRecovery'
+import { createPreferenceUpdateVisibility } from '@/composables/preferenceUpdateVisibility'
 import { useAppLanguage } from '@/composables/useAppLanguage'
 import * as performanceConfig from '@/config/performance'
 import { LISTEN_KEY, WINDOW_LABEL } from '@/constants'
+import { createPreferenceElevation } from '@/features/elevation/preferenceElevation'
+import { createPreferencePromptPriority } from '@/features/elevation/preferencePrompts'
 import { isMouseSettingResponse } from '@/features/input/types'
 import { createAntialiasSettingOwner } from '@/features/performance/antialiasSetting'
 import * as presetOperations from '@/features/presets/operations'
 import { PRESET_EDIT_REQUEST } from '@/features/presets/types'
 import * as sceneTypes from '@/features/scene/types'
 import * as viewportSettings from '@/features/scene/viewportSettings'
-import { createPreferenceUpdates } from '@/features/updates/preferenceUpdates'
 import en from '@/locales/en-US.json'
 import * as localeFormatting from '@/locales/formatting'
 import ko from '@/locales/ko-KR.json'
@@ -110,10 +113,11 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
     hideOnHover: 'Control+KeyJ',
   })
   const active = new Map<string, (event: { state: string }) => void>()
+  const registrationChanges: Array<{ operation: 'register' | 'unregister', key: string }> = []
   let trayAction: TrayIconOptions['action']
   let trayExists = existingTray
   const nativeTray = { setVisible: async () => {}, setMenu: async () => {} }
-  let preferenceUpdates: ReturnType<typeof createPreferenceUpdates>
+  let preferenceUpdates: ReturnType<typeof createPreferenceUpdateRecovery>
   let preferenceShows = 0
   const current = Vue.ref(0)
   const innerView = Vue.ref<string>()
@@ -166,6 +170,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
   const scenePage = page('scene')
   const environmentPage = page('environment')
   const nativeListeners = new Map<string, (event: { payload: unknown }) => void>()
+  const nativeSubscriptions = new Map<string, Set<(event: { payload: unknown }) => void>>()
   const selectionListeners = new Set<() => void>()
   const nativeEdits = presetOperations.presetNativeEditPending
   let automaticAntialiasReply = true
@@ -185,8 +190,18 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
           finishAntialiasSubscription = resolve
         })
       }
-      nativeListeners.set(event, handler)
-      return () => nativeListeners.delete(event)
+      // The page lifecycle and update/elevation observer share visibility events.
+      const handlers = nativeSubscriptions.get(event) ?? new Set()
+      handlers.add(handler)
+      nativeSubscriptions.set(event, handlers)
+      nativeListeners.set(event, value => handlers.forEach(accept => accept(value)))
+      return () => {
+        handlers.delete(handler)
+        if (!handlers.size) {
+          nativeSubscriptions.delete(event)
+          nativeListeners.delete(event)
+        }
+      }
     },
   }
   const mockVue = { ...Vue, onMounted: () => {} }
@@ -225,9 +240,11 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
       return {
         isRegistered: async (key: string) => active.has(key),
         register: async (key: string, handler: (event: { state: string }) => void) => {
+          registrationChanges.push({ operation: 'register', key })
           active.set(key, handler)
         },
         unregister: async (key: string) => {
+          registrationChanges.push({ operation: 'unregister', key })
           active.delete(key)
         },
       }
@@ -326,22 +343,37 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
       }) }
     }
     if (id === '@/composables/useKeyPress') return keyPressModule
+    if (id === '@/composables/usePreferenceElevation') {
+      return load(readFileSync(new URL('../../composables/usePreferenceElevation.ts', import.meta.url), 'utf8'), true)
+    }
+    if (id === '@/features/elevation/preferenceElevation') return { createPreferenceElevation }
+    if (id === '@/features/elevation/preferencePrompts') return { createPreferencePromptPriority }
+    if (id === '@/services/elevation') {
+      const unexpectedElevation = async () => assert.fail('Shortcut lifecycle tests must not prepare or cancel elevated restarts.')
+      return {
+        getElevationStatus: async () => ({ supported: false, elevated: false }),
+        prepareElevatedRestart: unexpectedElevation,
+        cancelElevatedRestart: unexpectedElevation,
+      }
+    }
     if (id === '@/composables/usePreferenceUpdates') {
-      // Keep the live controller's complete reactive API without native update I/O.
-      const unexpectedUpdate = async () => assert.fail('Shortcut lifecycle tests must not invoke native updates.')
-      return { providePreferenceUpdates: () => preferenceUpdates = createPreferenceUpdates({
-        channel: async () => 'development',
-        checkApp: unexpectedUpdate,
-        install: unexpectedUpdate,
-        cancel: unexpectedUpdate,
-        reminderSnooze: () => generalStore.app.updateReminderSnooze,
-        snoozeReminder: (value) => {
-          generalStore.app.updateReminderSnooze = value
-        },
+      // Keep the actual visibility observer, recovery API and prompt arbitration.
+      return load(readFileSync(new URL('../../composables/usePreferenceUpdates.ts', import.meta.url), 'utf8'), true)
+    }
+    if (id === './preferenceUpdateRecovery') {
+      return { createPreferenceUpdateRecovery: (deps: Parameters<typeof createPreferenceUpdateRecovery>[0]) => preferenceUpdates = createPreferenceUpdateRecovery({
+        ...deps,
+        // Preserve the fixture's fail-fast guard for unexpected native update I/O.
         report: (_operation, error) => {
           throw error
         },
       }) }
+    }
+    if (id === './preferenceUpdateVisibility') return { createPreferenceUpdateVisibility }
+    if (id === '@/services/distribution') return { getDistributionInfo: async () => ({ channel: 'development' }) }
+    if (id === '@/services/inAppUpdates') {
+      const unexpectedUpdate = async () => assert.fail('Shortcut lifecycle tests must not invoke native updates.')
+      return { checkAppUpdate: unexpectedUpdate, installAppUpdate: unexpectedUpdate, cancelAppUpdate: unexpectedUpdate }
     }
     if (id === '@/features/stateSafety/bridge' || id === '@/features/stateSafety') return dataBridge
     if (id === '@/composables/usePreferenceTheme') {
@@ -371,7 +403,10 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
         refreshViewport: () => {},
       }) }
     }
-    if (id === '@/plugins/process') return { APP_PROCESS_FAILED: 'app-process-failed' }
+    if (id === '@/plugins/process') {
+      const unexpectedProcess = async () => assert.fail('Shortcut lifecycle tests must not restart or save the application.')
+      return { APP_PROCESS_FAILED: 'app-process-failed', restartAppAsAdministrator: unexpectedProcess, saveAppSettings: unexpectedProcess }
+    }
     if (id === '@/plugins/window') {
       return { showWindow: async () => {
         preferenceShows++
@@ -529,6 +564,7 @@ function mountPreferences(theme: 'auto' | 'light' | 'dark' = 'light', delayedAnt
       queryWindowState = query
     },
     active,
+    registrationChanges,
     current,
     innerView,
     presetBusy,
@@ -805,6 +841,50 @@ describe('preference scroll lifetime', () => {
 })
 
 describe('preference shortcut lifetime', () => {
+  it('adds an unbound keycap action without re-registering or changing existing saved shortcuts', async () => {
+    const h = mountPreferences()
+    try {
+      await flush()
+      const existing = { ...h.shortcutStore.$state }
+      const handlers = new Map(h.active)
+      const existingOrder = ['Control+KeyA', 'Control+KeyB', 'Control+KeyC', 'Control+KeyK', 'Control+KeyL', 'Control+KeyD', 'Control+KeyE', 'Control+KeyF', 'Control+KeyG', 'Control+KeyH', 'Control+KeyI', 'Control+KeyJ']
+      assert.equal(h.shortcutStore.keyboardKeycapInputEnabled, '')
+      assert.deepEqual([...h.active.keys()], existingOrder)
+      assert.deepEqual(h.registrationChanges, existingOrder.map(key => ({ operation: 'register', key })))
+      h.shortcutStore.keyboardKeycapInputEnabled = 'Control+KeyM'
+      await flush()
+      assert.deepEqual(h.shortcutStore.$state, { ...existing, keyboardKeycapInputEnabled: 'Control+KeyM' })
+      assert.deepEqual([...h.active.keys()], [...existingOrder, 'Control+KeyM'])
+      for (const [key, callback] of handlers) assert.equal(h.active.get(key), callback)
+      const retired = h.active.get('Control+KeyM')!
+      h.hide()
+      h.fire('Control+KeyM')
+      h.fire('Control+KeyM', 'Released')
+      h.shortcutStore.keyboardKeycapInputEnabled = 'Control+KeyN'
+      await flush()
+      retired({ state: 'Pressed' })
+      h.fire('Control+KeyN')
+      assert.deepEqual(h.emitted.filter(value => value.event === PRESET_EDIT_REQUEST).map(value => value.payload), [
+        { toggleKeyboardKeycapInput: true },
+        { toggleKeyboardKeycapInput: true },
+      ])
+      assert.deepEqual(h.registrationChanges.slice(existingOrder.length), [
+        { operation: 'register', key: 'Control+KeyM' },
+        { operation: 'unregister', key: 'Control+KeyM' },
+        { operation: 'register', key: 'Control+KeyN' },
+      ])
+      for (const [key, callback] of handlers) assert.equal(h.active.get(key), callback)
+      h.shortcutStore.reset()
+      await flush()
+      assert.equal(h.shortcutStore.keyboardKeycapInputEnabled, '')
+      assert.equal(h.active.size, 0)
+    } finally {
+      h.app.unmount()
+      await flush()
+    }
+    assert.equal(h.active.size, 0)
+  })
+
   it('suppresses both cycle commands during recording and resumes each after release', async () => {
     const h = mountPreferences()
     try {

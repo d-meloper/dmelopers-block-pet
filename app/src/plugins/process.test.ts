@@ -28,6 +28,7 @@ function quitHarness(ownerSubscriptionFailures = 0, actualRuntime = false) {
   const handlers = new Map<string, Set<Handler>>()
   const timers = new Map<number, { callback: () => void, delay: number }>()
   const calls: string[] = []
+  const cancelledTickets: string[] = []
   const errors: unknown[] = []
   const locked = vue.ref(false)
   const runtimes: Array<typeof import('@/features/stateSafety/runtime')> = []
@@ -55,12 +56,13 @@ function quitHarness(ownerSubscriptionFailures = 0, actualRuntime = false) {
     const mocks: Record<string, unknown> = {
       '@/features/presets/operations': presetOperations,
       '@/services/diagnostics': { reportDiagnostic: () => {} },
-      '@tauri-apps/api/core': { invoke: async (command: string, args?: { requestId: string }) => {
+      '@tauri-apps/api/core': { invoke: async (command: string, args?: { requestId: string, ticket?: string }) => {
         calls.push(command)
-        if (command === 'restart_application') {
+        if (command === 'restart_application' || command === 'restart_elevated_application') {
           if (failure === 'restart') throw new Error('restart unavailable')
           disk = structuredClone(backend)
         }
+        if (command === 'cancel_elevated_restart') cancelledTickets.push(args!.ticket!)
         if (command === 'begin_state_quiescence') {
           if (nativeLease) throw new Error('OPERATION_BUSY')
           nativeLease = args!.requestId
@@ -195,6 +197,7 @@ function quitHarness(ownerSubscriptionFailures = 0, actualRuntime = false) {
     main,
     preference,
     calls,
+    cancelledTickets,
     errors,
     locked,
     register,
@@ -289,6 +292,112 @@ describe('preference-owned application restart', () => {
     assert.equal(h.calls.filter(call => call === 'restart_application').length, 2)
     for (const runtime of h.runtimes) runtime.disposeStateSafety()
     h.stop()
+  })
+})
+
+describe('preference-owned settings persistence', () => {
+  it('saves the actual two-window state and releases both leases without exiting', async () => {
+    const h = quitHarness(0, true)
+    await Promise.all(h.runtimes.map(runtime => runtime.initializeStateSafety()))
+    await h.preference.saveAppSettings()
+    assert.deepEqual(h.disk(), { opacity: 75, presetCollection: { activeId: 'edited', opacity: 75 } })
+    assert.equal(h.nativeLease(), undefined)
+    assert.equal(h.locked.value, false)
+    assert.equal(h.calls.includes('exit'), false)
+    assert.equal(h.calls.includes('restart_application'), false)
+    assert.equal(h.calls.includes('restart_elevated_application'), false)
+    await h.preference.saveAppSettings()
+    for (const runtime of h.runtimes) runtime.disposeStateSafety()
+    h.stop()
+  })
+
+  it('refuses Main and stale intents, and releases failures for a later save', async () => {
+    const h = quitHarness(0, true)
+    await Promise.all(h.runtimes.map(runtime => runtime.initializeStateSafety()))
+    await assert.rejects(h.main.saveAppSettings(), /FORBIDDEN/)
+    await assert.rejects(h.preference.saveAppSettings(() => false))
+    h.fail('save')
+    await assert.rejects(h.preference.saveAppSettings())
+    assert.equal(h.nativeLease(), undefined)
+    assert.equal(h.locked.value, false)
+    assert.equal(h.calls.includes('exit'), false)
+    h.fail(undefined)
+    await h.preference.saveAppSettings()
+    for (const runtime of h.runtimes) runtime.disposeStateSafety()
+    h.stop()
+  })
+})
+
+describe('preference-owned administrator restart', () => {
+  const ticket = 'ab'.repeat(32)
+
+  it('uses the authoritative two-window save before committing the prepared child', async () => {
+    const h = quitHarness(0, true)
+    await Promise.all(h.runtimes.map(runtime => runtime.initializeStateSafety()))
+    const patch = h.holdPatch()
+    const restart = h.preference.restartAppAsAdministrator(ticket)
+    assert.equal(h.preference.restartAppAsAdministrator(ticket), restart)
+    await flush()
+    assert.equal(h.calls.includes('restart_elevated_application'), false)
+    patch()
+    await restart
+    assert.equal(h.calls.filter(call => call === 'restart_elevated_application').length, 1)
+    assert.ok(h.calls.indexOf('save') < h.calls.indexOf('restart_elevated_application'))
+    assert.ok(h.calls.indexOf('verify_state_quiescence') < h.calls.indexOf('restart_elevated_application'))
+    assert.deepEqual(h.disk(), { opacity: 75, presetCollection: { activeId: 'edited', opacity: 75 } })
+    assert.equal(h.calls.includes('restart_application'), false)
+    assert.equal(h.calls.includes('exit'), false)
+    assert.deepEqual(h.cancelledTickets, [])
+    for (const runtime of h.runtimes) runtime.disposeStateSafety()
+    h.stop()
+  })
+
+  it('refuses Main and malformed tickets without acquiring the save barrier', async () => {
+    const h = quitHarness()
+    await assert.rejects(h.main.restartAppAsAdministrator(ticket), /FORBIDDEN/)
+    await assert.rejects(h.preference.restartAppAsAdministrator('invalid'), /INVALID/)
+    assert.deepEqual(h.calls, [])
+    h.stop()
+  })
+
+  it('cancels the prepared child on save or native refusal and keeps settings editable', async () => {
+    for (const failure of ['read', 'save', 'restart'] as const) {
+      const h = quitHarness(0, true)
+      await Promise.all(h.runtimes.map(runtime => runtime.initializeStateSafety()))
+      h.fail(failure)
+      await assert.rejects(h.preference.restartAppAsAdministrator(ticket))
+      assert.equal(h.calls.includes('exit'), false)
+      assert.equal(h.nativeLease(), undefined)
+      assert.equal(h.locked.value, false)
+      assert.deepEqual(h.cancelledTickets, [ticket])
+      h.fail(undefined)
+      await h.preference.restartAppAsAdministrator(ticket)
+      assert.equal(h.calls.at(-1), 'restart_elevated_application')
+      for (const runtime of h.runtimes) runtime.disposeStateSafety()
+      h.stop()
+    }
+  })
+
+  it('rejects a hidden or disposed offer before saving and again after a pending save', async () => {
+    for (const afterSave of [false, true]) {
+      const h = quitHarness(0, true)
+      await Promise.all(h.runtimes.map(runtime => runtime.initializeStateSafety()))
+      let current = afterSave
+      const patch = afterSave ? h.holdPatch() : () => {}
+      const restart = h.preference.restartAppAsAdministrator(ticket, () => current)
+      const rejected = assert.rejects(restart)
+      await flush()
+      current = false
+      patch()
+      await rejected
+      assert.equal(h.calls.includes('restart_elevated_application'), false)
+      assert.equal(h.calls.includes('exit'), false)
+      assert.equal(h.nativeLease(), undefined)
+      assert.equal(h.locked.value, false)
+      assert.deepEqual(h.cancelledTickets, [ticket])
+      for (const runtime of h.runtimes) runtime.disposeStateSafety()
+      h.stop()
+    }
   })
 })
 

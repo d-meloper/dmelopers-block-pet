@@ -321,6 +321,7 @@
             "keyboardKeycapColor": "キーキャップの色",
             "keyboardLegendColor": "印字の色",
             "keyboardPressedColor": "押したキーの色",
+            "keyboardKeycapInputEnabled": "キーキャップの入力反応を使用",
             "mouseColor": "マウスの色",
             "mousePressedColor": "押したマウスの色",
             "dmeloperPalmColor": "手のひらの色",
@@ -711,6 +712,7 @@
           "opacity": "不透明度",
           "mirrorMode": "左右反転",
           "keyboardLanguage": "キーキャップの言語",
+          "keyboardKeycapInputEnabled": "キーキャップの入力反応を使用",
           "cameraSettings": "カメラ設定",
           "sceneRotation": "カメラの回転",
           "cameraHorizontal": "カメラの左右位置",
@@ -745,6 +747,7 @@
           "windowSize": "シーンの大きさを調整します。",
           "mirrorMode": "シーン全体を左右反転します。",
           "keyboardLanguage": "キーキャップの文字を変更します。システムを選択すると、現在のシステムの入力言語の状態に連動します。",
+          "keyboardKeycapInputEnabled": "キーキャップの入力強調表示と押し込み動作を有効にします。オフにしても、キャラクターのタイピング動作は変わりません。",
           "sceneRotation": "カメラを左右に最大360度回転します。",
           "cameraHorizontal": "シーンを表示領域内で左右に移動します。",
           "cameraVertical": "シーンを表示領域内で上下に移動します。",
@@ -890,6 +893,7 @@
         "title": "ショートカットキー",
         "labels": {
           "toggleBlock": "ペットの表示を切り替え",
+          "keyboardKeycapInputEnabled": "キーキャップの入力反応を切り替え",
           "toggleBroadcast": "配信出力を切り替え",
           "toggleMouse": "マウス入力を切り替え",
           "hideOnHover": "マウスを重ねると非表示",
@@ -902,6 +906,7 @@
         },
         "hints": {
           "toggleBlock": "ペットウィンドウの表示・非表示を切り替えます。",
+          "keyboardKeycapInputEnabled": "キーキャップの入力強調表示と押し込み動作をオフまたはオンに切り替えます。キャラクターのタイピング動作は変わりません。",
           "toggleBroadcast": "配信出力をオンまたはオフにします。",
           "togglePreferences": "環境設定ウィンドウの表示・非表示を切り替えます。",
           "mirrorMode": "ペットのシーンの左右反転を切り替えます。",
@@ -1116,6 +1121,27 @@
         "leftSide": "左側面"
       }
     }
+  },
+  "adminLaunchReminder": {
+    "title": "管理者権限で実行しますか？",
+    "message": "一部のウィンドウでペットがキーボードやマウスに反応しない場合、\n管理者権限での実行を試すことができますが、実行後もウィンドウや環境によって\n反応が制限される場合があります。\n\nこのアプリを管理者権限で実行しますか？\nこの設定はいつでも変更できます。",
+    "restart": "今回のみ実行",
+    "continue": "キャンセル",
+    "preparing": "Windows の権限承認を待っています。",
+    "restarting": "設定を保存し、再起動を準備しています。",
+    "failed": "管理者権限で再起動できませんでした。現在のアプリと設定は保持されています。",
+    "cancelled": "権限の承認がキャンセルされました。現在のアプリと設定は保持されています。",
+    "always": "常に実行",
+    "neverShow": "今後表示しない",
+    "saveFailed": "設定を保存できませんでした。アプリは実行中です。保存状態を確認してから再試行してください。",
+    "restartConfirmationTitle": "再起動",
+    "restartConfirmationMessage": "変更を適用するには、アプリを再起動する必要があります。\n今すぐ再起動しますか？",
+    "confirmRestart": "今すぐ再起動"
+  },
+  "administratorSettings": {
+    "title": "管理者権限で実行",
+    "hint": "アプリを常に管理者権限で実行します。",
+    "unsupported": "この起動方法では管理者権限への切り替えをサポートしていません。"
   },
   "updateReminder": {
     "title": "更新があります",

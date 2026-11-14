@@ -4,6 +4,7 @@ import { DEFAULT_MODEL_SETTINGS, DEFAULT_PET_PRESET, DEFAULT_SKIN_APPEARANCE, DE
 import { isDeskSettings, migrateDeskSettings } from '@/config/desk'
 import { DEFAULT_DEVICE_COLORS, DEVICE_COLOR_KEYS } from '@/config/deviceColors'
 import { migrateDmeloperEyebrowDepth } from '@/config/dmeloperEyebrows'
+import { migrateKeyboardKeycapInput } from '@/config/keyboardKeycapInput'
 import { isLightingSettings, migratePresetLighting } from '@/config/lighting'
 import { DEFAULT_PET_MODEL_ID } from '@/config/model3d'
 import { migratePetMotionSettings } from '@/config/petMotion'
@@ -80,11 +81,11 @@ export function isPresetSnapshot(value: unknown): value is PresetSnapshot {
     && !('visible' in snapshot) && typeof snapshot.mirror === 'boolean'
     && typeof snapshot.eyebrowAnimationEnabled === 'boolean'
     && Number.isFinite(snapshot.opacity) && snapshot.opacity >= 0 && snapshot.opacity <= 100
-    && Object.keys(snapshot.preset).every(key => (PRESET_SETTING_KEYS as readonly string[]).includes(key))
+    && Object.keys(snapshot.preset).every(key => key === 'keyboardKeycapInputDisabled' || (PRESET_SETTING_KEYS as readonly string[]).includes(key))
     && isLightingSettings(migratePresetLighting(snapshot.preset).lighting)
     && isDeskSettings(migrateDeskSettings(snapshot.preset))
     && matchesShape({
-      ...migratePetMotionSettings(migratePresetLighting(migrateDeskSettings(snapshot.preset))),
+      ...migratePetMotionSettings(migratePresetLighting(migrateDeskSettings(migrateKeyboardKeycapInput(snapshot.preset)))),
       ...('petAnimationMode' in snapshot.preset ? {} : { petAnimationMode: DEFAULT_PET_PRESET.petAnimationMode }),
       ...('petShoulderTorsoConnected' in snapshot.preset ? {} : { petShoulderTorsoConnected: DEFAULT_PET_PRESET.petShoulderTorsoConnected }),
       ...('petRightArmDisabled' in snapshot.preset ? {} : { petRightArmDisabled: DEFAULT_PET_PRESET.petRightArmDisabled }),

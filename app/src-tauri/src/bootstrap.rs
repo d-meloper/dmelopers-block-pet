@@ -367,6 +367,9 @@ fn platform_preflight() {
     }
 }
 pub fn prepare() -> Result<Option<(LifetimeLock, DataRoots)>, String> {
+    if !crate::core::elevation::wait_for_parent() {
+        return Ok(None);
+    }
     crate::core::restart::wait_for_parent()?;
     platform_preflight();
     store_identity_preflight()?;
@@ -415,6 +418,9 @@ pub fn prepare() -> Result<Option<(LifetimeLock, DataRoots)>, String> {
         }
         return Err(format!("{} ({code})", localized("dataUnavailable")));
     }
+    // No frontend or editor has started. Cancellation returns here and follows
+    // ordinary startup; only an authenticated committed successor exits us.
+    crate::core::elevation::try_startup_elevation(&roots);
     Ok(Some((lock, roots)))
 }
 

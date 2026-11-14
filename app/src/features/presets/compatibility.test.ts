@@ -7,7 +7,7 @@ import { DEFAULT_PET_PRESET } from '@/config/defaultSettings'
 import { PET_MOTION_SETTING_KEYS } from '@/config/petMotion'
 import { useBlockStore } from '@/stores/block'
 
-import { defaultPresetSettings, fieldBounds, inspectPresetCompatibility, PRESET_SUPPORT_CONTRACT, presetSettings, presetSource, projectPresetSettings } from './compatibility'
+import { defaultPresetSettings, fieldBounds, inspectPresetCompatibility, migratedPresetSettings, PRESET_SUPPORT_CONTRACT, presetSettings, presetSource, projectPresetSettings } from './compatibility'
 import cases from './fixtures/compatibility-cases.json'
 import { applyPresetSnapshot, clonePreset, createDefaultPresetSnapshot, isExecutablePresetSnapshot } from './model'
 import { PRESET_SETTING_KEYS } from './types'
@@ -17,6 +17,56 @@ function sorted(issues: Array<{ path: string[], reason: string }>) {
     .map(({ path, reason }) => ({ path, reason }))
     .sort((a, b) => JSON.stringify(a.path).localeCompare(JSON.stringify(b.path)))
 }
+
+it('migrates positive keycap feedback with explicit-new precedence while preserving source and invalid evidence', () => {
+  setActivePinia(createPinia())
+  const store = useBlockStore()
+  store.init()
+  const old = createDefaultPresetSnapshot()
+  Reflect.deleteProperty(old.preset, 'keyboardKeycapInputEnabled')
+  const before = JSON.stringify(old)
+  assert.equal(isExecutablePresetSnapshot(old), true)
+  applyPresetSnapshot(store, old)
+  assert.equal(store.activePet3dPreset.keyboardKeycapInputEnabled, true)
+  assert.equal(JSON.stringify(old), before)
+  for (const [fields, expected] of [
+    [{}, true],
+    [{ keyboardKeycapInputDisabled: true }, false],
+    [{ keyboardKeycapInputDisabled: false }, true],
+    [{ keyboardKeycapInputEnabled: true }, true],
+    [{ keyboardKeycapInputEnabled: false }, false],
+    [{ keyboardKeycapInputEnabled: true, keyboardKeycapInputDisabled: true }, true],
+    [{ keyboardKeycapInputEnabled: false, keyboardKeycapInputDisabled: false }, false],
+    [{ keyboardKeycapInputEnabled: false, keyboardKeycapInputDisabled: 'invalid' }, false],
+  ] as const) {
+    const snapshot = createDefaultPresetSnapshot()
+    Reflect.deleteProperty(snapshot.preset, 'keyboardKeycapInputEnabled')
+    Object.assign(snapshot.preset, fields)
+    const retained = JSON.stringify(snapshot)
+    assert.deepEqual(inspectPresetCompatibility(presetSettings(snapshot)), [])
+    applyPresetSnapshot(store, snapshot)
+    assert.equal(isExecutablePresetSnapshot(snapshot), true)
+    assert.equal(store.activePet3dPreset.keyboardKeycapInputEnabled, expected)
+    assert.equal(projectPresetSettings(presetSettings(snapshot)).preset.keyboardKeycapInputEnabled, expected)
+    assert.equal('keyboardKeycapInputDisabled' in store.activePet3dPreset, false)
+    assert.equal(JSON.stringify(snapshot), retained)
+  }
+  for (const fields of [
+    { keyboardKeycapInputDisabled: 'true' },
+    { keyboardKeycapInputDisabled: null },
+    { keyboardKeycapInputEnabled: 'false' },
+    { keyboardKeycapInputEnabled: null, keyboardKeycapInputDisabled: true },
+    { keyboardKeycapInputEnabled: 0, keyboardKeycapInputDisabled: false },
+  ]) {
+    const invalid = presetSettings(createDefaultPresetSnapshot())
+    Reflect.deleteProperty(invalid.preset, 'keyboardKeycapInputEnabled')
+    Object.assign(invalid.preset, fields)
+    const retained = JSON.stringify(invalid)
+    assert.deepEqual(sorted(inspectPresetCompatibility(invalid)), [{ path: ['preset', 'keyboardKeycapInputEnabled'], reason: 'type' }])
+    assert.equal('keyboardKeycapInputDisabled' in (migratedPresetSettings(invalid).preset as object), false)
+    assert.equal(JSON.stringify(invalid), retained)
+  }
+})
 
 it('matches all shared native/frontend compatibility cases without changing source data', () => {
   for (const scenario of cases) {

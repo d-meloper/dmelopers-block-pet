@@ -473,6 +473,14 @@
     {
       "path": [
         "preset",
+        "keyboardKeycapInputEnabled"
+      ],
+      "type": "boolean",
+      "label": "keyboardKeycapInputEnabled"
+    },
+    {
+      "path": [
+        "preset",
         "mouseColor"
       ],
       "type": "color",
@@ -623,6 +631,8 @@
     "pet-arm-visibility-v1",
     "pet-motion-controls-v1",
     "pet-headbutt-radius-v1",
-    "pet-typing-radius-v1"
+    "pet-typing-radius-v1",
+    "keyboard-keycap-input-v1",
+    "keyboard-keycap-input-enabled-v1"
   ]
 }

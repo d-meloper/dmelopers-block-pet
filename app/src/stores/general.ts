@@ -25,6 +25,8 @@ export interface GeneralStore {
   }
   app: {
     autostart: boolean
+    alwaysRunAsAdministrator: boolean
+    administratorReminderDismissed: boolean
     taskbarVisible: boolean
     autoUpdateCheck: boolean
     updateReminderHiddenUntil: number
@@ -90,7 +92,7 @@ export const useGeneralStore = defineStore('general', () => {
     if (!Number.isFinite(app.updateReminderHiddenUntil) || app.updateReminderHiddenUntil < 0) {
       app.updateReminderHiddenUntil = DEFAULT_GENERAL_SETTINGS.app.updateReminderHiddenUntil
     }
-    for (const key of ['broadcastRestorePromptDismissed', 'applyPresetSkin'] as const) {
+    for (const key of ['broadcastRestorePromptDismissed', 'applyPresetSkin', 'alwaysRunAsAdministrator', 'administratorReminderDismissed'] as const) {
       if (typeof app[key] !== 'boolean') app[key] = DEFAULT_GENERAL_SETTINGS.app[key]
     }
     broadcast.enabled = broadcast.enabled === true

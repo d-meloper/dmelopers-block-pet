@@ -29,6 +29,23 @@ pub(crate) fn migrate(source: &Value) -> Value {
     migrate_with(source, contract())
 }
 
+/// Only executable copies are converted; callers retain the original archive.
+pub(crate) fn migrate_keycap_input(preset: &mut Map<String, Value>) {
+    if !preset.contains_key("keyboardKeycapInputEnabled") {
+        let enabled = match preset.get("keyboardKeycapInputDisabled") {
+            Some(Value::Bool(disabled)) => Value::Bool(!disabled),
+            Some(invalid) => invalid.clone(),
+            None => {
+                let defaults: Map<String, Value> = crate::settings_defaults::section("preset")
+                    .expect("preset defaults");
+                defaults["keyboardKeycapInputEnabled"].clone()
+            }
+        };
+        preset.insert("keyboardKeycapInputEnabled".into(), enabled);
+    }
+    preset.remove("keyboardKeycapInputDisabled");
+}
+
 fn migrate_with(source: &Value, support: &Value) -> Value {
     let supported = |id: &str| {
         support["migrations"]
@@ -80,6 +97,12 @@ fn migrate_with(source: &Value, support: &Value) -> Value {
             for key in ["petRightArmDisabled", "petLeftArmDisabled"] {
                 preset.entry(key).or_insert_with(|| defaults[key].clone());
             }
+        }
+        if supported("keyboard-keycap-input-enabled-v1") {
+            migrate_keycap_input(preset);
+        } else if supported("keyboard-keycap-input-v1") {
+            preset.entry("keyboardKeycapInputDisabled")
+                .or_insert(Value::Bool(false));
         }
         if supported("pet-motion-controls-v1") {
             for key in [
@@ -265,6 +288,36 @@ mod tests {
                 .unwrap()
                 .sort_by_key(|v| v["path"].to_string());
             assert_eq!(actual, expected, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn keycap_input_migration_preserves_new_precedence_and_invalid_source() {
+        let original: Value = serde_json::from_str(include_str!(
+            "../../src/features/presets/fixtures/portable-v1.json"
+        )).unwrap();
+        for (fields, expected, valid) in [
+            (json!({}), json!(true), true),
+            (json!({"keyboardKeycapInputDisabled":true}), json!(false), true),
+            (json!({"keyboardKeycapInputDisabled":false}), json!(true), true),
+            (json!({"keyboardKeycapInputEnabled":false}), json!(false), true),
+            (json!({"keyboardKeycapInputEnabled":true}), json!(true), true),
+            (json!({"keyboardKeycapInputEnabled":false,"keyboardKeycapInputDisabled":false}), json!(false), true),
+            (json!({"keyboardKeycapInputEnabled":true,"keyboardKeycapInputDisabled":true}), json!(true), true),
+            (json!({"keyboardKeycapInputEnabled":false,"keyboardKeycapInputDisabled":"invalid"}), json!(false), true),
+            (json!({"keyboardKeycapInputDisabled":"true"}), json!("true"), false),
+            (json!({"keyboardKeycapInputDisabled":null}), Value::Null, false),
+            (json!({"keyboardKeycapInputEnabled":"false","keyboardKeycapInputDisabled":true}), json!("false"), false),
+            (json!({"keyboardKeycapInputEnabled":null,"keyboardKeycapInputDisabled":true}), Value::Null, false),
+        ] {
+            let mut source = original["settings"].clone();
+            source["preset"].as_object_mut().unwrap().extend(fields.as_object().unwrap().clone());
+            let retained = source.clone();
+            let migrated = migrate(&source);
+            assert_eq!(migrated["preset"]["keyboardKeycapInputEnabled"], expected, "{fields}");
+            assert!(migrated["preset"].get("keyboardKeycapInputDisabled").is_none());
+            assert_eq!(valid_executable(&source), valid, "{fields}");
+            assert_eq!(source, retained);
         }
     }
 

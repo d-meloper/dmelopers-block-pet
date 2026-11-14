@@ -9104,6 +9104,116 @@
         "sourceHash": "ba5c392f5dd2918c81c360bfbdafa3e0bcbabaf9e4d8d7b96cbf18a7fc7d441f",
         "targetHash": "5d35f6ffee0e7a4c1c12235187d1095d44575249bd939dba9bcb66cace44b717",
         "kind": "imported"
+      },
+      "pages.preference.presets.compatibility.settings.keyboardKeycapInputEnabled": {
+        "sourceHash": "6eaad010daf614c91527a5399d344b10a040627528753d881e41bdfe7bed8a40",
+        "targetHash": "1cb21d7ad1ad3caeab0ce7cc74d4296b5efb45ef5c21c3280d7cc0e5f6487388",
+        "kind": "reviewed"
+      },
+      "pages.preference.environment.labels.keyboardKeycapInputEnabled": {
+        "sourceHash": "6eaad010daf614c91527a5399d344b10a040627528753d881e41bdfe7bed8a40",
+        "targetHash": "1cb21d7ad1ad3caeab0ce7cc74d4296b5efb45ef5c21c3280d7cc0e5f6487388",
+        "kind": "reviewed"
+      },
+      "pages.preference.environment.hints.keyboardKeycapInputEnabled": {
+        "sourceHash": "d819d4f9ac4f23425a157beff7a1870f0526d1255519159ab1eba6f61968fdc5",
+        "targetHash": "1af98fc0ca7c7014cbe9f1a5319fded3589e056bf3a0520eb137e25fbd86d811",
+        "kind": "reviewed"
+      },
+      "pages.preference.shortcut.labels.keyboardKeycapInputEnabled": {
+        "sourceHash": "ecce87df426f9e2a0f855d90950e8108f1c2c89c4098151ce9b3dd141abf9d1f",
+        "targetHash": "cb4369da252f9da9bbcb55bc55ae3fd920ce9d6416a09fcb28928e0a1f7e31e2",
+        "kind": "reviewed"
+      },
+      "pages.preference.shortcut.hints.keyboardKeycapInputEnabled": {
+        "sourceHash": "2e9480bdfca6ae692ae209f566cfa479c908b0cff63ff9d2bf8454e47360c94e",
+        "targetHash": "a8a00b5edf19267f4e526700a95a9072adcbd4166825d6f55c486f9a31a49f07",
+        "kind": "reviewed"
+      },
+      "adminLaunchReminder.title": {
+        "sourceHash": "83a0b6614e50e453aad9f689873ed5218f482367cfec5e6aa8ea0151cc22f0c2",
+        "targetHash": "31e4db6b402baa01e6f92995aa9e74c3c19c995adab7e3c2ad6b60b7ac73033c",
+        "kind": "reviewed"
+      },
+      "adminLaunchReminder.message": {
+        "sourceHash": "3a8016be252ab4ed23f9aa913d85b16ec29ea5633f3de7803f4c2333aae4eb5a",
+        "targetHash": "df3d41ca24beb7b40bb59367d9fa6429e6324e0658659472d69d6aedab165fe2",
+        "kind": "reviewed"
+      },
+      "adminLaunchReminder.restart": {
+        "sourceHash": "877c174198233be3811fc13777f7318a5dd0b20950c4bd4864cb51c800603ab7",
+        "targetHash": "5f041f4be2d3becdcb1363508b415794005ddbcfae08c4d6d5a29d615ea73922",
+        "kind": "reviewed"
+      },
+      "adminLaunchReminder.continue": {
+        "sourceHash": "be876433993ab7ba221512b5703b32060626f390aa50d7ed464a847a34539a6c",
+        "targetHash": "19766ed6ccb2f4a32778eed80d1928d2c87a18d7c275ccb163ec6709d3eb2e27",
+        "kind": "reviewed"
+      },
+      "adminLaunchReminder.preparing": {
+        "sourceHash": "947e92ae9280fe5fff46bc5441112ba3495f3de2de361efc210502ae6abb55f0",
+        "targetHash": "b51e1980e783d9323609459355b4f22169738622f55011d3d99126686cfe33ff",
+        "kind": "reviewed"
+      },
+      "adminLaunchReminder.restarting": {
+        "sourceHash": "897f2798d28785c3aa6ab53ac845f0f5f0d8a1e86f4c0ef4050331b52aa74baf",
+        "targetHash": "f345d09da3d542e4bcf3729c4670e8ef7abe21c3c03d9c3b7f47d7ca7989775a",
+        "kind": "reviewed"
+      },
+      "adminLaunchReminder.failed": {
+        "sourceHash": "0fb62f83845bd2a0678aa3018a4dc459ea7d430eae8966889335f06a0196ffe7",
+        "targetHash": "02b40118644394081af2896ba3d0864413e087bec72b896d5cd96543882c6ffd",
+        "kind": "reviewed"
+      },
+      "adminLaunchReminder.cancelled": {
+        "sourceHash": "42533b9c49ac6347005b571457369a5aa510e12c1205e4955efc33d1e3ce4766",
+        "targetHash": "4ac7920affd533db44fafa342ccd33cbbd04c8090ce4e3859c3f42940d213bcd",
+        "kind": "reviewed"
+      },
+      "adminLaunchReminder.always": {
+        "sourceHash": "2eb26b329d94b685c276f2c5791f8ffbfec6a734c56f075d9ed9fa40bfa0437f",
+        "targetHash": "96955e45bfdf398bfc98161072acf5b6d803aa38c03743fa7d2ee7328b45e7be",
+        "kind": "reviewed"
+      },
+      "adminLaunchReminder.neverShow": {
+        "sourceHash": "223b06433cb69cc717b5acb261b2814c879b62f54b7c2f262fea405ad6219d4e",
+        "targetHash": "d16d035f63448e2e38afec505fd9910a31983a971660510e7996fb2b656d02de",
+        "kind": "reviewed"
+      },
+      "adminLaunchReminder.saveFailed": {
+        "sourceHash": "4c596affc996f4fa6cc1bc0d6acd14e659f4a5816a93f6ed2b05934b07535087",
+        "targetHash": "c3cc4b262a57aa9a7d86119f98707bf826006146b28c54374fc04b0cf2b5593e",
+        "kind": "reviewed"
+      },
+      "adminLaunchReminder.restartConfirmationTitle": {
+        "sourceHash": "c0128255dc47e43255b5714816f24c07cfbaf024bbfa5f7580d7bb6a7595ee29",
+        "targetHash": "6b983a81e5e8099e4e23a368e72636e31f029f2e691e5be714106b8cf59d70a7",
+        "kind": "reviewed"
+      },
+      "adminLaunchReminder.restartConfirmationMessage": {
+        "sourceHash": "78f785f8464305704cc6be7fc9bbcdcc61bc08f872c37a9831115be7b31f07e5",
+        "targetHash": "28b3ae9fa9f52262e54a8fa67c4a814337c92433927a634efb9b5180e2f2375a",
+        "kind": "reviewed"
+      },
+      "adminLaunchReminder.confirmRestart": {
+        "sourceHash": "e225a65b0438a2154125db5138aa1ee6dcdb0fea5a89bfe60b92e427e7047df1",
+        "targetHash": "09af1002abafb2dadfd2a9e61d7b0493c2a1da0e4859645116db0d462d175b08",
+        "kind": "reviewed"
+      },
+      "administratorSettings.title": {
+        "sourceHash": "c70e0008eaf8bb1f0de885910408c089648c2e3bde1b7e024de0a7ed3420b549",
+        "targetHash": "fe9ae39c876912c23a55baa8367fbb81e605718abe124917b8208b24dc5cedc1",
+        "kind": "reviewed"
+      },
+      "administratorSettings.hint": {
+        "sourceHash": "f2306e04e82564176243121ffff7e10ec8aafe08900fd862b663b72e23ef46c4",
+        "targetHash": "d43f2d447dc505882b20667a73900713ddbf07d8075cfd37ee54fbc1409c0892",
+        "kind": "reviewed"
+      },
+      "administratorSettings.unsupported": {
+        "sourceHash": "f77612cf2f1125f70b8f4097037f8e3f73ac17380021b2e455dec1eab258eb14",
+        "targetHash": "c059e0901caf9f71dc73d0b49ac55b471a7f044e2b7a41519b3a99c6aef679fe",
+        "kind": "reviewed"
       }
     }
   }

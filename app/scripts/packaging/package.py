@@ -478,6 +478,71 @@ def checked_cache_path(path):
     return path.resolve()
 
 
+def native_long_paths_disabled():
+    """Only a proven disabled Windows policy selects this observed limitation."""
+    if os.name != 'nt':
+        return None
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r'SYSTEM\CurrentControlSet\Control\FileSystem') as key:
+            value, kind = winreg.QueryValueEx(key, 'LongPathsEnabled')
+        if kind == winreg.REG_DWORD and type(value) is int and value in (0, 1):
+            return value == 0
+    except (ImportError, OSError):
+        pass
+    return None
+
+
+def required_root_build_script(source):
+    """Prove only the owned default root script; other Cargo layouts stay unknown."""
+    try:
+        # Optional: older supported Python must not acquire a new parser requirement.
+        import tomllib
+        source = Path(source)
+        package = tomllib.loads((source / 'src-tauri/Cargo.toml').read_text(encoding='utf-8'))['package']
+        lock = tomllib.loads((source / 'Cargo.lock').read_text(encoding='utf-8'))
+        metadata = json.loads((source / 'package.json').read_text(encoding='utf-8'))
+        name, version = package.get('name'), package.get('version')
+        if (not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', name)
+                or not isinstance(version, str) or 'build' in package
+                or metadata.get('name') != name or metadata.get('version') != version
+                or not (source / 'src-tauri/build.rs').is_file()):
+            return None
+        local = [item for item in lock['package'] if item.get('name') == name
+                 and item.get('version') == version and item.get('source') is None]
+        return name if len(local) == 1 else None
+    except (ImportError, OSError, UnicodeError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def host_build_script_output(target, package):
+    # Length placeholders only, never a selected cache key or an execution path.
+    fingerprint = '0' * 16
+    return (Path(target) / 'release' / 'build' / (package + '-' + fingerprint)
+            / ('build_script_build-' + fingerprint + '.exe'))
+
+
+def preflight_host_build_script(source, output, cache_root=None):
+    """Reject only the proven ordinary-path HOST output on the observed policy."""
+    if native_long_paths_disabled() is not True:
+        return False
+    package = required_root_build_script(source)
+    if package is None:
+        return False
+    root = checked_cache_path(cache_root) if cache_root is not None else Path(output).resolve()
+    # Extended/device/UNC paths may have different capabilities; do not reclassify them.
+    if not re.fullmatch(r'[A-Za-z]:', root.drive):
+        return False
+    target = (root / ('store-' + '0' * (hashlib.sha256().digest_size * 2))
+              if cache_root is not None else root / 'target-store')
+    units = len(str(host_build_script_output(target, package)).encode('utf-16-le')) // 2
+    require(units < 260, 'Required Cargo HOST build-script output needs '
+            + str(units) + ' UTF-16 units with LongPathsEnabled=0; '
+            'select a shorter external cache/output root (maximum 259)')
+    return True
+
+
 @contextmanager
 def compiler_cache(path, output):
     if path is None:
@@ -519,6 +584,7 @@ def cache_target(root, channel, tools, flags, store):
 
 
 def build(args):
+    preflight_host_build_script(ROOT, args.output, getattr(args, 'cache_root', None))
     with compiler_cache(getattr(args, 'cache_root', None), args.output) as cache:
         return build_packages(args, cache)
 

@@ -52,7 +52,7 @@ function harness(options: { mousePending?: boolean, mouseReady?: boolean } = {})
     if (id === '@/features/presets/editIntent') {
       return { markPresetUserEdit: () => changes.push({ key: changingKey, before: store.activePet3dPreset[changingKey] }) }
     }
-    if (id.startsWith('@/components/')) return { default: {} }
+    if (id.startsWith('@/components/')) return { default: { name: id } }
     throw new Error(`Unexpected import: ${id}`)
   }, module, module.exports)
   const props = Vue.reactive({
@@ -104,6 +104,90 @@ function harness(options: { mousePending?: boolean, mouseReady?: boolean } = {})
 }
 
 describe('object color preference controls', () => {
+  it('toggles only keycap feedback through the persisted keyboard option and respects edit locking', () => {
+    const h = harness()
+    h.selectTab('keyboard')
+    const toggle = () => h.nodes().find(node => node.props?.['aria-label'] === 'pages.preference.environment.labels.keyboardKeycapInputEnabled')!
+    const before = capturePresetSnapshot(h.store)
+    assert.equal(toggle().props?.checked, true)
+    toggle().props!['onUpdate:checked'](false)
+    assert.equal(toggle().props?.checked, false)
+    assert.deepEqual(capturePresetSnapshot(h.store), {
+      ...before,
+      preset: { ...before.preset, keyboardKeycapInputEnabled: false },
+    })
+    assert.equal(h.changes.length, 1)
+    toggle().props!['onUpdate:checked'](false)
+    assert.equal(h.changes.length, 1)
+    try {
+      stateSafety.editorsLocked.value = true
+      assert.equal(toggle().props?.disabled, true)
+      toggle().props!['onUpdate:checked'](true)
+      assert.equal(h.store.activePet3dPreset.keyboardKeycapInputEnabled, false)
+      assert.equal(h.changes.length, 1)
+    } finally {
+      stateSafety.editorsLocked.value = false
+    }
+    toggle().props!['onUpdate:checked'](true)
+    assert.deepEqual(capturePresetSnapshot(h.store), before)
+  })
+
+  it('shows keycap input feedback before keyboard appearance and position controls', () => {
+    const h = harness()
+    const keyboardTab = h.nodes().find(node => node.key === 'keyboard')!
+    const sections = h.flatten(keyboardTab).filter(node => (node.type as { name?: string }).name === '@/components/preference-option-group/index.vue')
+    const titles = (section: Vue.VNode) => h.flatten(section).filter(node => node.props?.title).map(node => node.props!.title)
+    const label = (key: string) => `pages.preference.environment.labels.${key}`
+    assert.equal(sections.length, 2)
+    assert.deepEqual(titles(sections[0]), ['keyboardKeycapInputEnabled', 'keyboardPressedColor'].map(label))
+    assert.deepEqual(titles(sections[1]), ['keyboardColor', 'keyboardKeycapColor', 'keyboardLegendColor', 'keyboardLanguage', 'keyboardX', 'keyboardZ', 'keyboardScale'].map(label))
+    const colorRows = h.flatten(sections[1]).find(node => h.flatten(node).filter(child => child.props?.label).length === 3 && node.props?.class?.includes('grid'))!
+    assert.ok(colorRows.props?.class.includes('grid-cols-1'))
+    assert.ok(!colorRows.props?.class.includes('grid-cols-2'))
+    const controls = () => h.flatten(sections[1]).filter(node => node.props?.['onUpdate:value'] && !node.props?.title)
+    try {
+      stateSafety.editorsLocked.value = true
+      const lockedSections = h.flatten(h.nodes().find(node => node.key === 'keyboard')!).filter(node => (node.type as { name?: string }).name === '@/components/preference-option-group/index.vue')
+      const lockedControls = h.flatten(lockedSections[1]).filter(node => node.props?.['onUpdate:value'] && !node.props?.title)
+      assert.equal(lockedControls.length, 7)
+      assert.ok(lockedControls.every(node => node.props?.disabled === true))
+      const before = capturePresetSnapshot(h.store)
+      for (const control of lockedControls) control.props!['onUpdate:value'](control.props?.label ? '#ffffff' : 1)
+      assert.deepEqual(capturePresetSnapshot(h.store), before)
+    } finally {
+      stateSafety.editorsLocked.value = false
+    }
+    assert.equal(controls().length, 7)
+  })
+
+  it('hides the input highlight color on OFF without resetting it and rejects late or locked color edits', () => {
+    const h = harness()
+    const toggle = () => h.nodes().find(node => node.props?.['aria-label'] === 'pages.preference.environment.labels.keyboardKeycapInputEnabled')!
+    const visibleColor = () => h.visibleNodes().some(node => node.props?.label === 'pages.preference.environment.labels.keyboardPressedColor')
+    assert.equal(toggle().props?.checked, true)
+    assert.equal(visibleColor(), true)
+    h.change('keyboardPressedColor', '#123456')
+    toggle().props!['onUpdate:checked'](false)
+    assert.equal(visibleColor(), false)
+    assert.equal(h.input('keyboardPressedColor').props?.disabled, true)
+    h.change('keyboardPressedColor', '#ffffff')
+    assert.equal(h.store.activePet3dPreset.keyboardPressedColor, '#123456')
+    assert.equal(capturePresetSnapshot(h.store).preset.keyboardPressedColor, '#123456')
+    toggle().props!['onUpdate:checked'](true)
+    assert.equal(visibleColor(), true)
+    assert.equal(h.input('keyboardPressedColor').props?.value, '#123456')
+    assert.equal(h.input('keyboardPressedColor').props?.disabled, false)
+    try {
+      stateSafety.editorsLocked.value = true
+      const before = capturePresetSnapshot(h.store)
+      assert.equal(h.input('keyboardPressedColor').props?.disabled, true)
+      h.change('keyboardPressedColor', '#ffffff')
+      assert.deepEqual(capturePresetSnapshot(h.store), before)
+    } finally {
+      stateSafety.editorsLocked.value = false
+    }
+  })
+
   it('offers System in the existing language dropdown and preserves manual choices and edit locking', () => {
     const h = harness()
     h.selectTab('keyboard')
@@ -129,7 +213,7 @@ describe('object color preference controls', () => {
     const defaults = createDefaultPet3dPreset()
     const keys = {
       desk: ['deskHeightOffset', 'deskWidthOffset', 'deskDepthOffset', 'deskTransparent', 'deskColor'],
-      keyboard: ['keyboardColor', 'keyboardKeycapColor', 'keyboardLegendColor', 'keyboardPressedColor', 'keyboardBaseXOffset', 'keyboardBaseZOffset', 'keyboardScalePercent', 'keyboardLegendLanguage'],
+      keyboard: ['keyboardColor', 'keyboardKeycapColor', 'keyboardLegendColor', 'keyboardPressedColor', 'keyboardBaseXOffset', 'keyboardBaseZOffset', 'keyboardScalePercent', 'keyboardLegendLanguage', 'keyboardKeycapInputEnabled'],
       mouse: ['mouseEnabled', 'mouseColor', 'mousePressedColor', 'mouseBaseXOffset', 'mouseBaseZOffset', 'mouseScalePercent'],
     } as const
     for (const [index, object] of ['desk', 'keyboard', 'mouse'].entries()) {
@@ -141,6 +225,7 @@ describe('object color preference controls', () => {
         deskTransparent: false,
         deskColor: '#123456',
         keyboardScalePercent: 150,
+        keyboardKeycapInputEnabled: false,
         keyboardColor: '#234567',
         keyboardBaseXOffset: 0.4,
         mouseScalePercent: 175,

@@ -59,7 +59,7 @@ function snapshotHash(snapshot: PresetSnapshot) {
   return createHash('sha256').update(JSON.stringify(sorted(snapshot))).digest('hex')
 }
 
-it('retains both captured snapshots exactly after resolving their verified bundled PNG', async () => {
+it('retains both captured snapshots and adds only default keycap feedback after resolving their verified bundled PNG', async () => {
   const bytes = readFileSync(new URL('../../../src-tauri/assets/models/dmeloper/default.png', import.meta.url))
   assert.equal(createHash('sha256').update(bytes).digest('hex'), 'c79c163fcde7edd727499d449421dae7a1f5e5d1004152512c84b68656099b88')
   // Canonical hashes of the owner's two captured snapshots, including their PNG.
@@ -69,7 +69,10 @@ it('retains both captured snapshots exactly after resolving their verified bundl
     for (const [index, entry] of translated('ko-KR').slice(2, 4).entries()) {
       const before = clonePreset(entry.snapshot)
       const prepared = await preparePresetSkin(entry.snapshot)
-      assert.equal(snapshotHash(prepared), hashes[index])
+      const captured = clonePreset(prepared)
+      assert.equal(captured.preset.keyboardKeycapInputEnabled, true)
+      Reflect.deleteProperty(captured.preset, 'keyboardKeycapInputEnabled')
+      assert.equal(snapshotHash(captured), hashes[index])
       assert.deepEqual(entry.snapshot, before, 'asset resolution must keep the authored template immutable')
       setActivePinia(createPinia())
       const store = useBlockStore()

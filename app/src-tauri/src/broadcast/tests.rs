@@ -27,6 +27,30 @@ fn scene() -> BroadcastScene {
     }"##).unwrap()
 }
 
+#[test]
+fn keycap_input_option_accepts_legacy_scenes_and_boolean_toggles() {
+    for (fields, expected, valid) in [
+        (json!({}), json!(true), true),
+        (json!({"keyboardKeycapInputDisabled":true}), json!(false), true),
+        (json!({"keyboardKeycapInputDisabled":false}), json!(true), true),
+        (json!({"keyboardKeycapInputEnabled":false}), json!(false), true),
+        (json!({"keyboardKeycapInputEnabled":true}), json!(true), true),
+        (json!({"keyboardKeycapInputEnabled":false,"keyboardKeycapInputDisabled":false}), json!(false), true),
+        (json!({"keyboardKeycapInputEnabled":true,"keyboardKeycapInputDisabled":true}), json!(true), true),
+        (json!({"keyboardKeycapInputDisabled":"true"}), json!("true"), false),
+        (json!({"keyboardKeycapInputEnabled":null,"keyboardKeycapInputDisabled":true}), Value::Null, false),
+    ] {
+        let mut wire = serde_json::to_value(scene()).unwrap();
+        let preset = wire["preset"].as_object_mut().unwrap();
+        preset.remove("keyboardKeycapInputEnabled");
+        preset.extend(fields.as_object().unwrap().clone());
+        let decoded: BroadcastScene = serde_json::from_value(wire).unwrap();
+        assert_eq!(decoded.validate(None).is_ok(), valid, "{fields}");
+        assert_eq!(decoded.preset["keyboardKeycapInputEnabled"], expected);
+        assert!(decoded.preset.get("keyboardKeycapInputDisabled").is_none());
+    }
+}
+
 #[tokio::test]
 async fn system_keyboard_language_is_latest_state_independent_of_scene_and_input_readiness() {
     let (_root, service, _) = make_service();

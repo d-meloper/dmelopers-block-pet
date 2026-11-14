@@ -1467,6 +1467,66 @@ describe('live preset manager', () => {
     }
   })
 
+  it('toggles keycap input against the latest current settings without rewriting saved presets', async () => {
+    const h = await harness()
+    let saved!: ReturnType<typeof useBlockStore>['$state']
+    try {
+      assert.equal(await h.manager.activate(DEFAULT_PRESET_ID), true)
+      const catalog = clonePreset(h.store.presetCollection)
+      const before = clonePreset(h.store.activePet3dPreset)
+      assert.equal(before.keyboardKeycapInputEnabled, true)
+      h.emitEdit({ toggleKeyboardKeycapInput: true })
+      assert.deepEqual(h.store.activePet3dPreset, { ...before, keyboardKeycapInputEnabled: false })
+      h.emitEdit({ toggleKeyboardKeycapInput: true })
+      h.emitEdit({ toggleKeyboardKeycapInput: true })
+      assert.equal(h.store.activePet3dPreset.keyboardKeycapInputEnabled, false, 'rapid requests resolve against each preceding edit')
+      assert.equal(h.store.presetCollection?.activeId, null)
+      assert.deepEqual(h.store.presetCollection?.entries, catalog?.entries)
+      assert.equal(await h.manager.retry(), true)
+      saved = h.saves.at(-1) as typeof saved
+      assert.equal(saved.customization3d.preset.keyboardKeycapInputEnabled, false)
+      assert.deepEqual(saved.presetCollection?.entries, catalog?.entries)
+    } finally {
+      h.dispose()
+    }
+    const restarted = await harness(saved)
+    try {
+      assert.equal(restarted.store.activePet3dPreset.keyboardKeycapInputEnabled, false)
+    } finally {
+      restarted.dispose()
+    }
+  })
+
+  it('retains a pre-readiness keycap toggle and rejects invalid, locked or busy requests', async () => {
+    editRequests.requestPresetEdit({ toggleKeyboardKeycapInput: true })
+    const h = await harness()
+    try {
+      assert.equal(h.store.activePet3dPreset.keyboardKeycapInputEnabled, false)
+      const before = clonePreset(h.store.activePet3dPreset)
+      for (const toggleKeyboardKeycapInput of [false, 'true', 1, null, undefined]) h.emitEdit({ toggleKeyboardKeycapInput })
+      assert.deepEqual(h.store.activePet3dPreset, before)
+      editorsLocked.value = true
+      h.emitEdit({ toggleKeyboardKeycapInput: true })
+      editorsLocked.value = false
+      const releaseNative = presetOperations.beginPresetNativeEdit()
+      try {
+        h.emitEdit({ toggleKeyboardKeycapInput: true })
+        assert.deepEqual(h.store.activePet3dPreset, before)
+      } finally {
+        releaseNative()
+      }
+      await withPresetReset(async () => {
+        h.emitEdit({ toggleKeyboardKeycapInput: true })
+        assert.deepEqual(h.store.activePet3dPreset, before)
+      })
+      h.emitEdit({ toggleKeyboardKeycapInput: true })
+      assert.equal(h.store.activePet3dPreset.keyboardKeycapInputEnabled, true)
+    } finally {
+      editorsLocked.value = false
+      h.dispose()
+    }
+  })
+
   it('duplicates the stored snapshot independently of later current edits', async () => {
     const h = await harness()
     try {

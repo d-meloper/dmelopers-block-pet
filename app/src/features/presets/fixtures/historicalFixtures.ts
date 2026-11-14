@@ -31,6 +31,7 @@ export const releasedMissingDefaults = {
   petShoulderTorsoConnected: false,
   petRightArmDisabled: false,
   petLeftArmDisabled: false,
+  keyboardKeycapInputEnabled: true,
   petHeadbuttRecoilEnabled: true,
   petHeadbuttRecoilStrengthPercent: 50,
   petHeadbuttRecoilWobblePercent: 50,
@@ -43,6 +44,10 @@ export const releasedMissingDefaults = {
 
 export function historicalCurrentSettings(settings: Record<string, any>) {
   const next = JSON.parse(JSON.stringify(settings)) as Record<string, any>
+  if (!('keyboardKeycapInputEnabled' in next.preset) && 'keyboardKeycapInputDisabled' in next.preset) {
+    next.preset.keyboardKeycapInputEnabled = !next.preset.keyboardKeycapInputDisabled
+  }
+  delete next.preset.keyboardKeycapInputDisabled
   for (const [key, value] of Object.entries(releasedMissingDefaults)) {
     if (!Object.prototype.hasOwnProperty.call(next.preset, key)) next.preset[key] = value
   }

@@ -1,6 +1,8 @@
 """Pure contract tests; no installation, signing, network, or app execution."""
 import importlib.util
-from contextlib import ExitStack, redirect_stdout
+import builtins
+import sys
+from contextlib import ExitStack, redirect_stdout, nullcontext
 import io
 import json
 import os
@@ -268,6 +270,144 @@ def png_fixture(size, alpha=0):
     # One visible pixel; the exterior keeps the requested alpha.
     raw = raw[:4] + b'\xff' + raw[5:]
     return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', size, size, 8, 6, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b'')
+
+
+class HostBuildScriptPaths(unittest.TestCase):
+    name = 'dmelopers-block-pet'
+
+    @staticmethod
+    def units(value):
+        return len(str(value).encode('utf-16-le')) // 2
+
+    @staticmethod
+    def root_of_units(count, emoji=False):
+        prefix = 'C:/host-path-guard-' + ('😶' if emoji else '')
+        return Path(prefix + 'x' * (count - len(prefix.encode('utf-16-le')) // 2))
+
+    def source(self, root, build=None):
+        (root / 'src-tauri').mkdir(parents=True)
+        manifest = '[package]\nname = "' + self.name + '"\nversion = "2.0.0"\n'
+        if build is not None:
+            manifest += 'build = ' + build + '\n'
+        (root / 'src-tauri/Cargo.toml').write_text(manifest, encoding='utf-8')
+        (root / 'src-tauri/build.rs').write_text('fn main() {}', encoding='utf-8')
+        (root / 'Cargo.lock').write_text('version = 3\n[[package]]\nname = "' + self.name
+                                      + '"\nversion = "2.0.0"\n', encoding='utf-8')
+        (root / 'package.json').write_text(json.dumps({'name': self.name, 'version': '2.0.0'}))
+        return root
+
+    def test_actual_source_proves_default_root_script(self):
+        self.assertEqual(builder.required_root_build_script(builder.ROOT),
+                         json.loads((builder.ROOT / 'package.json').read_text())['name'])
+
+    def test_historical_host_geometry_has_no_target_triple(self):
+        old, retry = self.root_of_units(183), self.root_of_units(83)
+        cases = [('icu_normalizer_data', 91, 274, 174), ('proc-macro2', 83, 266, 166),
+                 ('quote', 77, 260, 160), ('icu_properties_data', 91, 274, 174),
+                 ('serde_core', 82, 265, 165), ('thiserror', 81, 264, 164),
+                 ('zerocopy', 80, 263, 163), ('parking_lot_core', 88, 271, 171),
+                 ('windows_x86_64_msvc', 91, 274, 174), (self.name, 91, 274, 174)]
+        for name, suffix, before, after in cases:
+            with self.subTest(package=name):
+                output = builder.host_build_script_output(old, name)
+                self.assertEqual(self.units(output) - self.units(old), suffix)
+                self.assertEqual(self.units(output), before)
+                self.assertEqual(self.units(builder.host_build_script_output(retry, name)), after)
+                self.assertNotIn(builder.TARGET, output.parts)
+                self.assertEqual(output.name, 'build_script_build-' + '0' * 16 + '.exe')
+
+    def test_boundary_and_emoji_count_utf16_without_creating_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = self.source(Path(directory) / 'source')
+            output = Path(directory) / 'output'
+            with patch.object(builder, 'native_long_paths_disabled', return_value=True):
+                for emoji in (False, True):
+                    for full in (259, 260, 274):
+                        cache = self.root_of_units(full - 162, emoji)
+                        self.assertFalse(cache.exists())
+                        with self.subTest(full=full, emoji=emoji):
+                            if full < 260:
+                                self.assertTrue(builder.preflight_host_build_script(source, output, cache))
+                            else:
+                                with self.assertRaisesRegex(ValueError, str(full) + ' UTF-16'):
+                                    builder.preflight_host_build_script(source, output, cache)
+                        self.assertFalse(cache.exists())
+                self.assertFalse(output.exists())
+
+    def test_no_cache_uses_existing_output_target_store(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = self.source(Path(directory) / 'source')
+            tail = self.units(Path('target-store')) + 1 + 91
+            with patch.object(builder, 'native_long_paths_disabled', return_value=True):
+                for full in (259, 260):
+                    output = self.root_of_units(full - tail)
+                    if full == 259:
+                        self.assertTrue(builder.preflight_host_build_script(source, output))
+                    else:
+                        with self.assertRaisesRegex(ValueError, '260 UTF-16'):
+                            builder.preflight_host_build_script(source, output)
+                    self.assertFalse(output.exists())
+
+    def test_unknown_or_enabled_capability_and_extended_paths_are_not_restricted(self):
+        for value in (False, None):
+            with patch.object(builder, 'native_long_paths_disabled', return_value=value), \
+                    patch.object(builder, 'required_root_build_script', side_effect=AssertionError('unneeded')):
+                self.assertFalse(builder.preflight_host_build_script('unread', 'unread'))
+        with patch.object(builder, 'native_long_paths_disabled', return_value=True), \
+                patch.object(builder, 'required_root_build_script', return_value=self.name), \
+                patch.object(builder, 'checked_cache_path', return_value=Path('//server/share/' + 'x' * 200)):
+            self.assertFalse(builder.preflight_host_build_script('unread', 'unread', 'unread'))
+
+    def test_policy_reader_only_accepts_proven_dword_zero(self):
+        for value, kind, expected in ((0, 4, True), (1, 4, False), (2, 4, None), (False, 4, None), (0, 1, None)):
+            registry = SimpleNamespace(HKEY_LOCAL_MACHINE=1, REG_DWORD=4,
+                OpenKey=lambda *_: nullcontext(None), QueryValueEx=lambda *_: (value, kind))
+            with patch.dict(sys.modules, {'winreg': registry}), patch.object(builder.os, 'name', 'nt'):
+                self.assertIs(builder.native_long_paths_disabled(), expected)
+        registry.OpenKey = lambda *_: (_ for _ in ()).throw(OSError('unavailable'))
+        with patch.dict(sys.modules, {'winreg': registry}), patch.object(builder.os, 'name', 'nt'):
+            self.assertIsNone(builder.native_long_paths_disabled())
+
+    def test_override_missing_script_mismatch_and_missing_parser_stay_unproven(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for index, override in enumerate(('false', '"build.rs"', '"other.rs"')):
+                source = self.source(root / str(index), override)
+                self.assertIsNone(builder.required_root_build_script(source))
+            source = self.source(root / 'mismatch')
+            metadata = source / 'package.json'
+            metadata.write_text('{"name":"other","version":"2.0.0"}')
+            self.assertIsNone(builder.required_root_build_script(source))
+            metadata.write_text(json.dumps({'name': self.name, 'version': '2.0.0'}))
+            lock = source / 'Cargo.lock'
+            original = lock.read_text()
+            lock.write_text(original + 'source = "registry+fixture"\n')
+            self.assertIsNone(builder.required_root_build_script(source))
+            lock.write_text(original)
+            (source / 'src-tauri/build.rs').unlink()
+            self.assertIsNone(builder.required_root_build_script(source))
+            (source / 'src-tauri/build.rs').write_text('fn main() {}')
+            ordinary_import = builtins.__import__
+            def without_toml(name, *args, **kwargs):
+                if name == 'tomllib':
+                    raise ImportError('older supported Python')
+                return ordinary_import(name, *args, **kwargs)
+            with patch.object(builtins, '__import__', side_effect=without_toml):
+                self.assertIsNone(builder.required_root_build_script(source))
+
+    def test_public_build_rejects_before_cache_output_or_compiler(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = self.source(Path(directory) / 'source')
+            args = SimpleNamespace(output=Path(directory) / 'output', cache_root=self.root_of_units(112))
+            with patch.object(builder, 'ROOT', source), \
+                    patch.object(builder, 'native_long_paths_disabled', return_value=True), \
+                    patch.object(builder, 'compiler_cache') as cache, patch.object(builder, 'build_packages') as compile:
+                with self.assertRaisesRegex(ValueError, '274 UTF-16'):
+                    builder.build(args)
+                cache.assert_not_called()
+                compile.assert_not_called()
+            self.assertFalse(args.output.exists())
+            self.assertFalse(args.cache_root.exists())
 
 
 class StoreResourceContracts(unittest.TestCase):

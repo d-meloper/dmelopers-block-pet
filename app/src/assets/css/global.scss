@@ -19,6 +19,11 @@ html {
     outline: none !important;
   }
 
+  // Remove Ant buttons' raised bottom edge across all variants and states.
+  .ant-btn {
+    box-shadow: none !important;
+  }
+
   .ant-card {
     .ant-card-actions {
       > li {

@@ -72,6 +72,9 @@ fn deserialize_preset<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Resu
         brows.entry("depthPercent").or_insert(Value::from(100));
     }
     crate::lighting_settings::migrate_preset(&mut preset);
+    if let Some(object) = preset.as_object_mut() {
+        crate::preset_compatibility::migrate_keycap_input(object);
+    }
     Ok(preset)
 }
 
@@ -93,7 +96,7 @@ fn number(value: &Value, min: f64, max: f64) -> bool {
 
 fn validate_preset(preset: &Value) -> Result<(), String> {
     let object = preset.as_object().ok_or("scene_invalid")?;
-    let optional = ["petAnimationMode", "petShoulderTorsoConnected", "petRightArmDisabled", "petLeftArmDisabled", "petHeadScalePercent", "deskTransparent", "deskHeightOffset", "deskWidthOffset", "deskDepthOffset", "deskColor", "lighting", "petHeadbuttRecoilEnabled", "petHeadbuttRecoilStrengthPercent", "petHeadbuttRecoilWobblePercent", "petTypingHandLiftPercent", "petTypingBodyMotionPercent", "petTypingReturnSpeedPercent", "petHeadbuttMaxRadiusOffset", "petTypingMaxRadiusOffset"];
+    let optional = ["petAnimationMode", "petShoulderTorsoConnected", "petRightArmDisabled", "petLeftArmDisabled", "petHeadScalePercent", "deskTransparent", "deskHeightOffset", "deskWidthOffset", "deskDepthOffset", "deskColor", "lighting", "petHeadbuttRecoilEnabled", "petHeadbuttRecoilStrengthPercent", "petHeadbuttRecoilWobblePercent", "petTypingHandLiftPercent", "petTypingBodyMotionPercent", "petTypingReturnSpeedPercent", "petHeadbuttMaxRadiusOffset", "petTypingMaxRadiusOffset", "keyboardKeycapInputEnabled"];
     if object.len() != 32 + optional.iter().filter(|key| object.contains_key(**key)).count() {
         return Err("scene_invalid".into());
     }
@@ -102,7 +105,7 @@ fn validate_preset(preset: &Value) -> Result<(), String> {
             "lighting" => crate::lighting_settings::is_valid(value),
             "petAnimationMode" => matches!(value.as_str(), Some("default" | "headbutt")),
             "petShoulderTorsoConnected" | "petRightArmDisabled" | "petLeftArmDisabled"
-            | "showDisplayArea" | "autoViewportEnabled" | "mouseEnabled" | "deskTransparent" | "petHeadbuttRecoilEnabled" => value.is_boolean(),
+            | "showDisplayArea" | "autoViewportEnabled" | "mouseEnabled" | "keyboardKeycapInputEnabled" | "deskTransparent" | "petHeadbuttRecoilEnabled" => value.is_boolean(),
             "deskColor"
             | "keyboardColor"
             | "keyboardKeycapColor"

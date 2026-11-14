@@ -2,7 +2,8 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 
-import { hashText, inclusionSourceHash, projectPath, readInclusionPolicy, readJson, readRegistry } from './core'
+import { checkProject, hashText, inclusionSourceHash, projectPath, readInclusionPolicy, readJson, readProductionPolicy, readRegistry } from './core'
+import type { LocaleProductionPolicy, ProjectReport } from './core'
 import { INCLUSION_POLICY_PATH, inclusionMatches } from './inclusionPolicy'
 
 // Public offline projection of the private operations lock. Keep its canonical
@@ -22,7 +23,7 @@ function digest(value: unknown): asserts value is string {
   if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw new Error('LOCALE_LOCK_HASH_INVALID')
 }
 export const CONTENT_LOCK_PATH = 'src/locales/content-lock.json'
-export function checkContentLock(root: string, options: { committed?: boolean } = {}): void {
+export function checkContentLock(root: string, options: { committed?: boolean, productionPolicy?: LocaleProductionPolicy } = {}): void {
   const lock = readJson(root, CONTENT_LOCK_PATH)
   fields(lock, ['schemaVersion', 'kind', 'sourceRevision', 'files', 'languages', 'snapshotInputsSha256', 'lockSha256'])
   if ((lock.schemaVersion !== 1 && lock.schemaVersion !== 2) || lock.kind !== 'BlockPetLocaleContentLock' || !Array.isArray(lock.files) || !Array.isArray(lock.languages)) throw new Error('LOCALE_LOCK_SCHEMA_INVALID')
@@ -55,6 +56,7 @@ export function checkContentLock(root: string, options: { committed?: boolean } 
     const firstParty = ['ko-KR', 'en-US'].includes(language.locale)
     if (language.provider !== (firstParty ? 'LocalFirstParty' : 'GoogleSheets') || !['Unknown', 'AiOnly', 'Mixed', 'HumanReady', 'HumanReleased'].includes(String(language.reviewState))) throw new Error('LOCALE_LOCK_PROVENANCE_INVALID')
     if (!firstParty && !['HumanReady', 'HumanReleased'].includes(String(language.reviewState))) {
+      if (options.productionPolicy === 'require-human-ready') throw new Error('LOCALE_LOCK_HUMAN_REVIEW_REQUIRED')
       const inclusion = policy?.inclusions.find(entry => entry.locale === language.locale)
       if (!inclusion || !inclusionMatches(inclusion, language as unknown as Parameters<typeof inclusionMatches>[1], sourceInputsSha256)) throw new Error('LOCALE_LOCK_HUMAN_REVIEW_REQUIRED')
     }
@@ -75,4 +77,22 @@ export function checkContentLock(root: string, options: { committed?: boolean } 
       if (!committed.equals(readFileSync(projectPath(root, path)))) throw new Error('LOCALE_LOCK_UNCOMMITTED_INPUT')
     }
   }
+}
+
+/** Normal catalog readiness and explicit historical lock evidence are separate checks. */
+export function checkReleaseLocales(root: string, options: { committed?: boolean, contentLock?: boolean } = {}): ProjectReport {
+  const productionPolicy = readProductionPolicy(root)
+  const report = checkProject(root, { release: true, productionPolicy })
+  report.contentLock = { status: 'NOT_CHECKED' }
+  if (report.ok && (productionPolicy !== 'allow-validated' || options.committed || options.contentLock)) {
+    try {
+      checkContentLock(root, { committed: options.committed, productionPolicy })
+      report.contentLock.status = 'PASS'
+    } catch (error) {
+      report.ok = false
+      report.contentLock.status = 'FAIL'
+      report.errors.push((error as Error).message)
+    }
+  }
+  return report
 }

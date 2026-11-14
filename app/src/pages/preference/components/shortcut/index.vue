@@ -7,7 +7,7 @@ import { useShortcutStore } from '@/stores/shortcut.ts'
 const shortcutStore = useShortcutStore()
 
 function otherShortcuts(key: keyof typeof shortcutStore.$state): string[] {
-  return Object.entries(shortcutStore.$state).filter(([name]) => name !== key).map(([, value]) => value)
+  return Object.entries(shortcutStore.$state).filter(([name, value]) => name !== key && typeof value === 'string').map(([, value]) => value)
 }
 </script>
 
@@ -21,6 +21,17 @@ function otherShortcuts(key: keyof typeof shortcutStore.$state): string[] {
         v-model="shortcutStore.visibleBlock"
         :label="$t('pages.preference.shortcut.labels.toggleBlock')"
         :reserved-shortcuts="otherShortcuts('visibleBlock')"
+      />
+    </ProListItem>
+
+    <ProListItem
+      :description="$t('pages.preference.shortcut.hints.keyboardKeycapInputEnabled')"
+      :title="$t('pages.preference.shortcut.labels.keyboardKeycapInputEnabled')"
+    >
+      <Shortcut
+        v-model="shortcutStore.keyboardKeycapInputEnabled"
+        :label="$t('pages.preference.shortcut.labels.keyboardKeycapInputEnabled')"
+        :reserved-shortcuts="otherShortcuts('keyboardKeycapInputEnabled')"
       />
     </ProListItem>
 

@@ -27,6 +27,7 @@ export function applyPresetVisualSettings(renderer: Three3DRenderer, preset: Pet
   renderer.setMouseScalePercent(preset.mouseScalePercent)
   renderer.setKeyboardBasePosition(preset.keyboardBaseXOffset, preset.keyboardBaseZOffset)
   renderer.setKeyboardScalePercent(preset.keyboardScalePercent)
+  renderer.setKeyboardKeycapInputEnabled(preset.keyboardKeycapInputEnabled !== false)
   renderer.setDeviceColors(preset)
   renderer.setCameraPan(preset.autoViewportEnabled ? 0 : -preset.cameraHorizontalOffset, preset.autoViewportEnabled ? 0 : -preset.cameraVerticalOffset)
   renderer.setCameraDistance(MODEL_3D_CONFIG.camera.distancePercent * 100 / preset.cameraZoomPercent)

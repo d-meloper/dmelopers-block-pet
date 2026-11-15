@@ -25,7 +25,7 @@ import {
   DMELOPER_EYEBROW_LIMITS,
   migrateDmeloperEyebrowDepth,
 } from '@/config/dmeloperEyebrows'
-import { migrateKeyboardKeycapInput, normalizeKeyboardKeycapInput } from '@/config/keyboardKeycapInput'
+import { migrateKeyboardKeycapInput, normalizeKeyboardKeycapInput, rememberLegacyKeyboardKeycapSelection, retirePresetKeyboardKeycapSelection } from '@/config/keyboardKeycapInput'
 import { createDefaultLightingSettings, migratePresetLighting, normalizeLightingSettings } from '@/config/lighting'
 import { DEFAULT_PET_MODEL_ID, getPetModelOption, MODEL_3D_CONFIG } from '@/config/model3d'
 import { DEFAULT_PERFORMANCE_SETTINGS, MAX_FPS, MIN_FPS, normalizeShadowQuality } from '@/config/performance'
@@ -265,8 +265,9 @@ export function preparePetStateForSync(state: Record<string, unknown>): Record<s
   if (customization && typeof customization === 'object' && !Array.isArray(customization)
     && 'preset' in customization && customization.preset && typeof customization.preset === 'object'
     && !Array.isArray(customization.preset)) {
+    rememberLegacyKeyboardKeycapSelection(customization.preset)
     customization = { ...customization, preset: {
-      ...migratePetMotionSettings(migrateDeskSettings(migrateKeyboardKeycapInput(customization.preset as Record<string, unknown>, false))),
+      ...migratePetMotionSettings(migrateDeskSettings(retirePresetKeyboardKeycapSelection(migrateKeyboardKeycapInput(customization.preset as Record<string, unknown>, false)))),
       ...('petAnimationMode' in customization.preset ? {} : { petAnimationMode: DEFAULT_PET_PRESET.petAnimationMode }),
       ...('petShoulderTorsoConnected' in customization.preset ? {} : { petShoulderTorsoConnected: DEFAULT_PET_PRESET.petShoulderTorsoConnected }),
       ...('petRightArmDisabled' in customization.preset ? {} : { petRightArmDisabled: DEFAULT_PET_PRESET.petRightArmDisabled }),

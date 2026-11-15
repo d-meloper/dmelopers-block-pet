@@ -351,7 +351,9 @@
               "y": "수동 표시 영역 상하 위치",
               "width": "수동 표시 영역 너비",
               "height": "수동 표시 영역 높이"
-            }
+            },
+            "keyboardKeycapInputMode": "키캡 입력 표시 범위",
+            "keyboardKeycapSelectedKeys": "선택한 키캡"
           },
           "groups": {
             "preset": "펫·물체·장면 설정",
@@ -777,6 +779,40 @@
           "resetDesk": "책상 설정을 기본값으로 초기화하시겠습니까?",
           "resetKeyboard": "키보드 설정을 기본값으로 초기화하시겠습니까?",
           "resetMouse": "마우스 설정을 기본값으로 초기화하시겠습니까?"
+        },
+        "keycapSelection": {
+          "range": "표시할 키",
+          "all": "전체 키",
+          "selected": "선택한 키만",
+          "choose": "키 선택…",
+          "title": "표시할 키 선택",
+          "language": "키캡 언어",
+          "hint": "키보드 그림을 클릭하거나 키를 직접 눌러 선택·해제하세요. Esc 키는 그림에서만 선택할 수 있습니다.",
+          "count": "{count}개 선택",
+          "allSelected": "모두 선택",
+          "empty": "선택한 키가 없어 입력 강조가 표시되지 않습니다.",
+          "unsupported": "현재 키보드에 표시할 수 없는 키입니다: {key}",
+          "keymap": "입력 강조를 표시할 키 선택",
+          "selectedList": "선택한 키",
+          "removeKey": "{key} 선택 해제",
+          "selectAll": "전체 선택",
+          "clearAll": "모두 해제",
+          "apply": "적용",
+          "cancel": "취소",
+          "presets": "키 표시 프리셋",
+          "savePreset": "+ 저장",
+          "savedPresetName": "키 표시 {number}",
+          "deletePreset": "{name} 프리셋 삭제",
+          "deletePresetTitle": "“{name}” 프리셋을 삭제하시겠습니까?",
+          "deletePresetHint": "목록에서만 삭제됩니다. 현재 선택한 키는 유지됩니다.",
+          "delete": "삭제",
+          "renamePreset": "{name} 프리셋 이름 변경",
+          "renamePresetTitle": "키 표시 프리셋 이름 변경",
+          "presetName": "이름",
+          "rename": "이름 변경",
+          "invalidPresetName": "이름은 1~255자여야 하며 제어 문자를 포함할 수 없습니다.",
+          "duplicatePresetName": "같은 이름의 프리셋이 있습니다. 다른 이름을 입력하세요.",
+          "resetHint": "표시할 키와 키 표시 프리셋 목록도 기본값으로 초기화됩니다. 저장한 사용자 항목과 이름 변경 내용은 삭제됩니다."
         }
       },
       "general": {

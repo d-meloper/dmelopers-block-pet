@@ -99,6 +99,45 @@ fn missing_defaults_reach_native_memory_before_frontends_without_an_eager_save()
 }
 
 #[test]
+fn keyboard_keycap_seed_metadata_stays_absent_until_frontend_migration() {
+    for raw in [
+        json!({
+            "mode": "selected", "selectedKeys": ["KeyW"],
+            "presets": [{"id":"builtin:lol","name":"My LoL","keys":["KeyQ"]}]
+        }),
+        json!({"mode":"selected"}),
+        json!(null),
+        json!([]),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join(filename());
+        let initial = json!({"keyboardKeycap":raw});
+        let bytes = serde_json::to_vec(&initial).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        let first = app(temp.path());
+        initialize_store(first.handle()).unwrap();
+        assert_eq!(
+            first.pinia().try_state::<Value>("general").unwrap()["keyboardKeycap"],
+            raw,
+            "native defaults must not mark new starters as already offered"
+        );
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        first.pinia().save_all_now().unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(&path).unwrap()).unwrap()["keyboardKeycap"],
+            raw
+        );
+        drop(first);
+        let second = app(temp.path());
+        initialize_store(second.handle()).unwrap();
+        assert_eq!(
+            second.pinia().try_state::<Value>("general").unwrap()["keyboardKeycap"],
+            raw
+        );
+    }
+}
+
+#[test]
 fn foreground_rule_records_remain_atomic_through_native_save_and_reload() {
     for raw in [
         json!({"enabled":true}),
@@ -169,6 +208,8 @@ fn explicit_values_and_unknown_fields_are_never_replaced_by_defaults() {
         "app":null,
         "broadcast":{"enabled":0,"showOnDesktop":false,"extra":""},
         "appearance":"",
+        "keyboardKeycap":null,
+        "keyboardKeycapSelectionMigrated":false,
         "unknown":{"value":null}
     });
     let before = serde_json::to_vec(&initial).unwrap();

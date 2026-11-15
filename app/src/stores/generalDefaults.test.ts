@@ -128,7 +128,12 @@ function harness(systemLanguage: Language = 'ko-KR') {
       modules.set(file, module)
       if (file.endsWith('.json')) {
         const defaults = JSON.parse(readFileSync(file, 'utf8'))
-        if (legacyReader && file === path.join(root, 'src/config/defaultSettings.json')) defaults.general = clone(legacyReminder.generalDefaults)
+        if (legacyReader && file === path.join(root, 'src/config/defaultSettings.json')) {
+          // The retained General source ignores this new root record. Supply it
+          // only for the current typed defaults module shared by the harness's
+          // other stores; the historical General reader remains unmodified.
+          defaults.general = { ...clone(legacyReminder.generalDefaults), keyboardKeycap: defaults.general.keyboardKeycap }
+        }
         module.exports = { default: defaults }
         return module.exports
       }
@@ -675,7 +680,7 @@ describe('general defaults and real two-window Pinia persistence', () => {
 
   it('keeps native startup defaults identical to the shared authored data', () => {
     assert.deepEqual(nativeDefaults, DEFAULT_GENERAL_SETTINGS)
-    assert.deepEqual(Object.keys(nativeDefaults).sort(), ['app', 'appearance', 'broadcast'])
+    assert.deepEqual(Object.keys(nativeDefaults).sort(), ['app', 'appearance', 'broadcast', 'keyboardKeycap', 'keyboardKeycapSelectionMigrated'])
     assert.equal('trayVisible' in nativeDefaults.app, false)
   })
 
@@ -1169,5 +1174,136 @@ it('preserves keyboard language and keycap feedback through real two-window sync
   } finally {
     main.dispose()
     preference.dispose()
+  }
+})
+
+it('offers new common key starters once after native startup preserves legacy seed absence', async () => {
+  const h = await seededHarness()
+  const keySets = (entries: Array<{ id: string, name: string, keys: string[] }>) => entries.map(entry => ({ ...entry, keys: [...entry.keys].sort() }))
+  // The native general_defaults regression proves this record reaches the
+  // frontend unchanged, before Pinia can merge the new metadata defaults.
+  h.backend.get('general')!.keyboardKeycap = {
+    mode: 'selected',
+    selectedKeys: ['KeyW'],
+    presets: [
+      { id: 'builtin:lol', name: 'My LoL', keys: ['KeyQ'] },
+      { id: 'user:one', name: 'My keys', keys: ['Space'] },
+    ],
+  }
+  const current = h.window('preference')
+  try {
+    await current.initialize()
+    assert.deepEqual({ ...clone(current.general.keyboardKeycap), presets: keySets(current.general.keyboardKeycap.presets) }, {
+      mode: 'selected',
+      selectedKeys: ['KeyW'],
+      presets: keySets([
+        clone(DEFAULT_GENERAL_SETTINGS.keyboardKeycap.presets[0]),
+        { id: 'builtin:lol', name: 'My LoL', keys: ['KeyQ'] },
+        clone(DEFAULT_GENERAL_SETTINGS.keyboardKeycap.presets[2]),
+        clone(DEFAULT_GENERAL_SETTINGS.keyboardKeycap.presets[4]),
+        clone(DEFAULT_GENERAL_SETTINGS.keyboardKeycap.presets[5]),
+        { id: 'user:one', name: 'My keys', keys: ['Space'] },
+      ]),
+      seededPresetIds: ['builtin:lol', 'builtin:fps', 'builtin:empty', 'builtin:minecraft', 'builtin:mmorpg', 'builtin:racing'],
+      starterRevision: 2,
+    })
+    current.general.keyboardKeycap.presets = current.general.keyboardKeycap.presets.filter((entry: { id: string }) => entry.id !== 'builtin:empty')
+    await settle()
+    await current.save()
+  } finally {
+    current.dispose()
+  }
+  const restarted = h.window('main')
+  try {
+    await restarted.initialize()
+    assert.equal(restarted.general.keyboardKeycap.presets.some((entry: { id: string }) => entry.id === 'builtin:empty'), false)
+    assert.equal(restarted.general.keyboardKeycap.presets.some((entry: { id: string }) => entry.id === 'builtin:fps'), false)
+    assert.deepEqual(clone(restarted.general.keyboardKeycap.selectedKeys), ['KeyW'])
+  } finally {
+    restarted.dispose()
+  }
+  h.backend.get('general')!.keyboardKeycap = { mode: 'selected' }
+  const partial = h.window('partial')
+  try {
+    await partial.initialize()
+    assert.equal(partial.general.keyboardKeycap.mode, 'selected')
+    assert.deepEqual(clone(partial.general.keyboardKeycap.selectedKeys), [])
+    assert.deepEqual(keySets(partial.general.keyboardKeycap.presets), keySets(DEFAULT_GENERAL_SETTINGS.keyboardKeycap.presets))
+    await partial.save()
+  } finally {
+    partial.dispose()
+  }
+})
+
+it('keeps the common key display library through two-window saves, pet preset changes and retained General readers', async () => {
+  const h = await seededHarness()
+  const configured = {
+    ...clone(DEFAULT_GENERAL_SETTINGS.keyboardKeycap),
+    mode: 'selected',
+    selectedKeys: ['KeyW', 'Space'],
+    presets: [{ id: 'user:one', name: 'My keys', keys: ['KeyW'] }],
+  }
+  h.backend.get('general')!.keyboardKeycap = clone(configured)
+  const preference = h.window('preference')
+  const main = h.window('main')
+  try {
+    await preference.initialize()
+    await main.initialize()
+    assert.deepEqual(clone(preference.general.keyboardKeycap), configured)
+    assert.deepEqual(clone(main.general.keyboardKeycap), configured)
+
+    const block = preference.stores.find(store => store.$id === 'cat')!
+    const { capturePresetSnapshot, applyPresetSnapshot } = preference.load('@/features/presets/model')
+    const snapshot = capturePresetSnapshot(block)
+    assert.equal('keyboardKeycapInputMode' in snapshot.preset, false)
+    assert.equal('keyboardKeycapSelectedKeys' in snapshot.preset, false)
+    assert.equal('keyboardKeycap' in snapshot, false)
+    snapshot.preset.keyboardKeycapInputEnabled = false
+    snapshot.preset.keyboardPressedColor = '#123456'
+    applyPresetSnapshot(block, snapshot)
+    assert.equal(block.$state.customization3d.preset.keyboardKeycapInputEnabled, false)
+    assert.equal(block.$state.customization3d.preset.keyboardPressedColor, '#123456')
+    assert.deepEqual(clone(preference.general.keyboardKeycap), configured)
+
+    preference.general.keyboardKeycap.presets[0].name = 'Renamed keys'
+    preference.general.keyboardKeycap.presets.push({ id: 'user:empty', name: 'Empty keys', keys: [] })
+    preference.general.keyboardKeycap.selectedKeys = ['KeyQ']
+    await settle()
+    await preference.save()
+    await main.save()
+    configured.presets = clone(preference.general.keyboardKeycap.presets)
+    configured.selectedKeys = ['KeyQ']
+    assert.deepEqual(clone(main.general.keyboardKeycap), configured)
+    assert.deepEqual(h.backend.get('general')!.keyboardKeycap, configured)
+  } finally {
+    main.dispose()
+    preference.dispose()
+  }
+
+  const old = h.window('retained-v1.1.2', true)
+  try {
+    await old.initialize()
+    assert.deepEqual(clone(old.general.keyboardKeycap), configured)
+    old.general.app.taskbarVisible = true
+    await settle()
+    await old.save()
+    old.stores.find(store => store.$id === 'general')!.reset!()
+    await settle()
+    await old.save()
+    assert.deepEqual(h.backend.get('general')!.keyboardKeycap, configured)
+  } finally {
+    old.dispose()
+  }
+
+  const restarted = h.window('current-restart')
+  try {
+    await restarted.initialize()
+    assert.deepEqual(clone(restarted.general.keyboardKeycap), configured)
+    restarted.stores.find(store => store.$id === 'general')!.reset!()
+    await settle()
+    await restarted.save()
+    assert.deepEqual(h.backend.get('general')!.keyboardKeycap, DEFAULT_GENERAL_SETTINGS.keyboardKeycap)
+  } finally {
+    restarted.dispose()
   }
 })

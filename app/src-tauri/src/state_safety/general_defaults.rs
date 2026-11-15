@@ -31,6 +31,10 @@ pub(crate) fn initialize_store<R: tauri::Runtime>(
             let mut patch = Map::new();
             for (key, default) in defaults {
                 match store.get(&key) {
+                    // The frontend migrates missing seed identities before
+                    // merging this record. Filling them here would mark new
+                    // starters as already offered to an older library.
+                    Some(_) if key == "keyboardKeycap" => {}
                     Some(current) => {
                         let mut next = current.clone();
                         fill_missing(&mut next, &default);

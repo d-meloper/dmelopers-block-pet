@@ -32,6 +32,10 @@ export const DEFAULT_PET_PRESET = {
 // the preference window owns checks when opened; startup never checks versions.
 export const DEFAULT_GENERAL_SETTINGS = {
   ...defaults.general,
+  keyboardKeycap: {
+    ...defaults.general.keyboardKeycap,
+    mode: defaults.general.keyboardKeycap.mode as GeneralStore['keyboardKeycap']['mode'],
+  },
   appearance: {
     ...defaults.general.appearance,
     theme: defaults.general.appearance.theme as GeneralStore['appearance']['theme'],

@@ -6,7 +6,7 @@
     "component": {
       "type": "application",
       "name": "DMeloper's Block Pet",
-      "version": "1.1.6"
+      "version": "1.1.7"
     },
     "properties": [
       {
@@ -15,7 +15,7 @@
       },
       {
         "name": "dmeloper:lf-sha256:Cargo.lock",
-        "value": "44694e9987b31784165f22f7ff3181086bb6b8074cedd13b3b94e985a6e1eaec"
+        "value": "d61cf5cd88d051ffff4159b23eec2d4cc764c12d68a9c3f5986b527ab402c33a"
       },
       {
         "name": "dmeloper:lf-sha256:pnpm-lock.yaml",

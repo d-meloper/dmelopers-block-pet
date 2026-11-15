@@ -92,6 +92,9 @@ watch(systemKeyboardLanguage, (language) => {
   three3d.setKeyboardLegendLanguage(resolveKeyboardLanguage(blockStore.activePet3dPreset.keyboardLegendLanguage, language))
 })
 const generalStore = useGeneralStore()
+watch(() => [generalStore.keyboardKeycap.mode, generalStore.keyboardKeycap.selectedKeys] as const, ([mode, keys]) => {
+  three3d.setKeyboardKeycapInputFilter(mode ?? 'all', keys ?? [])
+}, { deep: true, immediate: true })
 const requestedForegroundMask = computed(() => isForegroundHidingSettings(generalStore.app.foregroundHiding)
   && generalStore.app.foregroundHiding.enabled && foregroundHidingSuppressed.value)
 const foregroundMask = ref(requestedForegroundMask.value)

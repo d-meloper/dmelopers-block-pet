@@ -98,6 +98,7 @@ function confirmGeneralReset() {
   Modal.confirm({
     direction: typeof document !== 'undefined' && document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr',
     title: t('pages.preference.general.confirm.reset'),
+    content: t('pages.preference.environment.keycapSelection.resetHint'),
     okType: 'danger',
     onOk: async () => {
       if (disposed || autostartBusy.value || resetting.value || props.elevation?.busy.value) return

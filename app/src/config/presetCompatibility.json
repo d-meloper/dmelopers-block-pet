@@ -2,72 +2,132 @@
   "version": 1,
   "fields": [
     {
-      "path": ["preset", "petTypingMaxRadiusOffset"],
+      "path": [
+        "preset",
+        "petTypingMaxRadiusOffset"
+      ],
       "type": "number",
       "label": "petTypingRadius",
-      "rangeRef": ["preset", "petTypingMaxRadiusOffset"]
+      "rangeRef": [
+        "preset",
+        "petTypingMaxRadiusOffset"
+      ]
     },
     {
-      "path": ["preset", "petHeadbuttMaxRadiusOffset"],
+      "path": [
+        "preset",
+        "petHeadbuttMaxRadiusOffset"
+      ],
       "type": "number",
       "label": "petHeadbuttMaxRadius",
-      "rangeRef": ["preset", "petHeadbuttMaxRadiusOffset"]
+      "rangeRef": [
+        "preset",
+        "petHeadbuttMaxRadiusOffset"
+      ]
     },
     {
-      "path": ["preset", "petHeadbuttRecoilEnabled"],
+      "path": [
+        "preset",
+        "petHeadbuttRecoilEnabled"
+      ],
       "type": "boolean",
       "label": "petHeadbuttRecoilEnabled"
     },
     {
-      "path": ["preset", "petHeadbuttRecoilStrengthPercent"],
+      "path": [
+        "preset",
+        "petHeadbuttRecoilStrengthPercent"
+      ],
       "type": "number",
       "label": "petHeadbuttRecoilStrength",
-      "rangeRef": ["preset", "petHeadbuttRecoilStrengthPercent"]
+      "rangeRef": [
+        "preset",
+        "petHeadbuttRecoilStrengthPercent"
+      ]
     },
     {
-      "path": ["preset", "petHeadbuttRecoilWobblePercent"],
+      "path": [
+        "preset",
+        "petHeadbuttRecoilWobblePercent"
+      ],
       "type": "number",
       "label": "petHeadbuttRecoilWobble",
-      "rangeRef": ["preset", "petHeadbuttRecoilWobblePercent"]
+      "rangeRef": [
+        "preset",
+        "petHeadbuttRecoilWobblePercent"
+      ]
     },
     {
-      "path": ["preset", "petTypingHandLiftPercent"],
+      "path": [
+        "preset",
+        "petTypingHandLiftPercent"
+      ],
       "type": "number",
       "label": "petTypingHandLift",
-      "rangeRef": ["preset", "petTypingHandLiftPercent"]
+      "rangeRef": [
+        "preset",
+        "petTypingHandLiftPercent"
+      ]
     },
     {
-      "path": ["preset", "petTypingBodyMotionPercent"],
+      "path": [
+        "preset",
+        "petTypingBodyMotionPercent"
+      ],
       "type": "number",
       "label": "petTypingBodyMotion",
-      "rangeRef": ["preset", "petTypingBodyMotionPercent"]
+      "rangeRef": [
+        "preset",
+        "petTypingBodyMotionPercent"
+      ]
     },
     {
-      "path": ["preset", "petTypingReturnSpeedPercent"],
+      "path": [
+        "preset",
+        "petTypingReturnSpeedPercent"
+      ],
       "type": "number",
       "label": "petTypingReturnSpeed",
-      "rangeRef": ["preset", "petTypingReturnSpeedPercent"]
+      "rangeRef": [
+        "preset",
+        "petTypingReturnSpeedPercent"
+      ]
     },
     {
-      "path": ["preset", "petRightArmDisabled"],
+      "path": [
+        "preset",
+        "petRightArmDisabled"
+      ],
       "type": "boolean",
       "label": "petRightArmDisabled"
     },
     {
-      "path": ["preset", "petLeftArmDisabled"],
+      "path": [
+        "preset",
+        "petLeftArmDisabled"
+      ],
       "type": "boolean",
       "label": "petLeftArmDisabled"
     },
     {
-      "path": ["preset", "petShoulderTorsoConnected"],
+      "path": [
+        "preset",
+        "petShoulderTorsoConnected"
+      ],
       "type": "boolean",
       "label": "petShoulderTorsoConnected"
     },
     {
-      "path": ["preset", "petAnimationMode"],
+      "path": [
+        "preset",
+        "petAnimationMode"
+      ],
       "type": "enum",
       "label": "petAnimationMode",
-      "values": ["default", "headbutt"]
+      "values": [
+        "default",
+        "headbutt"
+      ]
     },
     {
       "path": [
@@ -633,6 +693,7 @@
     "pet-headbutt-radius-v1",
     "pet-typing-radius-v1",
     "keyboard-keycap-input-v1",
-    "keyboard-keycap-input-enabled-v1"
+    "keyboard-keycap-input-enabled-v1",
+    "keyboard-keycap-selection-common-v1"
   ]
 }

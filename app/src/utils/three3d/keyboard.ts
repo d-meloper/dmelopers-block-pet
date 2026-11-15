@@ -16,15 +16,10 @@ import type { DeviceColorSettings } from '@/config/deviceColors'
 import type { ResolvedKeyboardLanguage } from '@/config/keyboardLanguage'
 
 import { normalizeDeviceColors } from '@/config/deviceColors'
+import { ENGLISH_LEGENDS_BY_INPUT, JAPANESE_LEGENDS_BY_INPUT, KEYBOARD_ROWS } from '@/config/keyboardLayout'
 import { MODEL_3D_CONFIG } from '@/config/model3d'
 
 import { createLegendBatch } from './legendBatch'
-
-interface KeyDefinition {
-  legend: string
-  inputKeys: readonly string[]
-  units?: number
-}
 
 export type KeyboardLegendLanguage = ResolvedKeyboardLanguage
 
@@ -42,6 +37,7 @@ export interface KeyboardGroupResult {
   setContactPressed: (contact: KeyboardContactAddress, pressed: boolean) => void
   setKeyPressed: (key: string, pressed: boolean) => void
   setKeycapInputEnabled: (enabled: boolean) => void
+  setKeycapInputFilter: (mode: 'all' | 'selected', selectedKeys: readonly string[]) => void
   update: (deltaMilliseconds: number, timestamp: number) => void
   dispose: () => void
 }
@@ -52,6 +48,8 @@ export interface KeyboardKeyTarget {
 }
 
 interface KeyAnimationState {
+  id: string
+  inputAllowed: boolean
   group: Group
   batch: InstancedMesh<BufferGeometry, MeshStandardMaterial>
   legendBatch: ReturnType<typeof createLegendBatch>['mesh']
@@ -88,166 +86,6 @@ function createKeyGeometry(width: number) {
   legend.translate(0, KEY_HEIGHT / 2 + LEGEND_SURFACE_OFFSET, 0)
   return { keycap, legend }
 }
-
-const ENGLISH_LEGENDS_BY_INPUT: Readonly<Record<string, string>> = {
-  KeyQ: 'Q',
-  KeyW: 'W',
-  KeyE: 'E',
-  KeyR: 'R',
-  KeyT: 'T',
-  KeyY: 'Y',
-  KeyU: 'U',
-  KeyI: 'I',
-  KeyO: 'O',
-  KeyP: 'P',
-  KeyA: 'A',
-  KeyS: 'S',
-  KeyD: 'D',
-  KeyF: 'F',
-  KeyG: 'G',
-  KeyH: 'H',
-  KeyJ: 'J',
-  KeyK: 'K',
-  KeyL: 'L',
-  KeyZ: 'Z',
-  KeyX: 'X',
-  KeyC: 'C',
-  KeyV: 'V',
-  KeyB: 'B',
-  KeyN: 'N',
-  KeyM: 'M',
-}
-
-// These are the app's VK/rdev input identities, not a physical-position overlay.
-// BackQuote has no cap; IntlBackslash retains its existing BackSlash contact alias.
-const JAPANESE_LEGENDS_BY_INPUT: Readonly<Record<string, string>> = {
-  Num1: 'ぬ',
-  Num2: 'ふ',
-  Num3: 'あ',
-  Num4: 'う',
-  Num5: 'え',
-  Num6: 'お',
-  Num7: 'や',
-  Num8: 'ゆ',
-  Num9: 'よ',
-  Num0: 'わ',
-  Minus: 'ほ',
-  Equal: 'れ',
-  KeyQ: 'た',
-  KeyW: 'て',
-  KeyE: 'い',
-  KeyR: 'す',
-  KeyT: 'か',
-  KeyY: 'ん',
-  KeyU: 'な',
-  KeyI: 'に',
-  KeyO: 'ら',
-  KeyP: 'せ',
-  LeftBracket: '゜',
-  RightBracket: 'む',
-  BackSlash: 'ー',
-  KeyA: 'ち',
-  KeyS: 'と',
-  KeyD: 'し',
-  KeyF: 'は',
-  KeyG: 'き',
-  KeyH: 'く',
-  KeyJ: 'ま',
-  KeyK: 'の',
-  KeyL: 'り',
-  SemiColon: 'け',
-  Quote: 'へ',
-  KeyZ: 'つ',
-  KeyX: 'さ',
-  KeyC: 'そ',
-  KeyV: 'ひ',
-  KeyB: 'こ',
-  KeyN: 'み',
-  KeyM: 'も',
-  Comma: 'ね',
-  Dot: 'る',
-  Slash: 'め',
-}
-
-const KEYBOARD_ROWS: readonly (readonly KeyDefinition[])[] = [
-  [
-    { legend: 'ESC', inputKeys: ['Escape'] },
-    { legend: '1', inputKeys: ['Num1'] },
-    { legend: '2', inputKeys: ['Num2'] },
-    { legend: '3', inputKeys: ['Num3'] },
-    { legend: '4', inputKeys: ['Num4'] },
-    { legend: '5', inputKeys: ['Num5'] },
-    { legend: '6', inputKeys: ['Num6'] },
-    { legend: '7', inputKeys: ['Num7'] },
-    { legend: '8', inputKeys: ['Num8'] },
-    { legend: '9', inputKeys: ['Num9'] },
-    { legend: '0', inputKeys: ['Num0'] },
-    { legend: '-', inputKeys: ['Minus'] },
-    { legend: '=', inputKeys: ['Equal'] },
-    { legend: 'BACK', inputKeys: ['Backspace'], units: 1.75 },
-    { legend: 'DEL', inputKeys: ['Delete'] },
-  ],
-  [
-    { legend: 'TAB', inputKeys: ['Tab'], units: 1.5 },
-    { legend: 'ㅂ', inputKeys: ['KeyQ'] },
-    { legend: 'ㅈ', inputKeys: ['KeyW'] },
-    { legend: 'ㄷ', inputKeys: ['KeyE'] },
-    { legend: 'ㄱ', inputKeys: ['KeyR'] },
-    { legend: 'ㅅ', inputKeys: ['KeyT'] },
-    { legend: 'ㅛ', inputKeys: ['KeyY'] },
-    { legend: 'ㅕ', inputKeys: ['KeyU'] },
-    { legend: 'ㅑ', inputKeys: ['KeyI'] },
-    { legend: 'ㅐ', inputKeys: ['KeyO'] },
-    { legend: 'ㅔ', inputKeys: ['KeyP'] },
-    { legend: '[', inputKeys: ['LeftBracket'] },
-    { legend: ']', inputKeys: ['RightBracket'] },
-    { legend: '\\', inputKeys: ['BackSlash'], units: 1.25 },
-    { legend: 'HOME', inputKeys: ['Home'] },
-  ],
-  [
-    { legend: 'CAPS', inputKeys: ['CapsLock'], units: 1.75 },
-    { legend: 'ㅁ', inputKeys: ['KeyA'] },
-    { legend: 'ㄴ', inputKeys: ['KeyS'] },
-    { legend: 'ㅇ', inputKeys: ['KeyD'] },
-    { legend: 'ㄹ', inputKeys: ['KeyF'] },
-    { legend: 'ㅎ', inputKeys: ['KeyG'] },
-    { legend: 'ㅗ', inputKeys: ['KeyH'] },
-    { legend: 'ㅓ', inputKeys: ['KeyJ'] },
-    { legend: 'ㅏ', inputKeys: ['KeyK'] },
-    { legend: 'ㅣ', inputKeys: ['KeyL'] },
-    { legend: ';', inputKeys: ['SemiColon'] },
-    { legend: '\'', inputKeys: ['Quote'] },
-    { legend: 'ENTER', inputKeys: ['Return'], units: 2 },
-    { legend: 'PGUP', inputKeys: ['PageUp'] },
-  ],
-  [
-    { legend: 'SHIFT', inputKeys: ['ShiftLeft'], units: 2.25 },
-    { legend: 'ㅋ', inputKeys: ['KeyZ'] },
-    { legend: 'ㅌ', inputKeys: ['KeyX'] },
-    { legend: 'ㅊ', inputKeys: ['KeyC'] },
-    { legend: 'ㅍ', inputKeys: ['KeyV'] },
-    { legend: 'ㅠ', inputKeys: ['KeyB'] },
-    { legend: 'ㅜ', inputKeys: ['KeyN'] },
-    { legend: 'ㅡ', inputKeys: ['KeyM'] },
-    { legend: ',', inputKeys: ['Comma'] },
-    { legend: '.', inputKeys: ['Dot'] },
-    { legend: '/', inputKeys: ['Slash'] },
-    { legend: 'SHIFT', inputKeys: ['ShiftRight'], units: 1.5 },
-    { legend: '↑', inputKeys: ['UpArrow'] },
-    { legend: 'PGDN', inputKeys: ['PageDown'] },
-  ],
-  [
-    { legend: 'CTRL', inputKeys: ['ControlLeft'], units: 1.25 },
-    { legend: 'WIN', inputKeys: ['MetaLeft'], units: 1.25 },
-    { legend: 'ALT', inputKeys: ['Alt'], units: 1.25 },
-    { legend: 'SPACE', inputKeys: ['Space'], units: 6.25 },
-    { legend: 'LANG', inputKeys: ['Lang1', 'Hangul', 'AltGr'], units: 1.25 },
-    { legend: 'FN', inputKeys: ['Function'], units: 1.25 },
-    { legend: '←', inputKeys: ['LeftArrow'] },
-    { legend: '↓', inputKeys: ['DownArrow'] },
-    { legend: '→', inputKeys: ['RightArrow'] },
-  ],
-]
 
 function createLegendCanvas(
   legend: string,
@@ -443,6 +281,8 @@ export function createKeyboardGroup(): KeyboardGroupResult {
       }
 
       const animationState: KeyAnimationState = {
+        id: key.inputKeys[0]!,
+        inputAllowed: true,
         group: keyGroup,
         batch,
         legendBatch: legend.mesh,
@@ -493,6 +333,8 @@ export function createKeyboardGroup(): KeyboardGroupResult {
 
   let disposed = false
   let keycapInputEnabled = true
+  let keycapInputMode: 'all' | 'selected' = 'all'
+  let keycapSelectedKeys = new Set<string>()
   const getContactId = (contact: KeyboardContactAddress) => (
     `${contact.row}:${contact.column}`
   )
@@ -556,6 +398,27 @@ export function createKeyboardGroup(): KeyboardGroupResult {
     })
   }
 
+  const setKeycapInputFilter: KeyboardGroupResult['setKeycapInputFilter'] = (mode, selectedKeys) => {
+    if (disposed) return
+    const nextSelectedKeys = new Set(selectedKeys)
+    if (mode === keycapInputMode && nextSelectedKeys.size === keycapSelectedKeys.size
+      && [...nextSelectedKeys].every(key => keycapSelectedKeys.has(key))) {
+      return
+    }
+    keycapInputMode = mode
+    keycapSelectedKeys = nextSelectedKeys
+
+    keyAnimations.forEach((animationState) => {
+      const inputAllowed = mode === 'all' || nextSelectedKeys.has(animationState.id)
+      if (inputAllowed === animationState.inputAllowed) return
+      animationState.inputAllowed = inputAllowed
+      animationState.minimumPressUntil = 0
+      if (inputAllowed || animationState.progress === 0) return
+      animationState.progress = 0
+      applyKeyAppearance(animationState)
+    })
+  }
+
   const setKeyPressed = (key: string, pressed: boolean) => {
     if (disposed) return
 
@@ -563,7 +426,7 @@ export function createKeyboardGroup(): KeyboardGroupResult {
     if (!animationState || animationState.held === pressed) return
 
     animationState.held = pressed
-    if (pressed && keycapInputEnabled) {
+    if (pressed && keycapInputEnabled && animationState.inputAllowed) {
       animationState.minimumPressUntil = performance.now() + interaction.minimumPressMs
     }
   }
@@ -578,7 +441,7 @@ export function createKeyboardGroup(): KeyboardGroupResult {
     if (!animationState || animationState.held === pressed) return
 
     animationState.held = pressed
-    if (pressed && keycapInputEnabled) {
+    if (pressed && keycapInputEnabled && animationState.inputAllowed) {
       animationState.minimumPressUntil = performance.now() + interaction.minimumPressMs
     }
   }
@@ -587,6 +450,7 @@ export function createKeyboardGroup(): KeyboardGroupResult {
     if (disposed || !keycapInputEnabled) return
 
     keyAnimations.forEach((animationState) => {
+      if (!animationState.inputAllowed) return
       const targetPressed = animationState.held
         || timestamp < animationState.minimumPressUntil
       const duration = targetPressed
@@ -638,6 +502,7 @@ export function createKeyboardGroup(): KeyboardGroupResult {
     setContactPressed,
     setKeyPressed,
     setKeycapInputEnabled,
+    setKeycapInputFilter,
     update,
     dispose,
   }

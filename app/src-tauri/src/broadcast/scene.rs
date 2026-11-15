@@ -74,6 +74,7 @@ fn deserialize_preset<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Resu
     crate::lighting_settings::migrate_preset(&mut preset);
     if let Some(object) = preset.as_object_mut() {
         crate::preset_compatibility::migrate_keycap_input(object);
+        crate::preset_compatibility::migrate_keycap_selection(object);
     }
     Ok(preset)
 }
@@ -96,13 +97,15 @@ fn number(value: &Value, min: f64, max: f64) -> bool {
 
 fn validate_preset(preset: &Value) -> Result<(), String> {
     let object = preset.as_object().ok_or("scene_invalid")?;
-    let optional = ["petAnimationMode", "petShoulderTorsoConnected", "petRightArmDisabled", "petLeftArmDisabled", "petHeadScalePercent", "deskTransparent", "deskHeightOffset", "deskWidthOffset", "deskDepthOffset", "deskColor", "lighting", "petHeadbuttRecoilEnabled", "petHeadbuttRecoilStrengthPercent", "petHeadbuttRecoilWobblePercent", "petTypingHandLiftPercent", "petTypingBodyMotionPercent", "petTypingReturnSpeedPercent", "petHeadbuttMaxRadiusOffset", "petTypingMaxRadiusOffset", "keyboardKeycapInputEnabled"];
+    let optional = ["petAnimationMode", "petShoulderTorsoConnected", "petRightArmDisabled", "petLeftArmDisabled", "petHeadScalePercent", "deskTransparent", "deskHeightOffset", "deskWidthOffset", "deskDepthOffset", "deskColor", "lighting", "petHeadbuttRecoilEnabled", "petHeadbuttRecoilStrengthPercent", "petHeadbuttRecoilWobblePercent", "petTypingHandLiftPercent", "petTypingBodyMotionPercent", "petTypingReturnSpeedPercent", "petHeadbuttMaxRadiusOffset", "petTypingMaxRadiusOffset", "keyboardKeycapInputEnabled", "keyboardKeycapInputMode", "keyboardKeycapSelectedKeys"];
     if object.len() != 32 + optional.iter().filter(|key| object.contains_key(**key)).count() {
         return Err("scene_invalid".into());
     }
     for (key, value) in object {
         let valid = match key.as_str() {
             "lighting" => crate::lighting_settings::is_valid(value),
+            "keyboardKeycapInputMode" => matches!(value.as_str(), Some("all" | "selected")),
+            "keyboardKeycapSelectedKeys" => crate::preset_compatibility::valid_keycap_selected_keys(value),
             "petAnimationMode" => matches!(value.as_str(), Some("default" | "headbutt")),
             "petShoulderTorsoConnected" | "petRightArmDisabled" | "petLeftArmDisabled"
             | "showDisplayArea" | "autoViewportEnabled" | "mouseEnabled" | "keyboardKeycapInputEnabled" | "deskTransparent" | "petHeadbuttRecoilEnabled" => value.is_boolean(),

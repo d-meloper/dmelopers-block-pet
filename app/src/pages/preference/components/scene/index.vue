@@ -7,6 +7,7 @@ import type { SceneViewportState } from '@/features/scene/types'
 
 import DefaultSnapSlider from '@/components/default-snap-slider/index.vue'
 import OptionTransition from '@/components/option-transition/index.vue'
+import OptionStack from '@/components/option-transition/stack.vue'
 import { vDetailHeightOption, vStableDetailHeight } from '@/components/preference-detail-tabs/height'
 import PreferenceOptionGroup from '@/components/preference-option-group/index.vue'
 import PreferenceSections from '@/components/preference-sections/index.vue'
@@ -203,7 +204,7 @@ function confirmSceneReset(scene: SceneTab) {
               <Flex align="center">
                 <Switch v-model:checked="blockStore.window.hideOnHover" />
 
-                <OptionTransition>
+                <OptionTransition axis="width">
                   <Flex
                     v-show="blockStore.window.hideOnHover"
                     v-detail-height-option
@@ -235,10 +236,7 @@ function confirmSceneReset(scene: SceneTab) {
           force-render
           :tab="$t('pages.preference.scene.detailTabs.viewport')"
         >
-          <Flex
-            gap="middle"
-            vertical
-          >
+          <OptionStack gap="middle">
             <ProListItem
               :description="$t('pages.preference.scene.hints.showDisplayArea')"
               :title="$t('pages.preference.scene.labels.showDisplayArea')"
@@ -411,7 +409,7 @@ function confirmSceneReset(scene: SceneTab) {
                 </PreferenceOptionGroup>
               </Flex>
             </OptionTransition>
-          </Flex>
+          </OptionStack>
         </TabPane>
         <TabPane
           key="lighting"

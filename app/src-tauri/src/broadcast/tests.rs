@@ -51,6 +51,36 @@ fn keycap_input_option_accepts_legacy_scenes_and_boolean_toggles() {
     }
 }
 
+#[test]
+fn keycap_selection_accepts_legacy_scenes_and_rejects_invalid_or_private_fields() {
+    for (fields, valid) in [
+        (json!({}), true),
+        (json!({"keyboardKeycapInputMode":"all","keyboardKeycapSelectedKeys":[]}), true),
+        (json!({"keyboardKeycapInputMode":"selected","keyboardKeycapSelectedKeys":[]}), true),
+        (json!({"keyboardKeycapInputMode":"selected","keyboardKeycapSelectedKeys":["KeyW","Space"]}), true),
+        (json!({"keyboardKeycapInputMode":"unsupported","keyboardKeycapSelectedKeys":[]}), false),
+        (json!({"keyboardKeycapInputMode":null,"keyboardKeycapSelectedKeys":[]}), false),
+        (json!({"keyboardKeycapInputMode":"selected","keyboardKeycapSelectedKeys":["UnknownKey"]}), false),
+        (json!({"keyboardKeycapInputMode":"selected","keyboardKeycapSelectedKeys":["KeyW","KeyW"]}), false),
+        (json!({"keyboardKeycapInputMode":"selected","keyboardKeycapSelectedKeys":[1]}), false),
+        (json!({"keyboardKeycapInputMode":"selected","keyboardKeycapSelectedKeys":"KeyW"}), false),
+        (json!({"presets":[{"id":"private-entry","name":"Private name","keys":["KeyW"]}]}), false),
+        (json!({"seededPresetIds":["private-entry"]}), false),
+    ] {
+        let mut wire = serde_json::to_value(scene()).unwrap();
+        let preset = wire["preset"].as_object_mut().unwrap();
+        preset.remove("keyboardKeycapInputMode");
+        preset.remove("keyboardKeycapSelectedKeys");
+        preset.extend(fields.as_object().unwrap().clone());
+        let decoded: BroadcastScene = serde_json::from_value(wire).unwrap();
+        assert_eq!(decoded.validate(None).is_ok(), valid, "{fields}");
+        if valid {
+            assert_eq!(decoded.preset["keyboardKeycapInputMode"], fields.get("keyboardKeycapInputMode").cloned().unwrap_or(json!("all")));
+            assert_eq!(decoded.preset["keyboardKeycapSelectedKeys"], fields.get("keyboardKeycapSelectedKeys").cloned().unwrap_or(json!([])));
+        }
+    }
+}
+
 #[tokio::test]
 async fn system_keyboard_language_is_latest_state_independent_of_scene_and_input_readiness() {
     let (_root, service, _) = make_service();

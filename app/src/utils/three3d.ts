@@ -147,6 +147,8 @@ export class Three3DRenderer {
   private lightingBoundsDirty = true
   private keyboard?: KeyboardGroupResult
   private keyboardKeycapInputEnabled = DEFAULT_PET_PRESET.keyboardKeycapInputEnabled
+  private keyboardKeycapInputMode: 'all' | 'selected' = 'all'
+  private keyboardKeycapSelectedKeys: readonly string[] = []
   private mouse?: MouseGroupResult
   private petAnimator?: PetAnimator
   private petAnimationMode: PetAnimationMode = 'default'
@@ -1137,6 +1139,19 @@ export class Three3DRenderer {
     this.keyboard?.setKeycapInputEnabled(enabled)
   }
 
+  setKeyboardKeycapInputFilter(mode: 'all' | 'selected', selectedKeys: readonly string[]): void {
+    const nextSelectedKeys = [...new Set(selectedKeys)]
+    if (mode === this.keyboardKeycapInputMode
+      && nextSelectedKeys.length === this.keyboardKeycapSelectedKeys.length
+      && nextSelectedKeys.every(key => this.keyboardKeycapSelectedKeys.includes(key))) {
+      return
+    }
+    this.noteActivity()
+    this.keyboardKeycapInputMode = mode
+    this.keyboardKeycapSelectedKeys = nextSelectedKeys
+    this.keyboard?.setKeycapInputFilter(mode, nextSelectedKeys)
+  }
+
   setDeviceColors(colors: DeviceColorSettings): void {
     const normalized = normalizeDeviceColors(colors)
     if (DEVICE_COLOR_KEYS.every(key => normalized[key] === this.deviceColors[key])) return
@@ -1369,6 +1384,7 @@ export class Three3DRenderer {
     keyboard.setColors(this.deviceColors)
     keyboard.setLegendLanguage(this.keyboardLegendLanguage)
     keyboard.setKeycapInputEnabled(this.keyboardKeycapInputEnabled)
+    keyboard.setKeycapInputFilter(this.keyboardKeycapInputMode, this.keyboardKeycapSelectedKeys)
     this.mouse = mouse
     mouse.setColors(this.deviceColors)
     this.generatedGroupDisposers.push(

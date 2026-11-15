@@ -1,7 +1,7 @@
 import { DEFAULT_MODEL_SETTINGS, DEFAULT_PET_PRESET, DEFAULT_WINDOW_SETTINGS } from '@/config/defaultSettings'
 import { migrateDeskSettings } from '@/config/desk'
 import { migrateDmeloperEyebrowDepth } from '@/config/dmeloperEyebrows'
-import { migrateKeyboardKeycapInput } from '@/config/keyboardKeycapInput'
+import { migrateKeyboardKeycapInput, retirePresetKeyboardKeycapSelection } from '@/config/keyboardKeycapInput'
 import { migratePresetLighting } from '@/config/lighting'
 import { migratePetMotionSettings, PET_TYPING_AND_RECOIL_SETTING_KEYS } from '@/config/petMotion'
 import contractData from '@/config/presetCompatibility.json'
@@ -94,6 +94,7 @@ export function migratedPresetSettings(source: PresetSourceSettings, contract = 
     if (contract.migrations.includes('pet-headbutt-radius-v1')) next.preset = migratePetMotionSettings(next.preset, ['petHeadbuttMaxRadiusOffset'])
     if (contract.migrations.includes('pet-typing-radius-v1')) next.preset = migratePetMotionSettings(next.preset, ['petTypingMaxRadiusOffset'])
     if (contract.migrations.includes('keyboard-keycap-input-enabled-v1')) next.preset = migrateKeyboardKeycapInput(next.preset as Record<string, unknown>)
+    if (contract.migrations.includes('keyboard-keycap-selection-common-v1')) next.preset = retirePresetKeyboardKeycapSelection(next.preset)
     const preset = next.preset as Record<string, unknown>
     // A retained pre-Enabled reader keeps its original missing-only migration.
     if (!contract.migrations.includes('keyboard-keycap-input-enabled-v1') && contract.migrations.includes('keyboard-keycap-input-v1') && !('keyboardKeycapInputDisabled' in preset)) preset.keyboardKeycapInputDisabled = false
@@ -139,6 +140,10 @@ export function inspectPresetCompatibility(source: PresetSourceSettings, contrac
     } else if (field.type === 'enum') {
       if (typeof value !== 'string') reason = 'type'
       else if (!field.values?.includes(value)) reason = 'choice'
+    } else if (field.type === 'string-set') {
+      if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) reason = 'type'
+      else if (value.some(item => !field.values?.includes(item))) reason = 'choice'
+      else if (new Set(value).size !== value.length) reason = 'structure'
     }
     if (reason) issues.push({ path: field.path, value, reason, field })
   }
@@ -175,7 +180,12 @@ export function projectPresetSettings(source: PresetSourceSettings, fallback = d
   const migrated = migratedPresetSettings(source, contract)
   const output = JSON.parse(JSON.stringify(fallback)) as PresetSettings
   for (const field of compatiblePresetFields(source, contract)) {
-    set(output as unknown as Record<string, unknown>, field.path, get(migrated, field.path))
+    const value = get(migrated, field.path)
+    // A string-set has no source ordering meaning. Canonicalize the executable
+    // copy before native acknowledgement; the original archive stays exact.
+    set(output as unknown as Record<string, unknown>, field.path, field.type === 'string-set'
+      ? field.values!.filter(key => (value as string[]).includes(key))
+      : value)
   }
   return output
 }

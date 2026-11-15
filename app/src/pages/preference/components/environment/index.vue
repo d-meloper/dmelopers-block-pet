@@ -9,16 +9,21 @@ import type { Pet3dPreset } from '@/stores/block'
 import ColorPicker from '@/components/color-picker/index.vue'
 import DefaultSnapSlider from '@/components/default-snap-slider/index.vue'
 import OptionTransition from '@/components/option-transition/index.vue'
+import OptionStack from '@/components/option-transition/stack.vue'
 import { vDetailHeightOption, vStableDetailHeight } from '@/components/preference-detail-tabs/height'
 import PreferenceOptionGroup from '@/components/preference-option-group/index.vue'
 import PreferenceSections from '@/components/preference-sections/index.vue'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
 import { DESK_DIMENSION_LIMITS } from '@/config/desk'
+import { resetKeyboardKeycapSettings } from '@/config/keyboardKeycapSettings'
 import presetRanges from '@/config/presetRanges.json'
 import { markPresetUserEdit } from '@/features/presets/editIntent'
 import { editorsLocked } from '@/features/stateSafety/bridge'
 import { createDefaultPet3dPreset, useBlockStore } from '@/stores/block'
+import { useGeneralStore } from '@/stores/general'
+
+import KeycapSelection from './keycap-selection.vue'
 
 type ObjectTab = 'mouse' | 'keyboard' | 'desk'
 
@@ -40,6 +45,7 @@ const keyboardColorKeys = ['keyboardColor', 'keyboardKeycapColor', 'keyboardLege
 const mouseColorKeys = ['mouseColor', 'mousePressedColor'] as const
 const deskSizeKeys = ['deskWidthOffset', 'deskDepthOffset'] as const
 const blockStore = useBlockStore()
+const generalStore = useGeneralStore()
 const activeObjectTab = ref<ObjectTab>('mouse')
 const defaultPet3dPreset = createDefaultPet3dPreset()
 const { t } = useI18n()
@@ -77,6 +83,16 @@ function updateKeyboardKeycapInputEnabled(value: boolean) {
   activePet3dPreset.value.keyboardKeycapInputEnabled = value
 }
 
+function updateKeyboardKeycapInputMode(value: 'all' | 'selected') {
+  if (editorsLocked.value || !activePet3dPreset.value.keyboardKeycapInputEnabled) return
+  generalStore.keyboardKeycap.mode = value
+}
+
+function updateKeyboardKeycapSelectedKeys(value: string[]) {
+  if (editorsLocked.value || !activePet3dPreset.value.keyboardKeycapInputEnabled) return
+  generalStore.keyboardKeycap.selectedKeys = [...value]
+}
+
 function updateViewportSetting(
   key: PresetNumberKey,
   value: number,
@@ -98,6 +114,7 @@ function confirmObjectReset(object: ObjectTab) {
   Modal.confirm({
     direction: typeof document !== 'undefined' && document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr',
     title: t(`pages.preference.environment.confirm.reset${object[0].toUpperCase()}${object.slice(1)}`),
+    content: object === 'keyboard' ? t('pages.preference.environment.keycapSelection.resetHint') : undefined,
     okType: 'danger',
     onOk: async () => {
       if (editorsLocked.value) return
@@ -106,6 +123,7 @@ function confirmObjectReset(object: ObjectTab) {
         blockStore.resetMouse3d()
       } else if (object === 'keyboard') {
         blockStore.resetKeyboard3d()
+        resetKeyboardKeycapSettings(generalStore.keyboardKeycap)
       } else {
         blockStore.resetDesk3d()
       }
@@ -258,6 +276,7 @@ function confirmObjectReset(object: ObjectTab) {
                 <div
                   v-show="activePet3dPreset.keyboardKeycapInputEnabled"
                   v-detail-height-option
+                  class="flex flex-col gap-4"
                 >
                   <ProListItem
                     plain
@@ -270,6 +289,14 @@ function confirmObjectReset(object: ObjectTab) {
                       @update:value="applyColorSetting('keyboardPressedColor', $event)"
                     />
                   </ProListItem>
+                  <KeycapSelection
+                    :active="activeObjectTab === 'keyboard'"
+                    :disabled="editorsLocked || !activePet3dPreset.keyboardKeycapInputEnabled"
+                    :mode="generalStore.keyboardKeycap.mode"
+                    :selected-keys="generalStore.keyboardKeycap.selectedKeys"
+                    @update:mode="updateKeyboardKeycapInputMode"
+                    @update:selected-keys="updateKeyboardKeycapSelectedKeys"
+                  />
                 </div>
               </OptionTransition>
             </PreferenceOptionGroup>
@@ -371,10 +398,7 @@ function confirmObjectReset(object: ObjectTab) {
           force-render
           :tab="$t('pages.preference.environment.detailTabs.desk')"
         >
-          <Flex
-            gap="middle"
-            vertical
-          >
+          <OptionStack gap="middle">
             <ProListItem
               :description="$t('pages.preference.environment.hints.deskTransparent')"
               :title="$t('pages.preference.environment.labels.deskTransparent')"
@@ -441,7 +465,7 @@ function confirmObjectReset(object: ObjectTab) {
                 @update:value="updateDeskDimension('deskHeightOffset', $event)"
               />
             </ProListItem>
-          </Flex>
+          </OptionStack>
         </TabPane>
       </Tabs>
       <Button

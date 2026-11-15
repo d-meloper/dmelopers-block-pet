@@ -40,6 +40,7 @@ export function createBroadcastView(container: HTMLElement, assetBase: URL) {
     renderer.setPixelFilterEnabled(quality.pixelFilterEnabled === true)
     renderer.setEyebrowAnimationEnabled(scene.eyebrowAnimationEnabled)
     applyPresetVisualSettings(renderer, scene.preset, scene.preset.mouseEnabled, systemLanguage)
+    renderer.setKeyboardKeycapInputFilter(scene.preset.keyboardKeycapInputMode ?? 'all', scene.preset.keyboardKeycapSelectedKeys ?? [])
     view.canvas.style.transform = scene.mirror ? 'scaleX(-1)' : ''
     view.canvas.style.opacity = String(scene.opacity / 100)
     renderer.setInputActive(true)

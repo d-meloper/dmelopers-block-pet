@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Flex, Switch } from 'ant-design-vue'
+import { Switch } from 'ant-design-vue'
 import { computed, ref, watch } from 'vue'
 
 import type { HeadbuttRecoilSettings } from '@/config/headbuttRecoil'
@@ -7,6 +7,7 @@ import type { HeadbuttRecoilSettings } from '@/config/headbuttRecoil'
 import { toSliderDisplayValue } from '@/components/default-snap-slider/displayValue'
 import DefaultSnapSlider from '@/components/default-snap-slider/index.vue'
 import OptionTransition from '@/components/option-transition/index.vue'
+import OptionStack from '@/components/option-transition/stack.vue'
 import { vDetailHeightOption } from '@/components/preference-detail-tabs/height'
 import ProListItem from '@/components/pro-list-item/index.vue'
 import { DEFAULT_HEADBUTT_RECOIL_SETTINGS, HEADBUTT_RECOIL_LIMITS, normalizeHeadbuttRecoilSettings } from '@/config/headbuttRecoil'
@@ -62,10 +63,9 @@ function finishAdjustment(key: typeof controls[number]['key']) {
 </script>
 
 <template>
-  <Flex
+  <OptionStack
     class="b b-color-2 rounded-lg b-solid bg-color-3 p-4"
     :gap="32"
-    vertical
   >
     <ProListItem
       class="headbutt-recoil-row"
@@ -79,11 +79,10 @@ function finishAdjustment(key: typeof controls[number]['key']) {
       />
     </ProListItem>
     <OptionTransition>
-      <Flex
+      <OptionStack
         v-show="settings.petHeadbuttRecoilEnabled"
         v-detail-height-option
         :gap="32"
-        vertical
       >
         <OptionTransition
           v-for="control in controls"
@@ -111,9 +110,9 @@ function finishAdjustment(key: typeof controls[number]['key']) {
             />
           </ProListItem>
         </OptionTransition>
-      </Flex>
+      </OptionStack>
     </OptionTransition>
-  </Flex>
+  </OptionStack>
 </template>
 
 <style scoped>

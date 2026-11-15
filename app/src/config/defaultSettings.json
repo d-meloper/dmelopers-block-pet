@@ -49,7 +49,12 @@
     "autoViewportEnabled": true,
     "autoViewportPaddingPixels": 2,
     "viewportModeRevision": 0,
-    "manualViewportRect": { "x": 0, "y": 0, "width": 500, "height": 422 },
+    "manualViewportRect": {
+      "x": 0,
+      "y": 0,
+      "width": 500,
+      "height": 422
+    },
     "sceneRotationOffsetDegrees": 0,
     "cameraHorizontalOffset": 0,
     "cameraVerticalOffset": 0,
@@ -108,17 +113,186 @@
       "taskbarVisible": false,
       "autoUpdateCheck": true,
       "updateReminderHiddenUntil": 0,
-      "updateReminderSnooze": { "version": "", "hiddenUntil": 0 },
+      "updateReminderSnooze": {
+        "version": "",
+        "hiddenUntil": 0
+      },
       "broadcastRestorePromptDismissed": false,
       "applyPresetSkin": true,
-      "foregroundHiding": { "enabled": false, "applications": [] }
+      "foregroundHiding": {
+        "enabled": false,
+        "applications": []
+      }
     },
-    "broadcast": { "enabled": false, "showOnDesktop": false },
+    "broadcast": {
+      "enabled": false,
+      "showOnDesktop": false
+    },
     "appearance": {
       "theme": "auto",
       "isDark": false,
       "language": "system"
-    }
+    },
+    "keyboardKeycap": {
+      "mode": "all",
+      "selectedKeys": [],
+      "presets": [
+        {
+          "id": "builtin:empty",
+          "name": "빈 프리셋",
+          "keys": []
+        },
+        {
+          "id": "builtin:lol",
+          "name": "LoL",
+          "keys": [
+            "Num1",
+            "Num2",
+            "Num3",
+            "Num4",
+            "Num5",
+            "Num6",
+            "Num7",
+            "Tab",
+            "KeyQ",
+            "KeyW",
+            "KeyE",
+            "KeyR",
+            "KeyP",
+            "KeyA",
+            "KeyS",
+            "KeyD",
+            "KeyF",
+            "ShiftLeft",
+            "KeyB",
+            "ControlLeft",
+            "Alt",
+            "Space"
+          ]
+        },
+        {
+          "id": "builtin:minecraft",
+          "name": "Minecraft",
+          "keys": [
+            "Num1",
+            "Num2",
+            "Num3",
+            "Num4",
+            "Num5",
+            "Num6",
+            "Num7",
+            "Num8",
+            "Num9",
+            "Tab",
+            "KeyQ",
+            "KeyW",
+            "KeyE",
+            "KeyF",
+            "KeyA",
+            "KeyS",
+            "KeyD",
+            "ShiftLeft",
+            "ControlLeft",
+            "Space"
+          ]
+        },
+        {
+          "id": "builtin:fps",
+          "name": "FPS",
+          "keys": [
+            "Num1",
+            "Num2",
+            "Num3",
+            "Num4",
+            "Num5",
+            "Tab",
+            "KeyQ",
+            "KeyW",
+            "KeyE",
+            "KeyR",
+            "KeyA",
+            "KeyS",
+            "KeyD",
+            "KeyF",
+            "KeyG",
+            "ShiftLeft",
+            "KeyZ",
+            "KeyX",
+            "KeyC",
+            "KeyV",
+            "ControlLeft",
+            "Space"
+          ]
+        },
+        {
+          "id": "builtin:mmorpg",
+          "name": "MMORPG",
+          "keys": [
+            "Num1",
+            "Num2",
+            "Num3",
+            "Num4",
+            "Num5",
+            "Num6",
+            "Num7",
+            "Num8",
+            "Num9",
+            "Num0",
+            "Minus",
+            "Equal",
+            "Tab",
+            "KeyQ",
+            "KeyW",
+            "KeyE",
+            "KeyR",
+            "KeyT",
+            "KeyA",
+            "KeyS",
+            "KeyD",
+            "KeyF",
+            "KeyG",
+            "ShiftLeft",
+            "KeyZ",
+            "KeyX",
+            "KeyC",
+            "KeyV",
+            "ControlLeft",
+            "Alt",
+            "Space"
+          ]
+        },
+        {
+          "id": "builtin:racing",
+          "name": "Racing",
+          "keys": [
+            "Backspace",
+            "KeyW",
+            "KeyR",
+            "KeyA",
+            "KeyS",
+            "KeyD",
+            "Return",
+            "ShiftLeft",
+            "UpArrow",
+            "ControlLeft",
+            "Space",
+            "LeftArrow",
+            "DownArrow",
+            "RightArrow"
+          ]
+        }
+      ],
+      "seededPresetIds": [
+        "builtin:empty",
+        "builtin:lol",
+        "builtin:minecraft",
+        "builtin:fps",
+        "builtin:mmorpg",
+        "builtin:racing"
+      ],
+      "starterRevision": 2
+    },
+    "keyboardKeycapSelectionMigrated": false
   },
   "shortcuts": {
     "visibleCat": "",

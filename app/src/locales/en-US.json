@@ -351,7 +351,9 @@
               "y": "Manual display area vertical position",
               "width": "Manual display area width",
               "height": "Manual display area height"
-            }
+            },
+            "keyboardKeycapInputMode": "Keycap input display range",
+            "keyboardKeycapSelectedKeys": "Selected keycaps"
           },
           "groups": {
             "preset": "Pet, object and scene settings",
@@ -777,6 +779,40 @@
           "resetDesk": "Reset desk settings to their defaults?",
           "resetKeyboard": "Reset keyboard settings to their defaults?",
           "resetMouse": "Reset mouse settings to their defaults?"
+        },
+        "keycapSelection": {
+          "range": "Keys to show",
+          "all": "All keys",
+          "selected": "Selected keys only",
+          "choose": "Choose keys…",
+          "title": "Choose keys to show",
+          "language": "Keycap language",
+          "hint": "Click keys on the diagram or press them to select or deselect. Select Esc by clicking it on the diagram.",
+          "count": "Selected keys: {count}",
+          "allSelected": "All selected",
+          "empty": "No keys are selected, so input highlights will not appear.",
+          "unsupported": "This key cannot be shown on the current keyboard: {key}",
+          "keymap": "Choose keys for input highlights",
+          "selectedList": "Selected keys",
+          "removeKey": "Deselect {key}",
+          "selectAll": "Select all",
+          "clearAll": "Clear all",
+          "apply": "Apply",
+          "cancel": "Cancel",
+          "presets": "Key display presets",
+          "savePreset": "+ Save",
+          "savedPresetName": "Key display {number}",
+          "deletePreset": "Delete preset {name}",
+          "deletePresetTitle": "Delete preset “{name}”?",
+          "deletePresetHint": "This removes the saved preset from the list. Your current key selection stays the same.",
+          "delete": "Delete",
+          "renamePreset": "Rename preset {name}",
+          "renamePresetTitle": "Rename key display preset",
+          "presetName": "Name",
+          "rename": "Rename",
+          "invalidPresetName": "Enter a name of 1–255 characters without control characters.",
+          "duplicatePresetName": "A preset with this name already exists. Enter a different name.",
+          "resetHint": "This also resets the key display range and key display preset list to defaults. Saved custom entries and renamed labels will be removed."
         }
       },
       "general": {

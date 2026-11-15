@@ -15,6 +15,7 @@ import ColorPicker from '@/components/color-picker/index.vue'
 import { toSliderDisplayValue } from '@/components/default-snap-slider/displayValue'
 import DefaultSnapSlider from '@/components/default-snap-slider/index.vue'
 import OptionTransition from '@/components/option-transition/index.vue'
+import OptionSwapTransition from '@/components/option-transition/swap.vue'
 import { vDetailHeightOption, vStableDetailHeight } from '@/components/preference-detail-tabs/height'
 import PreferenceOptionGroup from '@/components/preference-option-group/index.vue'
 import PreferenceSections from '@/components/preference-sections/index.vue'
@@ -984,8 +985,11 @@ function confirmPetDetailReset() {
                 :options="petAnimationModeOptions"
               />
             </ProListItem>
-            <div class="motion-options-grid">
-              <OptionTransition>
+            <OptionSwapTransition
+              class="motion-options-grid"
+              :value="petAnimationMode"
+            >
+              <OptionTransition axis="opacity">
                 <TypingMotionOptions
                   v-show="petAnimationMode === 'default'"
                   v-detail-height-option="'default'"
@@ -994,7 +998,7 @@ function confirmPetDetailReset() {
                   @update:settings="updateTypingMotionSettings"
                 />
               </OptionTransition>
-              <OptionTransition>
+              <OptionTransition axis="opacity">
                 <Flex
                   v-show="petAnimationMode === 'headbutt'"
                   v-detail-height-option="'headbutt'"
@@ -1025,7 +1029,7 @@ function confirmPetDetailReset() {
                   />
                 </Flex>
               </OptionTransition>
-            </div>
+            </OptionSwapTransition>
           </Flex>
         </TabPane>
       </Tabs>
@@ -1042,15 +1046,6 @@ function confirmPetDetailReset() {
 </template>
 
 <style scoped>
-.motion-options-grid {
-  display: grid;
-}
-
-.motion-options-grid > * {
-  grid-area: 1 / 1;
-  min-width: 0;
-}
-
 .skin-library-open-button {
   align-items: center;
   display: inline-flex;

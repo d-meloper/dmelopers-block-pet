@@ -140,7 +140,7 @@ describe('broadcast settings and projection', () => {
     Object.assign(block.customization3d.preset.dmeloperEyebrows, { legacyPrivateName: 'private-name' })
     Object.assign(block.customization3d.preset.lighting.key, { legacyPrivateName: 'private-light-name' })
     assert.deepEqual(captureBroadcastScene(block), before)
-    assert.equal(Object.keys(before.preset).length, 52)
+    assert.equal(Object.keys(before.preset).length, 54)
     assert.equal('pixelFilterEnabled' in before.preset, false)
     assert.equal('antialiasEnabled' in before.preset, false)
     assert.equal(before.preset.showDisplayArea, false)
@@ -155,6 +155,27 @@ describe('broadcast settings and projection', () => {
     assert.ok(!JSON.stringify(before).includes('private-entry'))
     block.customization3d.preset.mouseEnabled = false
     assert.equal(before.preset.mouseEnabled, true)
+  })
+  it('projects only the current common key filter and keeps the preset library private', () => {
+    const { block, general } = fixture()
+    Object.assign(general.keyboardKeycap, {
+      mode: 'selected',
+      selectedKeys: ['KeyW', 'Space'],
+      presets: [{ id: 'user:private-keycap-entry', name: 'Private keycap name', keys: ['KeyQ'] }],
+    })
+    const scene = captureBroadcastScene(block, general.keyboardKeycap)
+    assert.equal(scene.preset.keyboardKeycapInputMode, 'selected')
+    assert.deepEqual(scene.preset.keyboardKeycapSelectedKeys, ['KeyW', 'Space'])
+    general.keyboardKeycap.selectedKeys.push('KeyA')
+    assert.deepEqual(scene.preset.keyboardKeycapSelectedKeys, ['KeyW', 'Space'])
+    const encoded = JSON.stringify(scene)
+    for (const privateValue of ['user:private-keycap-entry', 'Private keycap name', 'seededPresetIds', 'starterRevision']) {
+      assert.equal(encoded.includes(privateValue), false)
+    }
+    assert.equal('presets' in scene.preset, false)
+    applyPresetSnapshot(block, createDefaultPresetSnapshot())
+    assert.equal(captureBroadcastScene(block, general.keyboardKeycap).preset.keyboardKeycapInputMode, 'selected')
+    assert.deepEqual(captureBroadcastScene(block, general.keyboardKeycap).preset.keyboardKeycapSelectedKeys, ['KeyW', 'Space', 'KeyA'])
   })
   it('fits portrait and landscape outputs without stretching or overflow', () => {
     assert.deepEqual(fitBroadcastOutput({ width: 500, height: 250 }, { width: 800, height: 600 }), { width: 800, height: 400 })

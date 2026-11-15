@@ -1,3 +1,4 @@
+import type { KeyboardKeycapSelection } from '@/config/keyboardKeycapInput'
 import type { ShadowQuality } from '@/config/performance'
 import type { Pet3dPreset } from '@/stores/block'
 
@@ -6,7 +7,8 @@ export interface BroadcastScene {
   modelId: 'dmeloper'
   skinPngBase64?: string
   skinModel: 'wide' | 'slim'
-  preset: Pet3dPreset
+  // Runtime visual projection; the key filter is not part of saved pet presets.
+  preset: Pet3dPreset & KeyboardKeycapSelection
   mirror: boolean
   opacity: number
   eyebrowAnimationEnabled: boolean

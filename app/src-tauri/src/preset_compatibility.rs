@@ -46,6 +46,35 @@ pub(crate) fn migrate_keycap_input(preset: &mut Map<String, Value>) {
     preset.remove("keyboardKeycapInputDisabled");
 }
 
+pub(crate) fn migrate_keycap_selection(preset: &mut Map<String, Value>) {
+    // Broadcast compatibility only: saved pet presets no longer own this filter.
+    let defaults: Value = crate::settings_defaults::section("general").expect("general defaults");
+    preset.entry("keyboardKeycapInputMode").or_insert_with(|| defaults["keyboardKeycap"]["mode"].clone());
+    preset.entry("keyboardKeycapSelectedKeys").or_insert_with(|| defaults["keyboardKeycap"]["selectedKeys"].clone());
+}
+
+fn string_set_issue(value: &Value, field: &Value) -> Option<&'static str> {
+    let Some(items) = value.as_array() else { return Some("type") };
+    if items.iter().any(|item| !item.is_string()) {
+        return Some("type");
+    }
+    let allowed = field["values"].as_array().expect("string-set values");
+    if items.iter().any(|item| !allowed.contains(item)) {
+        return Some("choice");
+    }
+    let unique: BTreeSet<&str> = items.iter().filter_map(Value::as_str).collect();
+    (unique.len() != items.len()).then_some("structure")
+}
+
+pub(crate) fn valid_keycap_selected_keys(value: &Value) -> bool {
+    static KEYS: OnceLock<Value> = OnceLock::new();
+    let allowed = KEYS.get_or_init(|| serde_json::from_str(include_str!("../../src/config/keyboardKeycapKeys.json")).expect("keyboard key identities"));
+    let Some(items) = value.as_array() else { return false };
+    let known = allowed.as_array().expect("keyboard key identities");
+    items.iter().all(|item| item.is_string() && known.contains(item))
+        && items.iter().filter_map(Value::as_str).collect::<BTreeSet<_>>().len() == items.len()
+}
+
 fn migrate_with(source: &Value, support: &Value) -> Value {
     let supported = |id: &str| {
         support["migrations"]
@@ -103,6 +132,10 @@ fn migrate_with(source: &Value, support: &Value) -> Value {
         } else if supported("keyboard-keycap-input-v1") {
             preset.entry("keyboardKeycapInputDisabled")
                 .or_insert(Value::Bool(false));
+        }
+        if supported("keyboard-keycap-selection-common-v1") {
+            preset.remove("keyboardKeycapInputMode");
+            preset.remove("keyboardKeycapSelectedKeys");
         }
         if supported("pet-motion-controls-v1") {
             for key in [
@@ -171,6 +204,7 @@ pub(crate) fn inspect_with(source: &Value, support: &Value) -> Vec<Issue> {
                         }
                     },
                     "boolean" => (!value.is_boolean()).then_some("type"),
+                    "string-set" => string_set_issue(value, field),
                     "enum" => {
                         if !value.is_string() {
                             Some("type")

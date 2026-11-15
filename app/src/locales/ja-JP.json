@@ -351,7 +351,9 @@
               "y": "手動表示領域の上下位置",
               "width": "手動表示領域の幅",
               "height": "手動表示領域の高さ"
-            }
+            },
+            "keyboardKeycapInputMode": "キーキャップ入力の表示範囲",
+            "keyboardKeycapSelectedKeys": "選択したキーキャップ"
           },
           "groups": {
             "preset": "ペット・オブジェクト・シーンの設定",
@@ -777,6 +779,40 @@
           "resetDesk": "デスク設定を既定値に戻しますか？",
           "resetKeyboard": "キーボード設定を既定値に戻しますか？",
           "resetMouse": "マウス設定を既定値に戻しますか？"
+        },
+        "keycapSelection": {
+          "range": "表示するキー",
+          "all": "すべてのキー",
+          "selected": "選択したキーのみ",
+          "choose": "キーを選択…",
+          "title": "表示するキーを選択",
+          "language": "キーの印字言語",
+          "hint": "キーボード図をクリックするか、実際にキーを押して選択・解除できます。Escキーは図をクリックしてのみ選択できます。",
+          "count": "{count}個選択",
+          "allSelected": "すべて選択済み",
+          "empty": "キーが選択されていないため、入力強調表示は表示されません。",
+          "unsupported": "現在のキーボードでは表示できないキーです: {key}",
+          "keymap": "入力強調表示するキーを選択",
+          "selectedList": "選択したキー",
+          "removeKey": "{key}の選択を解除",
+          "selectAll": "すべて選択",
+          "clearAll": "すべて解除",
+          "apply": "適用",
+          "cancel": "キャンセル",
+          "presets": "キー表示プリセット",
+          "savePreset": "+ 保存",
+          "savedPresetName": "キー表示 {number}",
+          "deletePreset": "プリセット「{name}」を削除",
+          "deletePresetTitle": "プリセット「{name}」を削除しますか？",
+          "deletePresetHint": "保存済みプリセットを一覧から削除します。現在のキー選択は維持されます。",
+          "delete": "削除",
+          "renamePreset": "プリセット「{name}」の名前を変更",
+          "renamePresetTitle": "キー表示プリセットの名前を変更",
+          "presetName": "名前",
+          "rename": "名前を変更",
+          "invalidPresetName": "名前は1～255文字で、制御文字を含めることはできません。",
+          "duplicatePresetName": "同じ名前のプリセットがあります。別の名前を入力してください。",
+          "resetHint": "表示するキーとキー表示プリセット一覧も初期設定に戻ります。保存した独自の項目と名前の変更内容は削除されます。"
         }
       },
       "general": {

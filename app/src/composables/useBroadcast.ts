@@ -75,7 +75,7 @@ export function useBroadcast(ready: Ref<boolean>, busy: Ref<boolean>) {
     if (!general.broadcast.enabled) return { enabled: false }
     if (!ready.value || busy.value) return undefined
     try {
-      return { enabled: true, scene: captureBroadcastScene(block) }
+      return { enabled: true, scene: captureBroadcastScene(block, general.keyboardKeycap) }
     } catch {
       console.warn('Failed to capture a valid broadcast scene.')
       return null

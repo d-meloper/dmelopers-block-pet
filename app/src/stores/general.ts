@@ -3,10 +3,13 @@ import type { Theme } from '@tauri-apps/api/window'
 import { defineStore } from 'pinia'
 import { computed, reactive, ref } from 'vue'
 
+import type { KeyboardKeycapSettings } from '@/config/keyboardKeycapSettings'
 import type { ForegroundHidingSettings } from '@/features/foregroundHiding/settings'
 import type { LanguagePreference } from '@/locales/languageBranch'
 
 import { DEFAULT_GENERAL_SETTINGS } from '@/config/defaultSettings'
+import { takeLegacyKeyboardKeycapSelection } from '@/config/keyboardKeycapInput'
+import { createDefaultKeyboardKeycapSettings, prepareKeyboardKeycapSettingsForSync, reconcileKeyboardKeycapSettings, resetKeyboardKeycapSettings } from '@/config/keyboardKeycapSettings'
 import { createForegroundHidingSettings } from '@/features/foregroundHiding/settings'
 import { isLanguagePreference, resolveLanguage } from '@/locales/languageBranch'
 import { getSystemLanguage } from '@/services/systemLanguage'
@@ -19,6 +22,8 @@ export interface UpdateReminderSnooze {
 }
 
 export interface GeneralStore {
+  keyboardKeycap: KeyboardKeycapSettings
+  keyboardKeycapSelectionMigrated: boolean
   broadcast: {
     enabled: boolean
     showOnDesktop: boolean
@@ -54,6 +59,8 @@ function normalizeReminderSnooze(value: unknown): UpdateReminderSnooze {
 }
 
 export const useGeneralStore = defineStore('general', () => {
+  const keyboardKeycap = reactive<KeyboardKeycapSettings>(createDefaultKeyboardKeycapSettings())
+  const keyboardKeycapSelectionMigrated = ref(DEFAULT_GENERAL_SETTINGS.keyboardKeycapSelectionMigrated)
   /* ------------ 废弃字段（后续删除） ------------ */
 
   /** @deprecated 请使用 `app.autostart` */
@@ -84,6 +91,15 @@ export const useGeneralStore = defineStore('general', () => {
   const resolvedLanguage = computed(() => resolveLanguage(appearance.language, getSystemLanguage()))
 
   const init = async () => {
+    reconcileKeyboardKeycapSettings(keyboardKeycap)
+    if (!keyboardKeycapSelectionMigrated.value) {
+      const legacy = takeLegacyKeyboardKeycapSelection()
+      if (legacy) {
+        keyboardKeycap.mode = legacy.keyboardKeycapInputMode
+        keyboardKeycap.selectedKeys = [...legacy.keyboardKeycapSelectedKeys]
+      }
+      keyboardKeycapSelectionMigrated.value = true
+    }
     // A legacy global deadline has no recoverable target. Keep it for older readers.
     const snooze = normalizeReminderSnooze(app.updateReminderSnooze)
     if (app.updateReminderSnooze?.version !== snooze.version || app.updateReminderSnooze?.hiddenUntil !== snooze.hiddenUntil) {
@@ -113,6 +129,8 @@ export const useGeneralStore = defineStore('general', () => {
   }
 
   const reset = () => {
+    resetKeyboardKeycapSettings(keyboardKeycap)
+    keyboardKeycapSelectionMigrated.value = true
     // Keep the system observation until the existing theme watcher resolves auto.
     const observedDark = appearance.isDark
     Object.assign(broadcast, DEFAULT_GENERAL_SETTINGS.broadcast)
@@ -129,6 +147,8 @@ export const useGeneralStore = defineStore('general', () => {
   }
 
   return {
+    keyboardKeycap,
+    keyboardKeycapSelectionMigrated,
     broadcast,
     migrated,
     app,
@@ -141,8 +161,11 @@ export const useGeneralStore = defineStore('general', () => {
   tauri: {
     hooks: {
       beforeFrontendSync(state) {
+        const next = 'keyboardKeycap' in state
+          ? { ...state, keyboardKeycap: prepareKeyboardKeycapSettingsForSync(state.keyboardKeycap) }
+          : state
         const app = state.app
-        if (!app || typeof app !== 'object' || Array.isArray(app)) return state
+        if (!app || typeof app !== 'object' || Array.isArray(app)) return next
         // Normalize the whole incoming pair before Pinia deep-merges it with a
         // previous target/deadline. Partial records must never borrow either half.
         const incoming: Record<string, unknown> = { ...app }
@@ -153,7 +176,7 @@ export const useGeneralStore = defineStore('general', () => {
         if ('foregroundHiding' in app && app.foregroundHiding && typeof app.foregroundHiding === 'object') {
           incoming.foregroundHiding = reactive(app.foregroundHiding)
         }
-        return { ...state, app: incoming }
+        return { ...next, app: incoming }
       },
     },
   },

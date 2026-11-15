@@ -125,8 +125,6 @@ When reporting a bug, copy your environment details from `About > App Info` and 
 
 ## Support
 
-- Bugs and feature requests: [Support form](https://aismash.notion.site/5402dc0bb4ae83fdb83681271f4b937e?pvs=105), [GitHub Issues](https://github.com/d-meloper/dmelopers-block-pet/issues)
-- Code, documentation and translations: [Contributing](docs/CONTRIBUTING.md)
 - Privacy and data: [Privacy Policy](https://aismash.notion.site/3f32dc0bb4ae803ea9aed8d3b366c391) · [Data Management Guide](https://aismash.notion.site/3f32dc0bb4ae80808222e5e0cf123464)
 - Security reports: the private reporting procedure in [Security](docs/SECURITY.md)
 

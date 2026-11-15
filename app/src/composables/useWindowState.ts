@@ -782,7 +782,6 @@ async function clampMainViewportInternal(
   allowWhileNativeGeometryIsUnstable = false,
   nativeEventSequence?: number,
   nativePositionOverride?: ViewportPoint,
-  forceContainment = false,
 ): Promise<MainViewportSnapshot | undefined> {
   const context = mainWindowContext
   const automaticGuard = automaticViewportMutationAllowed
@@ -836,7 +835,7 @@ async function clampMainViewportInternal(
       snapshot.physicalOffset,
     ),
   }
-  const contained = (forceContainment || context.blockStore.window.keepInScreen)
+  const contained = context.blockStore.window.keepInScreen
     ? applyContainment(currentGeometry, monitors, snapshot.monitorId)
     : { geometry: currentGeometry, monitorId: snapshot.monitorId }
   mainViewportSnapshot = {
@@ -867,10 +866,6 @@ async function clampMainViewportInternal(
   persistMainViewportSnapshot(mainViewportSnapshot)
   notifyMainViewportSnapshotListeners()
   return getMainViewportSnapshot()
-}
-
-export async function clampMainViewportForRecovery(): Promise<MainViewportSnapshot | undefined> {
-  return clampMainViewportInternal(false, undefined, undefined, true)
 }
 
 export async function clampMainViewport(): Promise<MainViewportSnapshot | undefined> {

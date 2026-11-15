@@ -1,5 +1,4 @@
 import defaults from './defaultSettings.json'
-import ranges from './presetRanges.json'
 import { getTypingReachRadius, normalizeTypingReachOffset, TYPING_REACH_RADII } from './typingReach'
 
 export interface HeadbuttRadiusSettings {
@@ -7,7 +6,6 @@ export interface HeadbuttRadiusSettings {
 }
 
 export const DEFAULT_HEADBUTT_MAX_RADIUS_OFFSET = defaults.preset.petHeadbuttMaxRadiusOffset
-export const HEADBUTT_MAX_RADIUS_LIMITS = ranges.preset.petHeadbuttMaxRadiusOffset
 
 // One-time calibration from the owner's placement. Device transforms never
 // rescale these world-space lengths; only the projected pet-root center moves.

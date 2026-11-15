@@ -21,7 +21,6 @@ export interface LocaleRegistry {
 }
 
 export const localeRegistry = data as LocaleRegistry
-export const SOURCE_LOCALE = data.sourceLocale as Language
 export const FALLBACK_LOCALE = data.fallbackLocale as Language
 
 /** Stored choices are exact public IDs; aliases belong only to OS observations. */

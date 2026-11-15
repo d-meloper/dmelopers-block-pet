@@ -85,17 +85,6 @@ export interface VoxelSkinGeometryController {
   dispose: () => void
 }
 
-export function disposeAppliedVoxelSkinBeforeModelResources(
-  skin: AppliedVoxelSkin | undefined,
-  disposeModelResources: () => void,
-): void {
-  try {
-    skin?.dispose()
-  } finally {
-    disposeModelResources()
-  }
-}
-
 const PIXEL_COUNT_64 = 64 * 64 * 4
 const PIXEL_COUNT_LEGACY = 64 * 32 * 4
 const PNG_SIGNATURE = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] as const

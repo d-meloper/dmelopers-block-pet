@@ -130,13 +130,10 @@ fn supported(
     independent_frontend: bool,
 ) -> bool {
     use crate::distribution::Channel;
-    if channel == Channel::Store {
-        return false;
-    }
     if development {
-        return independent_frontend;
+        return channel != Channel::Store && independent_frontend;
     }
-    matches!(channel, Channel::Github | Channel::Test)
+    matches!(channel, Channel::Github | Channel::Store | Channel::Test)
 }
 
 fn supported_here() -> bool {
@@ -151,7 +148,7 @@ fn supported_here() -> bool {
         // The dedicated test entry owns Vite outside Tauri CLI cleanup. An
         // ordinary supervised dev restart alone does not provide that lifetime.
         independent_frontend,
-    ) && !cfg!(feature = "channel-store")
+    ) && !(cfg!(feature = "channel-store") && development)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -578,10 +575,15 @@ fn child_may_start(parent_alive: bool, committed: bool, cancelled: bool) -> bool
 fn child_handoff(value: &str) -> Result<(), String> {
     // This entry is before profiles, storage, logs, Tauri and WebView creation.
     if !supported(tauri::is_dev(), crate::distribution::channel(), true)
-        || cfg!(feature = "channel-store")
+        || (cfg!(feature = "channel-store") && tauri::is_dev())
     {
         return Err("ELEVATION_UNSUPPORTED".into());
     }
+    // A headless Store worker bypasses normal profile bootstrap, but must not
+    // bypass the registered package identity check. Missing identity (including
+    // cross-account activation failures) cancels only this worker, before input
+    // collection, storage, logs or Tauri can initialize.
+    crate::bootstrap::store_identity_preflight()?;
     let (pid, created, nonce) = handoff_fields(value)?;
     let own = identity(unsafe { GetCurrentProcess() })?;
     if !own.elevated {

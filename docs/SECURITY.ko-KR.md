@@ -4,11 +4,9 @@
 
 ## 취약점 제보
 
-[GitHub 비공개 보안 제보](https://github.com/d-meloper/dmelopers-block-pet/security/advisories/new)를 이용해 주세요. 영향을 받는 버전, 배포판, 발생할 수 있는 문제와 재현 방법을 함께 적어 주세요.
+[GitHub 비공개 보안 제보](https://github.com/d-meloper/dmelopers-block-pet/security/advisories/new)를 이용해 주세요. 앱 버전이나 소스 커밋, 배포판, 발생할 수 있는 문제와 재현 방법을 함께 적어 주세요.
 
 첨부 자료의 개인정보는 먼저 지워 주세요. 인증 정보나 공격에 필요한 세부 내용은 공개 이슈에 올리지 마세요.
-
-앱 버전이나 소스 커밋을 제보에 함께 적어 주세요.
 
 보안 수정은 x64 Windows 10 22H2 + 2023년 9월 누적 업데이트(빌드 19045.3448) 이상과 Windows 11 22H2 + 2023년 9월 누적 업데이트(빌드 22621.2283) 이상의 최신 정식 공개 버전을 대상으로 합니다. Windows 11 24H2 이상을 권장합니다. GitHub판과 Store판의 제품 버전은 `X.Y.Z`로 같도록 구성하며, Store 패키지 버전은 `X.Y.Z.0`입니다.
 

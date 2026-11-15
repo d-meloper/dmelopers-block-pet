@@ -125,8 +125,6 @@ GitHub에서도 [Issues](https://github.com/d-meloper/dmelopers-block-pet/issues
 
 ## 지원
 
-- 버그와 기능 요청: [설문지](https://aismash.notion.site/9cff9655595342d78a22c17b61a2084c), [GitHub Issues](https://github.com/d-meloper/dmelopers-block-pet/issues)
-- 코드·문서·번역 기여: [기여 안내](docs/CONTRIBUTING.ko-KR.md)
 - 개인정보와 데이터: [개인정보 처리방침](https://aismash.notion.site/3f12dc0bb4ae809fb5becfc2376d4a5c) · [데이터 관리 안내](https://aismash.notion.site/0342dc0bb4ae831581878180c15c0059)
 - 보안 제보: [보안 안내](docs/SECURITY.ko-KR.md)의 비공개 제보 절차 이용
 

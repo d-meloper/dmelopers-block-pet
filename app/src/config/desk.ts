@@ -25,7 +25,6 @@ export const LEGACY_DESK_SETTINGS: Readonly<DeskSettings> = {
 }
 
 export const DESK_DIMENSION_LIMITS = { min: -1, max: 1, step: 0.01 } as const
-export const DESK_HEIGHT_LIMITS = DESK_DIMENSION_LIMITS
 
 function isDeskOffset(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)

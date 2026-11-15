@@ -31,6 +31,7 @@ STORE_DISPLAY_NAME = "DMeloper's Block Pet"
 MINIMUM_WINDOWS_VERSION = '10.0.19045.3448'
 MAXIMUM_WINDOWS_VERSION_TESTED = '10.0.26100.0'
 STORE_BUILD_SCHEMA = 2
+STORE_RESTRICTED_CAPABILITIES = ('runFullTrust', 'allowElevation')
 STORE_TARGET_SIZES = (16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 80, 96, 256)
 STORE_BASE_ASSETS = {'StoreLogo.png': 50, 'Square150x150Logo.png': 150, 'Square44x44Logo.png': 44}
 SYNTHETIC = {'name': 'Dmeloper.BlockPet.BuildValidation',
@@ -141,7 +142,8 @@ def manifest(store, app_version):
     add(extension, 'desktop:StartupTask', {'TaskId': 'BlockPetStartup', 'Enabled': 'false',
                                          'DisplayName': STORE_DISPLAY_NAME})
     capabilities = add(package, 'Capabilities')
-    add(capabilities, 'rescap:Capability', {'Name': 'runFullTrust'})
+    for capability in STORE_RESTRICTED_CAPABILITIES:
+        add(capabilities, 'rescap:Capability', {'Name': capability})
     return ET.tostring(package, encoding='utf-8', xml_declaration=True)
 
 

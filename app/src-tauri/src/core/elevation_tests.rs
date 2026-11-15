@@ -179,13 +179,46 @@ fn elevation_requires_packaged_channels_or_an_independent_development_frontend()
     for marker in [false, true] {
         assert!(supported(false, Github, marker));
         assert!(supported(false, Test, marker));
-        assert!(!supported(false, Store, marker));
+        assert!(supported(false, Store, marker));
         assert!(!supported(false, Development, marker));
     }
     assert!(supported(true, Github, true));
     assert!(supported(true, Test, true));
     assert!(supported(true, Development, true));
     assert!(!supported(true, Store, true));
+}
+
+#[test]
+fn store_startup_reuses_the_saved_choice_and_cancellation_preserves_its_bytes() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("general.json");
+    let saved = br#"{"app":{"alwaysRunAsAdministrator":true},"future":{"keep":1}}"#;
+    fs::write(&path, saved).unwrap();
+    let launches = Cell::new(0);
+    let result = startup_attempt_with::<u8>(
+        supported(false, crate::distribution::Channel::Store, false),
+        false,
+        || read_preference_file(temp.path(), false, "alwaysRunAsAdministrator"),
+        || {
+            launches.set(launches.get() + 1);
+            Ok(None)
+        },
+        |_| panic!("cancelled Store worker cannot commit"),
+    );
+    assert_eq!(result.unwrap(), StartupAttempt::Cancelled);
+    assert_eq!(launches.get(), 1);
+    assert_eq!(fs::read(&path).unwrap(), saved);
+    assert!(read_preference_file(temp.path(), false, "alwaysRunAsAdministrator").unwrap());
+}
+
+#[test]
+#[cfg(feature = "channel-store")]
+fn store_development_worker_remains_rejected_without_opening_a_package_or_profile() {
+    let nonce = transport_nonce_fixture::<32>();
+    assert_eq!(
+        child_handoff(&format!("120:1000:{nonce}")),
+        Err("ELEVATION_UNSUPPORTED".into())
+    );
 }
 
 #[test]

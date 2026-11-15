@@ -166,7 +166,8 @@ class PackageContracts(unittest.TestCase):
         self.assertEqual(app.get('{'+ns['uap10']+'}RuntimeBehavior'), 'packagedClassicApp')
         self.assertEqual(app.get('{'+ns['uap10']+'}TrustLevel'), 'mediumIL')
         self.assertEqual(root.find('.//desktop:StartupTask', ns).get('Enabled'), 'false')
-        self.assertEqual(root.find('f:Capabilities/rescap:Capability', ns).get('Name'), 'runFullTrust')
+        self.assertEqual([node.get('Name') for node in root.findall('f:Capabilities/rescap:Capability', ns)],
+                         ['runFullTrust', 'allowElevation'])
 
     def test_store_display_names_match_reservation_without_changing_package_identity(self):
         root = ET.fromstring(builder.manifest(builder.SYNTHETIC, '1.0.1'))
